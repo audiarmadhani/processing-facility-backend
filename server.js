@@ -25,7 +25,7 @@ const PORT = process.env.PORT || 5001;
 
 // Middleware configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000', // Add your frontend's URL
+  origin: process.env.CORS_ORIGIN || 'kopifabriek-platform.vercel.app', // Add your frontend's URL
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -49,12 +49,12 @@ const apiRoutes = [
 apiRoutes.forEach(route => app.use('/api', route));
 
 // Serve static files for the React frontend
-const frontendPath = path.join(__dirname, '../frontend/build');
-app.use(express.static(frontendPath));
+// const frontendPath = path.join(__dirname, '../frontend/build');
+// app.use(express.static(frontendPath));
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(frontendPath, 'index.html'));
-});
+// app.get('*', (req, res) => {
+//   res.sendFile(path.join(frontendPath, 'index.html'));
+// });
 
 // Database connection and server initialization
 (async () => {
