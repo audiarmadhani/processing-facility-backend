@@ -3,9 +3,6 @@
 node_modules/
 *.node
 
-# Database files
-*.sqlite
-*.db
 
 # Logs
 logs/
