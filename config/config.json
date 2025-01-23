@@ -1,0 +1,14 @@
+{
+  "development": {
+    "storage": "backend/coffee-processing.db",
+    "dialect": "sqlite"
+  },
+  "test": {
+    "storage": "backend/coffee-processing.db",
+    "dialect": "sqlite"
+  },
+  "production": {
+    "storage": "backend/coffee-processing.db",
+    "dialect": "sqlite"
+  }
+}

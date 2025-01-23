@@ -1,0 +1,24 @@
+# Node modules
+/node_modules/
+node_modules/
+*.node
+
+# Database files
+*.sqlite
+*.db
+
+# Logs
+logs/
+*.log
+
+# Environment variables
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+node_modules/@next/swc-darwin-arm64/next-swc.darwin-arm64.node
+
+coffee-processing.db
+database.sqlite
+.vercel
