@@ -25,7 +25,18 @@ const PORT = process.env.PORT || 5001;
 
 // Middleware configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'kopifabriek-platform.vercel.app', // Add your frontend's URL
+  origin: (origin, callback) => {
+    const allowedOrigins = [
+      'http://localhost:3000', // Replace with your local frontend address
+      'https://kopifabriek-platform.vercel.app', // Replace with your deployed frontend URL
+    ];
+
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true); // Allow requests from these origins
+    } else {
+      callback(new Error('Not allowed by CORS')); // Block other origins
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
