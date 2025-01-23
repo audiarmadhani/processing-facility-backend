@@ -10,10 +10,10 @@ router.get('/dashboard-metrics', (req, res) => {
     const lastmonthArabicaWeightQuery = `SELECT COALESCE(SUM(weight), 0) AS sum FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now', '-1 month') AND strftime('%d', ReceivingDate) <= strftime('%d', 'now') AND type = 'Arabica'`;
     const lastmonthRobustaWeightQuery = `SELECT COALESCE(SUM(weight), 0) AS sum FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now', '-1 month') AND strftime('%d', ReceivingDate) <= strftime('%d', 'now') AND type = 'Robusta'`;
     
-    const totalArabicaCostQuery = `SELECT COALESCE(SUM(price), 0) AS sum FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now') AND type = 'Arabica'`;
-    const totalRobustaCostQuery = `SELECT COALESCE(SUM(price), 0) AS sum FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now') AND type = 'Robusta'`;
-    const lastmonthArabicaCostQuery = `SELECT COALESCE(SUM(price), 0) AS sum FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now', '-1 month') AND strftime('%d', ReceivingDate) <= strftime('%d', 'now') AND type = 'Arabica'`;
-    const lastmonthRobustaCostQuery = `SELECT COALESCE(SUM(price), 0) AS sum FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now', '-1 month') AND strftime('%d', ReceivingDate) <= strftime('%d', 'now') AND type = 'Robusta'`;
+    const totalArabicaCostQuery = `SELECT COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS sum FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now') AND type = 'Arabica'`;
+    const totalRobustaCostQuery = `SELECT COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS sum FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now') AND type = 'Robusta'`;
+    const lastmonthArabicaCostQuery = `SELECT COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS sum FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now', '-1 month') AND strftime('%d', ReceivingDate) <= strftime('%d', 'now') AND type = 'Arabica'`;
+    const lastmonthRobustaCostQuery = `SELECT COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS sum FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now', '-1 month') AND strftime('%d', ReceivingDate) <= strftime('%d', 'now') AND type = 'Robusta'`;
     
     const avgArabicaCostQuery = `SELECT COALESCE(ROUND(AVG(price), 1), 0) AS avg FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now') AND type = 'Arabica'`;
     const avgRobustaCostQuery = `SELECT COALESCE(ROUND(AVG(price), 1), 0) AS avg FROM ReceivingData WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now') AND type = 'Robusta'`;
@@ -162,14 +162,14 @@ router.get('/dashboard-metrics', (req, res) => {
         WHERE Date < DATE('now') -- Stop at today's date
         ),
         RDA AS (
-        SELECT ReceivingDate, COALESCE(SUM(price), 0) AS TotalPriceThisMonth
+        SELECT ReceivingDate, COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS TotalPriceThisMonth
         FROM ReceivingData 
         WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now')
         AND type = 'Arabica'
         GROUP BY strftime('%d', ReceivingDate)
         ),
         RDB AS (
-        SELECT ReceivingDate, COALESCE(SUM(price), 0) AS TotalPriceLastMonth
+        SELECT ReceivingDate, COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS TotalPriceLastMonth
         FROM ReceivingData 
         WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now', '-1 month') AND strftime('%d', ReceivingDate) <= strftime('%d', 'now')
         AND type = 'Arabica'
@@ -207,14 +207,14 @@ router.get('/dashboard-metrics', (req, res) => {
         WHERE Date < DATE('now') -- Stop at today's date
         ),
         RDA AS (
-        SELECT ReceivingDate, COALESCE(SUM(price), 0) AS TotalPriceThisMonth
+        SELECT ReceivingDate, COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS TotalPriceThisMonth
         FROM ReceivingData 
         WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now')
         AND type = 'Robusta'
         GROUP BY strftime('%d', ReceivingDate)
         ),
         RDB AS (
-        SELECT ReceivingDate, COALESCE(SUM(price), 0) AS TotalPriceLastMonth
+        SELECT ReceivingDate, COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS TotalPriceLastMonth
         FROM ReceivingData 
         WHERE strftime('%Y-%m', ReceivingDate) = strftime('%Y-%m', 'now', '-1 month') AND strftime('%d', ReceivingDate) <= strftime('%d', 'now')
         AND type = 'Robusta'
