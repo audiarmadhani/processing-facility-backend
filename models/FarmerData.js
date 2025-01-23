@@ -50,16 +50,7 @@ module.exports = function(sequelize, DataTypes) {
       }
   }, {
     sequelize,
-    tableName: 'ReceivingData',
-    timestamps: true,
-    indexes: [
-      {
-        name: "sqlite_autoindex_ReceivingData_1",
-        unique: true,
-        fields: [
-          { name: "batchNumber" },
-        ]
-      },
-    ]
+    tableName: 'FarmerData',
+    timestamps: true
   });
 };

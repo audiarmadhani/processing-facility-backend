@@ -16,15 +16,6 @@ module.exports = function(sequelize, DataTypes) {
   }, {
     sequelize,
     tableName: 'LatestBatches',
-    timestamps: true,
-    indexes: [
-      {
-        name: "sqlite_autoindex_LatestBatches_1",
-        unique: true,
-        fields: [
-          { name: "batchNumber" },
-        ]
-      },
-    ]
+    timestamps: true
   });
 };
