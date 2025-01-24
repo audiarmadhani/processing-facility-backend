@@ -32,6 +32,9 @@ router.get('/dashboard-metrics', async (req, res) => {
         const lastmonthRobustaProductionQuery = `SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE TO_CHAR("storedDate", 'YYYY-MM') = TO_CHAR(CURRENT_DATE - INTERVAL '1 month', 'YYYY-MM') AND TO_CHAR("storedDate", 'DD') <= TO_CHAR(CURRENT_DATE, 'DD') AND type = 'Robusta'`;
 
         const activeFarmersQuery = `SELECT SUM(isActive) AS count FROM "Farmers"`;
+
+        const landCoveredArabicaQuery = `SELECT "registrationDate", sum("farmerLandArea") as AREA FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'  GROUP BY "registrationDate"`;
+        const landCoveredRobustaQuery = `SELECT "registrationDate", sum("farmerLandArea") as AREA FROM "Farmers" WHERE "farmType" = 'Robusta' and isactive='1'  GROUP BY "registrationDate"`;
         
         // Query to get the count of batch numbers in "ReceivingData" but not in "QCData"
         const pendingQCQuery = `
@@ -477,6 +480,8 @@ router.get('/dashboard-metrics', async (req, res) => {
         const [pendingProcessingResult] = await sequelize.query(pendingProcessingQuery);
         const [totalWeightBagsbyDateResult] = await sequelize.query(totalWeightBagsbyDateQuery);
         const [totalCostbyDateResult] = await sequelize.query(totalCostbyDateQuery);
+        const [landCoveredArabicaResult] = await sequelize.query(landCoveredArabicaQuery);
+        const [landCoveredRobustaResult] = await sequelize.query(landCoveredRobustaQuery);
 
         const [arabicaTotalWeightbyDateResult] = await sequelize.query(arabicaTotalWeightbyDateQuery);
         const [robustaTotalWeightbyDateResult] = await sequelize.query(robustaTotalWeightbyDateQuery);
@@ -528,6 +533,8 @@ router.get('/dashboard-metrics', async (req, res) => {
         const activeFarmers= activeFarmersResult[0].count || 0;
         const pendingQC= pendingQCResult[0].count || 0;
         const pendingProcessing= pendingProcessingResult[0].count || 0;
+        const landCoveredArabica = landCoveredArabicaResult[0].sum || 0;
+        const landCoveredRobusta = landCoveredRobustaResult[0].sum || 0;
 
         const totalWeightBagsbyDate= totalWeightBagsbyDateResult || []; // Return as an array
         const totalCostbyDate= totalCostbyDateResult || []; // Return as an array
