@@ -18,26 +18,26 @@ router.post('/targets', async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!type || !"processingType" || !quality || !metric || !timeFrame || !"targetValue" || !"startDate" || !"endDate") {
+    if (!type || !processingType || !quality || !metric || !timeFrame || !targetValue || !startDate || !endDate) {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
 
     // Save the target metrics data
     const [TargetMetrics] = await sequelize.query(
       `INSERT INTO "TargetMetrics" 
-        (type, "processingType", quality, metric, "timeFrame", "targetValue", "startDate", "endDate", "createdAt", "updatedAt") 
+       (type, "processingType", quality, metric, "timeFrame", "targetValue", "startDate", "endDate", "createdAt", "updatedAt") 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
        RETURNING *`,
       {
         replacements: [
           type, 
-          "processingType", 
+          processingType, 
           quality, 
           metric, 
           timeFrame, 
-          "targetValue", 
-          "startDate", 
-          "endDate", 
+          targetValue, 
+          startDate, 
+          endDate, 
           new Date(), 
           new Date()
         ],
@@ -72,46 +72,30 @@ router.get('/targets', async (req, res) => {
   }
 });
 
+const { startOfWeek, endOfWeek, startOfMonth, endOfMonth, addWeeks, subWeeks } = require('date-fns');
+
 const calculateDateRanges = (type) => {
   const today = new Date();
   let start, end;
 
   if (type === 'this-week') {
-    const dayOfWeek = today.getDay() || 7; // Convert Sunday (0) to 7 for ISO week
-    start = new Date(today);
-    start.setDate(today.getDate() - dayOfWeek + 1); // Start of this week (Monday)
-    start.setHours(0, 0, 0, 0);
-
-    end = new Date(start);
-    end.setDate(start.getDate() + 6); // End of this week (Sunday)
-    end.setHours(23, 59, 59, 999);
+    start = startOfWeek(today, { weekStartsOn: 1 }); // Monday as start of week
+    end = endOfWeek(today, { weekStartsOn: 1 });
   } else if (type === 'this-month') {
-    start = new Date(today.getFullYear(), today.getMonth(), 1); // Start of the month
-    end = new Date(today.getFullYear(), today.getMonth() + 1, 0); // End of the month
+    start = startOfMonth(today);
+    end = endOfMonth(today);
   } else if (type === 'next-week') {
-    const dayOfWeek = today.getDay() || 7;
-    start = new Date(today);
-    start.setDate(today.getDate() - dayOfWeek + 8); // Start of next week (Monday)
-    start.setHours(0, 0, 0, 0);
-
-    end = new Date(start);
-    end.setDate(start.getDate() + 6); // End of next week (Sunday)
-    end.setHours(23, 59, 59, 999);
+    start = startOfWeek(addWeeks(today, 1), { weekStartsOn: 1 });
+    end = endOfWeek(addWeeks(today, 1), { weekStartsOn: 1 });
   } else if (type === 'next-month') {
-    start = new Date(today.getFullYear(), today.getMonth() + 1, 1); // Start of next month
-    end = new Date(today.getFullYear(), today.getMonth() + 2, 0); // End of next month
+    start = startOfMonth(addWeeks(today, 4)); // Start of next month
+    end = endOfMonth(addWeeks(today, 4));
   } else if (type === 'previous-week') {
-    const dayOfWeek = today.getDay() || 7;
-    start = new Date(today);
-    start.setDate(today.getDate() - dayOfWeek - 6); // Start of previous week (Monday)
-    start.setHours(0, 0, 0, 0);
-
-    end = new Date(start);
-    end.setDate(start.getDate() + 6); // End of previous week (Sunday)
-    end.setHours(23, 59, 59, 999);
+    start = startOfWeek(subWeeks(today, 1), { weekStartsOn: 1 });
+    end = endOfWeek(subWeeks(today, 1), { weekStartsOn: 1 });
   } else if (type === 'previous-month') {
-    start = new Date(today.getFullYear(), today.getMonth() - 1, 1); // Start of previous month
-    end = new Date(today.getFullYear(), today.getMonth(), 0); // End of previous month
+    start = startOfMonth(subWeeks(today, 4));
+    end = endOfMonth(subWeeks(today, 4));
   }
 
   return { start, end };
@@ -127,7 +111,7 @@ router.get('/targets/:range', async (req, res) => {
   }
 
   try {
-    const query = `WITH metric AS (SELECT CONCAT(type, ' ', "processingType", ' ', quality, ' ', metric) AS id, type, "processingType", quality, metric, CASE WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") ELSE SUM("targetValue") END AS "targetValue" FROM "TargetMetrics" WHERE "startDate" <= $1 AND "endDate" >= $2 GROUP BY type, "processingType", quality, metric), ttw AS (SELECT type, "processingType", quality, 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement FROM "PostprocessingData" WHERE "storedDate" BETWEEN $3 AND $4 GROUP BY type, "processingType", quality) SELECT a.id, a.type, a."processingType", a.quality, a.metric, a."targetValue", b.achievement FROM metric a LEFT JOIN ttw b ON LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric);`;
+    const query = `WITH metric AS (SELECT CONCAT(type, ' ', "processingType", ' ', quality, ' ', metric) AS id, type, "processingType", quality, metric, CASE WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") ELSE SUM("targetValue") END AS "targetValue" FROM "TargetMetrics" WHERE "startDate" <= ? AND "endDate" >= ? GROUP BY type, "processingType", quality, metric), ttw AS (SELECT type, "processingType", quality, 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement FROM "PostprocessingData" WHERE "storedDate" BETWEEN ? AND ? GROUP BY type, "processingType", quality) SELECT a.id, a.type, a."processingType", a.quality, a.metric, a."targetValue", b.achievement FROM metric a LEFT JOIN ttw b ON LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric);`;
 
     const values = [end, start, start, end];
     const result = await sequelize.query(query, {
