@@ -79,23 +79,41 @@ const calculateDateRanges = (type) => {
   let start, end;
 
   if (type === 'this-week') {
-    start = startOfWeek(today, { weekStartsOn: 1 }); // Monday as start of week
-    end = endOfWeek(today, { weekStartsOn: 1 });
+    const dayOfWeek = today.getDay() || 7; // Convert Sunday (0) to 7 for ISO week
+    start = new Date(today);
+    start.setDate(today.getDate() - dayOfWeek + 1); // Start of this week (Monday)
+    start.setHours(0, 0, 0, 0);
+
+    end = new Date(start);
+    end.setDate(start.getDate() + 6); // End of this week (Sunday)
+    end.setHours(23, 59, 59, 999);
   } else if (type === 'this-month') {
-    start = startOfMonth(today);
-    end = endOfMonth(today);
+    start = new Date(today.getFullYear(), today.getMonth(), 1); // Start of the month
+    end = new Date(today.getFullYear(), today.getMonth() + 1, 0); // End of the month
   } else if (type === 'next-week') {
-    start = startOfWeek(addWeeks(today, 1), { weekStartsOn: 1 });
-    end = endOfWeek(addWeeks(today, 1), { weekStartsOn: 1 });
+    const dayOfWeek = today.getDay() || 7;
+    start = new Date(today);
+    start.setDate(today.getDate() - dayOfWeek + 8); // Start of next week (Monday)
+    start.setHours(0, 0, 0, 0);
+
+    end = new Date(start);
+    end.setDate(start.getDate() + 6); // End of next week (Sunday)
+    end.setHours(23, 59, 59, 999);
   } else if (type === 'next-month') {
-    start = startOfMonth(addWeeks(today, 4)); // Start of next month
-    end = endOfMonth(addWeeks(today, 4));
+    start = new Date(today.getFullYear(), today.getMonth() + 1, 1); // Start of next month
+    end = new Date(today.getFullYear(), today.getMonth() + 2, 0); // End of next month
   } else if (type === 'previous-week') {
-    start = startOfWeek(subWeeks(today, 1), { weekStartsOn: 1 });
-    end = endOfWeek(subWeeks(today, 1), { weekStartsOn: 1 });
+    const dayOfWeek = today.getDay() || 7;
+    start = new Date(today);
+    start.setDate(today.getDate() - dayOfWeek - 6); // Start of previous week (Monday)
+    start.setHours(0, 0, 0, 0);
+
+    end = new Date(start);
+    end.setDate(start.getDate() + 6); // End of previous week (Sunday)
+    end.setHours(23, 59, 59, 999);
   } else if (type === 'previous-month') {
-    start = startOfMonth(subWeeks(today, 4));
-    end = endOfMonth(subWeeks(today, 4));
+    start = new Date(today.getFullYear(), today.getMonth() - 1, 1); // Start of previous month
+    end = new Date(today.getFullYear(), today.getMonth(), 0); // End of previous month
   }
 
   return { start, end };
