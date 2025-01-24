@@ -127,48 +127,7 @@ router.get('/targets/:range', async (req, res) => {
   }
 
   try {
-    const query = `
-      WITH metric AS (
-          SELECT 
-              CONCAT(type, ' ', "processingType", ' ', quality, ' ', metric) AS id,
-              type, 
-              "processingType", 
-              quality, 
-              metric, 
-              CASE 
-                  WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") 
-                  ELSE SUM("targetValue") 
-              END AS "targetValue"
-          FROM "TargetMetrics"
-          WHERE "startDate" <= $1 AND "endDate" >= $2
-          GROUP BY type, "processingType", quality, metric
-      ), 
-      ttw AS (
-          SELECT 
-              type, 
-              "processingType", 
-              quality, 
-              'Total Weight Produced' AS metric,
-              COALESCE(SUM(weight), 0) AS achievement
-          FROM "PostprocessingData"
-          WHERE "storedDate" BETWEEN $3 AND $4
-          GROUP BY type, "processingType", quality
-      )
-      SELECT 
-          a.id, 
-          a.type, 
-          a."processingType", 
-          a.quality, 
-          a.metric, 
-          a."targetValue", 
-          b.achievement
-      FROM metric a
-      LEFT JOIN ttw b 
-          ON LOWER(a.type) = LOWER(b.type) 
-          AND LOWER(a."processingType") = LOWER(b."processingType") 
-          AND LOWER(a.quality) = LOWER(b.quality) 
-          AND LOWER(a.metric) = LOWER(b.metric);
-    `;
+    const query = `WITH metric AS (SELECT CONCAT(type, ' ', "processingType", ' ', quality, ' ', metric) AS id, type, "processingType", quality, metric, CASE WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") ELSE SUM("targetValue") END AS "targetValue" FROM "TargetMetrics" WHERE "startDate" <= $1 AND "endDate" >= $2 GROUP BY type, "processingType", quality, metric), ttw AS (SELECT type, "processingType", quality, 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement FROM "PostprocessingData" WHERE "storedDate" BETWEEN $3 AND $4 GROUP BY type, "processingType", quality) SELECT a.id, a.type, a."processingType", a.quality, a.metric, a."targetValue", b.achievement FROM metric a LEFT JOIN ttw b ON LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric);`;
 
     const values = [end, start, start, end];
     const result = await sequelize.query(query, {
