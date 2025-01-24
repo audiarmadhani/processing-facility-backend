@@ -16,7 +16,7 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const farmerRoutes = require('./routes/farmerRoutes');
 const userRoutes = require('./routes/userRoutes');
 const targetRoutes = require('./routes/targetMetricsRoutes');
-const dashboardRoutes = require('./routes/dashboardRoutes')
+const databaseRoutes = require('./routes/databaseRoutes')
 
 // Load environment variables
 dotenv.config();
@@ -57,7 +57,7 @@ const apiRoutes = [
   farmerRoutes,
   userRoutes,
   targetRoutes,
-  dashboardRoutes,
+  databaseRoutes,
 ];
 
 apiRoutes.forEach(route => app.use('/api', route));
