@@ -72,8 +72,6 @@ router.get('/targets', async (req, res) => {
   }
 });
 
-const { startOfWeek, endOfWeek, startOfMonth, endOfMonth, addWeeks, subWeeks } = require('date-fns');
-
 const calculateDateRanges = (type) => {
   const today = new Date();
   let start, end;
