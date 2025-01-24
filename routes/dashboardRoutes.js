@@ -60,7 +60,7 @@ router.get('/dashboard-metrics', async (req, res) => {
             SELECT 
                 COALESCE(quality || ' ' || "processingType", '') AS category, 
                 COALESCE(SUM(weight), 0) AS weight, 
-                "storedDate" AS "storedDate" 
+                DATE("storedDate") AS "storedDate" 
             FROM 
                 "PostprocessingData" 
             WHERE 
@@ -69,14 +69,14 @@ router.get('/dashboard-metrics', async (req, res) => {
                 AND type = 'Arabica' 
             GROUP BY 
                 COALESCE(quality || ' ' || "processingType", ''), 
-                "storedDate";
+                DATE("storedDate");
         `;
 
         const robustaTotalWeightbyDateQuery = `
             SELECT 
                 COALESCE(quality || ' ' || "processingType", '') AS category, 
                 COALESCE(SUM(weight), 0) AS weight, 
-                "storedDate" AS "storedDate" 
+                DATE("storedDate") AS "storedDate" 
             FROM 
                 "PostprocessingData" 
             WHERE 
@@ -85,7 +85,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                 AND type = 'Robusta' 
             GROUP BY 
                 COALESCE(quality || ' ' || "processingType", ''), 
-                "storedDate";
+                DATE("storedDate");
         `;
 
         const arabicaWeightMoMQuery = `
