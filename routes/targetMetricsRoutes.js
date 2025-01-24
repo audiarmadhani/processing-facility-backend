@@ -90,46 +90,49 @@ router.get('/targets/this-week', async (req, res) => {
   try {
     const [rows] = await sequelize.query(
       `WITH metric AS (
-        SELECT 
-          type || " " || "processingType" || " " || quality || " " || metric AS id, 
-          type, 
-          "processingType", 
-          quality, 
-          metric, 
-          CASE 
-            WHEN metric = "Average Cherry Cost" THEN AVG("targetValue") 
-            ELSE SUM("targetValue") 
-          END AS "targetValue" 
-        FROM "TargetMetrics" 
-        WHERE ("startDate" <= ? AND "endDate" >= ?) 
-        GROUP BY 
-          type || " " || "processingType" || " " || quality || " " || metric, 
-          type, 
-          "processingType", 
-          quality, 
-          metric
+          SELECT 
+              CONCAT(type, ' ', "processingType", ' ', quality, ' ', metric) AS id,
+              type, 
+              "processingType", 
+              quality, 
+              metric, 
+              CASE 
+                  WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") 
+                  ELSE SUM("targetValue") 
+              END AS "targetValue"
+          FROM "TargetMetrics"
+          WHERE "startDate" <= $1 AND "endDate" >= $2
+          GROUP BY 
+              type, 
+              "processingType", 
+              quality, 
+              metric
       ), 
       ttw AS (
-        SELECT 
-          type, 
-          "processingType", 
-          quality, 
-          "Total Weight Produced" AS metric, 
-          COALESCE(SUM(weight), 0) AS achievement 
-        FROM "PostprocessingData" 
-        WHERE "storedDate" BETWEEN ? AND ? 
-        GROUP BY type, "processingType", quality, "Total Weight Produced"
-      ) 
+          SELECT 
+              type, 
+              "processingType", 
+              quality, 
+              'Total Weight Produced' AS metric,
+              COALESCE(SUM(weight), 0) AS achievement
+          FROM "PostprocessingData"
+          WHERE "storedDate" BETWEEN $3 AND $4
+          GROUP BY type, "processingType", quality
+      )
       SELECT 
-        a.id, 
-        a.type, 
-        a."processingType", 
-        a.quality, 
-        a.metric, 
-        a."targetValue", 
-        b.achievement 
-      FROM metric a 
-      LEFT JOIN ttw b on LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric)`,
+          a.id, 
+          a.type, 
+          a."processingType", 
+          a.quality, 
+          a.metric, 
+          a."targetValue", 
+          b.achievement
+      FROM metric a
+      LEFT JOIN ttw b 
+          ON LOWER(a.type) = LOWER(b.type) 
+          AND LOWER(a."processingType") = LOWER(b."processingType") 
+          AND LOWER(a.quality) = LOWER(b.quality) 
+          AND LOWER(a.metric) = LOWER(b.metric);`,
       { replacements: [endOfWeek, startOfWeek, startOfWeek, endOfWeek] }
     );
 
@@ -159,43 +162,49 @@ router.get('/targets/this-month', async (req, res) => {
   try {
     const [rows] = await sequelize.query(
       `WITH metric AS (
-        SELECT 
-          type || " " || "processingType" || " " || quality || " " || metric AS id, 
-          type, 
-          "processingType", 
-          quality, 
-          metric, 
-          SUM("targetValue") AS "targetValue" 
-        FROM "TargetMetrics" 
-        WHERE ("startDate" <= ? AND "endDate" >= ?)
-        GROUP BY 
-          type || " " || "processingType" || " " || quality || " " || metric, 
-          type, 
-          "processingType", 
-          quality, 
-          metric
+          SELECT 
+              CONCAT(type, ' ', "processingType", ' ', quality, ' ', metric) AS id,
+              type, 
+              "processingType", 
+              quality, 
+              metric, 
+              CASE 
+                  WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") 
+                  ELSE SUM("targetValue") 
+              END AS "targetValue"
+          FROM "TargetMetrics"
+          WHERE "startDate" <= $1 AND "endDate" >= $2
+          GROUP BY 
+              type, 
+              "processingType", 
+              quality, 
+              metric
       ), 
       ttw AS (
-        SELECT 
-          type, 
-          "processingType", 
-          quality, 
-          "Total Weight Produced" AS metric, 
-          COALESCE(SUM(weight), 0) AS achievement 
-        FROM "PostprocessingData" 
-        WHERE "storedDate" BETWEEN ? AND ? 
-        GROUP BY type, "processingType", quality, "Total Weight Produced"
-      ) 
+          SELECT 
+              type, 
+              "processingType", 
+              quality, 
+              'Total Weight Produced' AS metric,
+              COALESCE(SUM(weight), 0) AS achievement
+          FROM "PostprocessingData"
+          WHERE "storedDate" BETWEEN $3 AND $4
+          GROUP BY type, "processingType", quality
+      )
       SELECT 
-        a.id, 
-        a.type, 
-        a."processingType", 
-        a.quality, 
-        a.metric, 
-        a."targetValue", 
-        b.achievement 
-      FROM metric a 
-      LEFT JOIN ttw b on LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric)`,
+          a.id, 
+          a.type, 
+          a."processingType", 
+          a.quality, 
+          a.metric, 
+          a."targetValue", 
+          b.achievement
+      FROM metric a
+      LEFT JOIN ttw b 
+          ON LOWER(a.type) = LOWER(b.type) 
+          AND LOWER(a."processingType") = LOWER(b."processingType") 
+          AND LOWER(a.quality) = LOWER(b.quality) 
+          AND LOWER(a.metric) = LOWER(b.metric);`,
       { replacements: [endOfMonth, startOfMonth, startOfMonth, endOfMonth] }
     );
 
@@ -233,46 +242,49 @@ router.get('/targets/next-week', async (req, res) => {
   try {
     const [rows] = await sequelize.query(
       `WITH metric AS (
-        SELECT 
-          type || " " || "processingType" || " " || quality || " " || metric AS id, 
-          type, 
-          "processingType", 
-          quality, 
-          metric, 
-          CASE 
-            WHEN metric = "Average Cherry Cost" THEN AVG("targetValue") 
-            ELSE SUM("targetValue") 
-          END AS "targetValue" 
-        FROM "TargetMetrics" 
-        WHERE ("startDate" <= ? AND "endDate" >= ?) 
-        GROUP BY 
-          type || " " || "processingType" || " " || quality || " " || metric, 
-          type, 
-          "processingType", 
-          quality, 
-          metric
+          SELECT 
+              CONCAT(type, ' ', "processingType", ' ', quality, ' ', metric) AS id,
+              type, 
+              "processingType", 
+              quality, 
+              metric, 
+              CASE 
+                  WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") 
+                  ELSE SUM("targetValue") 
+              END AS "targetValue"
+          FROM "TargetMetrics"
+          WHERE "startDate" <= $1 AND "endDate" >= $2
+          GROUP BY 
+              type, 
+              "processingType", 
+              quality, 
+              metric
       ), 
       ttw AS (
-        SELECT 
-          type, 
-          "processingType", 
-          quality, 
-          "Total Weight Produced" AS metric, 
-          COALESCE(SUM(weight), 0) AS achievement 
-        FROM "PostprocessingData" 
-        WHERE "storedDate" BETWEEN ? AND ? 
-        GROUP BY type, "processingType", quality, "Total Weight Produced"
-      ) 
+          SELECT 
+              type, 
+              "processingType", 
+              quality, 
+              'Total Weight Produced' AS metric,
+              COALESCE(SUM(weight), 0) AS achievement
+          FROM "PostprocessingData"
+          WHERE "storedDate" BETWEEN $3 AND $4
+          GROUP BY type, "processingType", quality
+      )
       SELECT 
-        a.id, 
-        a.type, 
-        a."processingType", 
-        a.quality, 
-        a.metric, 
-        a."targetValue", 
-        b.achievement 
-      FROM metric a 
-      LEFT JOIN ttw b on LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric)`,
+          a.id, 
+          a.type, 
+          a."processingType", 
+          a.quality, 
+          a.metric, 
+          a."targetValue", 
+          b.achievement
+      FROM metric a
+      LEFT JOIN ttw b 
+          ON LOWER(a.type) = LOWER(b.type) 
+          AND LOWER(a."processingType") = LOWER(b."processingType") 
+          AND LOWER(a.quality) = LOWER(b.quality) 
+          AND LOWER(a.metric) = LOWER(b.metric);`,
       { replacements: [endNextWeek, startNextWeek, startNextWeek, endNextWeek] }
     );
 
@@ -302,46 +314,49 @@ router.get('/targets/next-month', async (req, res) => {
   try {
     const [rows] = await sequelize.query(
       `WITH metric AS (
-        SELECT 
-          type || " " || "processingType" || " " || quality || " " || metric AS id, 
-          type, 
-          "processingType", 
-          quality, 
-          metric, 
-          CASE 
-            WHEN metric = "Average Cherry Cost" THEN AVG("targetValue") 
-            ELSE SUM("targetValue") 
-          END AS "targetValue" 
-        FROM "TargetMetrics" 
-        WHERE ("startDate" <= ? AND "endDate" >= ?) 
-        GROUP BY 
-          type || " " || "processingType" || " " || quality || " " || metric, 
-          type, 
-          "processingType", 
-          quality, 
-          metric
+          SELECT 
+              CONCAT(type, ' ', "processingType", ' ', quality, ' ', metric) AS id,
+              type, 
+              "processingType", 
+              quality, 
+              metric, 
+              CASE 
+                  WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") 
+                  ELSE SUM("targetValue") 
+              END AS "targetValue"
+          FROM "TargetMetrics"
+          WHERE "startDate" <= $1 AND "endDate" >= $2
+          GROUP BY 
+              type, 
+              "processingType", 
+              quality, 
+              metric
       ), 
       ttw AS (
-        SELECT 
-          type, 
-          "processingType", 
-          quality, 
-          "Total Weight Produced" AS metric, 
-          COALESCE(SUM(weight), 0) AS achievement 
-        FROM "PostprocessingData" 
-        WHERE "storedDate" BETWEEN ? AND ? 
-        GROUP BY type, "processingType", quality, "Total Weight Produced"
-      ) 
+          SELECT 
+              type, 
+              "processingType", 
+              quality, 
+              'Total Weight Produced' AS metric,
+              COALESCE(SUM(weight), 0) AS achievement
+          FROM "PostprocessingData"
+          WHERE "storedDate" BETWEEN $3 AND $4
+          GROUP BY type, "processingType", quality
+      )
       SELECT 
-        a.id, 
-        a.type, 
-        a."processingType", 
-        a.quality, 
-        a.metric, 
-        a."targetValue", 
-        b.achievement 
-      FROM metric a 
-      LEFT JOIN ttw b on LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric)`,
+          a.id, 
+          a.type, 
+          a."processingType", 
+          a.quality, 
+          a.metric, 
+          a."targetValue", 
+          b.achievement
+      FROM metric a
+      LEFT JOIN ttw b 
+          ON LOWER(a.type) = LOWER(b.type) 
+          AND LOWER(a."processingType") = LOWER(b."processingType") 
+          AND LOWER(a.quality) = LOWER(b.quality) 
+          AND LOWER(a.metric) = LOWER(b.metric);`,
       { replacements: [endOfNextMonth, startOfNextMonth, startOfNextMonth, endOfNextMonth] }
     );
 
@@ -374,46 +389,49 @@ router.get('/targets/previous-week', async (req, res) => {
   try {
     const [rows] = await sequelize.query(
       `WITH metric AS (
-        SELECT 
-          type || " " || "processingType" || " " || quality || " " || metric AS id, 
-          type, 
-          "processingType", 
-          quality, 
-          metric, 
-          CASE 
-            WHEN metric = "Average Cherry Cost" THEN AVG("targetValue") 
-            ELSE SUM("targetValue") 
-          END AS "targetValue" 
-        FROM "TargetMetrics" 
-        WHERE ("startDate" <= ? AND "endDate" >= ?) 
-        GROUP BY 
-          type || " " || "processingType" || " " || quality || " " || metric, 
-          type, 
-          "processingType", 
-          quality, 
-          metric
+          SELECT 
+              CONCAT(type, ' ', "processingType", ' ', quality, ' ', metric) AS id,
+              type, 
+              "processingType", 
+              quality, 
+              metric, 
+              CASE 
+                  WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") 
+                  ELSE SUM("targetValue") 
+              END AS "targetValue"
+          FROM "TargetMetrics"
+          WHERE "startDate" <= $1 AND "endDate" >= $2
+          GROUP BY 
+              type, 
+              "processingType", 
+              quality, 
+              metric
       ), 
       ttw AS (
-        SELECT 
-          type, 
-          "processingType", 
-          quality, 
-          "Total Weight Produced" AS metric, 
-          COALESCE(SUM(weight), 0) AS achievement 
-        FROM "PostprocessingData" 
-        WHERE "storedDate" BETWEEN ? AND ? 
-        GROUP BY type, "processingType", quality, "Total Weight Produced"
-      ) 
+          SELECT 
+              type, 
+              "processingType", 
+              quality, 
+              'Total Weight Produced' AS metric,
+              COALESCE(SUM(weight), 0) AS achievement
+          FROM "PostprocessingData"
+          WHERE "storedDate" BETWEEN $3 AND $4
+          GROUP BY type, "processingType", quality
+      )
       SELECT 
-        a.id, 
-        a.type, 
-        a."processingType", 
-        a.quality, 
-        a.metric, 
-        a."targetValue", 
-        b.achievement 
-      FROM metric a 
-      LEFT JOIN ttw b on LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric)`,
+          a.id, 
+          a.type, 
+          a."processingType", 
+          a.quality, 
+          a.metric, 
+          a."targetValue", 
+          b.achievement
+      FROM metric a
+      LEFT JOIN ttw b 
+          ON LOWER(a.type) = LOWER(b.type) 
+          AND LOWER(a."processingType") = LOWER(b."processingType") 
+          AND LOWER(a.quality) = LOWER(b.quality) 
+          AND LOWER(a.metric) = LOWER(b.metric);`,
       {
         replacements: [
           endOfPreviousWeek, // "TargetMetrics" "endDate"
@@ -449,46 +467,49 @@ router.get('/targets/previous-month', async (req, res) => {
   try {
     const [rows] = await sequelize.query(
       `WITH metric AS (
-        SELECT 
-          type || " " || "processingType" || " " || quality || " " || metric AS id, 
-          type, 
-          "processingType", 
-          quality, 
-          metric, 
-          CASE 
-            WHEN metric = "Average Cherry Cost" THEN AVG("targetValue") 
-            ELSE SUM("targetValue") 
-          END AS "targetValue" 
-        FROM "TargetMetrics" 
-        WHERE ("startDate" <= ? AND "endDate" >= ?) 
-        GROUP BY 
-          type || " " || "processingType" || " " || quality || " " || metric, 
-          type, 
-          "processingType", 
-          quality, 
-          metric
+          SELECT 
+              CONCAT(type, ' ', "processingType", ' ', quality, ' ', metric) AS id,
+              type, 
+              "processingType", 
+              quality, 
+              metric, 
+              CASE 
+                  WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") 
+                  ELSE SUM("targetValue") 
+              END AS "targetValue"
+          FROM "TargetMetrics"
+          WHERE "startDate" <= $1 AND "endDate" >= $2
+          GROUP BY 
+              type, 
+              "processingType", 
+              quality, 
+              metric
       ), 
       ttw AS (
-        SELECT 
-          type, 
-          "processingType", 
-          quality, 
-          "Total Weight Produced" AS metric, 
-          COALESCE(SUM(weight), 0) AS achievement 
-        FROM "PostprocessingData" 
-        WHERE "storedDate" BETWEEN ? AND ? 
-        GROUP BY type, "processingType", quality, "Total Weight Produced"
-      ) 
+          SELECT 
+              type, 
+              "processingType", 
+              quality, 
+              'Total Weight Produced' AS metric,
+              COALESCE(SUM(weight), 0) AS achievement
+          FROM "PostprocessingData"
+          WHERE "storedDate" BETWEEN $3 AND $4
+          GROUP BY type, "processingType", quality
+      )
       SELECT 
-        a.id, 
-        a.type, 
-        a."processingType", 
-        a.quality, 
-        a.metric, 
-        a."targetValue", 
-        b.achievement 
-      FROM metric a 
-      LEFT JOIN ttw b on LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric)`,
+          a.id, 
+          a.type, 
+          a."processingType", 
+          a.quality, 
+          a.metric, 
+          a."targetValue", 
+          b.achievement
+      FROM metric a
+      LEFT JOIN ttw b 
+          ON LOWER(a.type) = LOWER(b.type) 
+          AND LOWER(a."processingType") = LOWER(b."processingType") 
+          AND LOWER(a.quality) = LOWER(b.quality) 
+          AND LOWER(a.metric) = LOWER(b.metric);`,
       {
         replacements: [
           endOfPreviousMonth, // "TargetMetrics" "endDate"
