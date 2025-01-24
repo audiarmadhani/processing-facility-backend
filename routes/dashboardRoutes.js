@@ -33,8 +33,8 @@ router.get('/dashboard-metrics', async (req, res) => {
 
         const activeFarmersQuery = `SELECT SUM(isActive) AS count FROM "Farmers"`;
 
-        const landCoveredArabicaQuery = `SELECT COALESCE(SUM("farmerLandArea"), 0) as AREA FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'`;
-        const landCoveredRobustaQuery = `SELECT COALESCE(SUM("farmerLandArea"), 0) as AREA FROM "Farmers" WHERE "farmType" = 'Robusta' and isactive='1'`;
+        const landCoveredArabicaQuery = `SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'`;
+        const landCoveredRobustaQuery = `SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Robusta' and isactive='1'`;
         
         // Query to get the count of batch numbers in "ReceivingData" but not in "QCData"
         const pendingQCQuery = `
@@ -533,8 +533,8 @@ router.get('/dashboard-metrics', async (req, res) => {
         const activeFarmers= activeFarmersResult[0].count || 0;
         const pendingQC= pendingQCResult[0].count || 0;
         const pendingProcessing= pendingProcessingResult[0].count || 0;
-        const landCoveredArabica = landCoveredArabicaResult[0];
-        const landCoveredRobusta = landCoveredRobustaResult[0];
+        const landCoveredArabica = landCoveredArabicaResult[0].sum || 0;
+        const landCoveredRobusta = landCoveredRobustaResult[0].sum || 0;
 
         const totalWeightBagsbyDate= totalWeightBagsbyDateResult || []; // Return as an array
         const totalCostbyDate= totalCostbyDateResult || []; // Return as an array
