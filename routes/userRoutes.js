@@ -11,7 +11,7 @@ router.post('/register', async (req, res) => {
   try {
     // Check if the user already exists
     const existingUser = await sequelize.query(
-      `SELECT * FROM "Users" WHERE "email" = :email`,
+      `SELECT * FROM "users" WHERE "email" = :email`,
       { replacements: { email }, type: QueryTypes.SELECT }
     );
 
@@ -24,7 +24,7 @@ router.post('/register', async (req, res) => {
 
     // Insert the new user
     await sequelize.query(
-      `INSERT INTO "Users" ("email", "password", "name", "role", "createdAt", "updatedAt")
+      `INSERT INTO "users" ("email", "password", "name", "role", "createdAt", "updatedAt")
        VALUES (:email, :hashedPassword, :name, :role, NOW(), NOW())`,
       {
         replacements: { email, hashedPassword, name, role },
@@ -75,7 +75,7 @@ router.post('/login', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const users = await sequelize.query(
-      `SELECT "id", "email", "name", "role", "createdAt", "updatedAt" FROM "Users"`,
+      `SELECT "id", "email", "name", "role", "createdAt", "updatedAt" FROM "users"`,
       { type: QueryTypes.SELECT }
     );
 
