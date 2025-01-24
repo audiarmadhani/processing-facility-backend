@@ -77,30 +77,46 @@ const calculateDateRanges = (type) => {
   let start, end;
 
   if (type === 'this-week') {
-    const day = today.getDay() || 7;
-    start = DATE_TRUNC('week', current_date) + interval '1 day';
-    end = DATE_TRUNC('week', current_date) + interval '7 days';
+    const dayOfWeek = today.getDay() || 7; // Convert Sunday (0) to 7 for ISO week
+    start = new Date(today);
+    start.setDate(today.getDate() - dayOfWeek + 1); // Start of this week (Monday)
+    start.setHours(0, 0, 0, 0);
+
+    end = new Date(start);
+    end.setDate(start.getDate() + 6); // End of this week (Sunday)
+    end.setHours(23, 59, 59, 999);
   } else if (type === 'this-month') {
-    start = DATE_TRUNC('month', CURRENT_DATE);
-    end = DATE_TRUNC('month', CURRENT_DATE) + interval '1 month - 1 day';
+    start = new Date(today.getFullYear(), today.getMonth(), 1); // Start of the month
+    end = new Date(today.getFullYear(), today.getMonth() + 1, 0); // End of the month
   } else if (type === 'next-week') {
-    start = DATE_TRUNC('week', CURRENT_DATE) + interval '1 week';
-    end = DATE_TRUNC('week', CURRENT_DATE) + interval '2 weeks' - interval '1 day';
+    const dayOfWeek = today.getDay() || 7;
+    start = new Date(today);
+    start.setDate(today.getDate() - dayOfWeek + 8); // Start of next week (Monday)
+    start.setHours(0, 0, 0, 0);
+
+    end = new Date(start);
+    end.setDate(start.getDate() + 6); // End of next week (Sunday)
+    end.setHours(23, 59, 59, 999);
   } else if (type === 'next-month') {
-    start = DATE_TRUNC('month', CURRENT_DATE + INTERVAL '1 month');
-    end = (DATE_TRUNC('month', CURRENT_DATE + INTERVAL '2 month') - INTERVAL '1 day');
+    start = new Date(today.getFullYear(), today.getMonth() + 1, 1); // Start of next month
+    end = new Date(today.getFullYear(), today.getMonth() + 2, 0); // End of next month
   } else if (type === 'previous-week') {
-    start = DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '1 week';
-    end = DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '1 day';
+    const dayOfWeek = today.getDay() || 7;
+    start = new Date(today);
+    start.setDate(today.getDate() - dayOfWeek - 6); // Start of previous week (Monday)
+    start.setHours(0, 0, 0, 0);
+
+    end = new Date(start);
+    end.setDate(start.getDate() + 6); // End of previous week (Sunday)
+    end.setHours(23, 59, 59, 999);
   } else if (type === 'previous-month') {
-    start = DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 month';
-    end = DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 day';
+    start = new Date(today.getFullYear(), today.getMonth() - 1, 1); // Start of previous month
+    end = new Date(today.getFullYear(), today.getMonth(), 0); // End of previous month
   }
 
   return { start, end };
 };
 
-// Route to get target metrics data by this week date
 // Generic route for fetching target metrics data within a specific range
 router.get('/targets/:range', async (req, res) => {
   const range = req.params.range;
@@ -155,13 +171,16 @@ router.get('/targets/:range', async (req, res) => {
     `;
 
     const values = [end, start, start, end];
-    const result = await pool.query(query, values);
+    const result = await sequelize.query(query, {
+      replacements: values,
+      type: sequelize.QueryTypes.SELECT,
+    });
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return res.status(404).json({ message: 'No data found for the specified range.' });
     }
 
-    res.json(result.rows);
+    res.json(result);
   } catch (err) {
     console.error('Error fetching target metrics:', err);
     res.status(500).json({ message: 'Failed to fetch data.' });
