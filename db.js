@@ -1,12 +1,16 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+require('dotenv').config(); // Load environment variables from .env file
+const { Pool } = require('pg');
 
-const db = new sqlite3.Database(path.resolve(__dirname, 'coffee-processing.db'), (err) => {
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+pool.connect((err) => {
   if (err) {
-    console.error('Error connecting to the SQLite database:', err.message);
+    console.error('Error connecting to the PostgreSQL database:', err.message);
   } else {
-    console.log('Connected to the SQLite database.');
+    console.log('Connected to the PostgreSQL database.');
   }
 });
 
-module.exports = db;
+module.exports = pool;

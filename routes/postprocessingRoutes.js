@@ -54,10 +54,7 @@ router.post('/postprocessing', async (req, res) => {
 
 
     const [postprocessingData] = await sequelize.query(
-      `INSERT INTO PostprocessingData 
-        (batchNumber, type, processingType, weight, totalBags, notes, quality, storedDate, createdAt, updatedAt) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
-       RETURNING *`,
+      `INSERT INTO "PostprocessingData" ("batchNumber", type, "processingType", weight, "totalBags", notes, quality, "storedDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       {
         replacements: [
           batchNumber, type, processingType, weight, totalBags, notes, quality,
@@ -92,8 +89,8 @@ router.post('/postprocessing', async (req, res) => {
 router.get('/postprocessing', async (req, res) => {
   try {
     // Fetch all records for filtering purposes
-    const [allRows] = await sequelize.query('SELECT * FROM PostprocessingData');
-    const [latestRows] = await sequelize.query('SELECT * FROM PostprocessingData ORDER BY storedDate ASC');
+    const [allRows] = await sequelize.query('SELECT * FROM "PostprocessingData"');
+    const [latestRows] = await sequelize.query('SELECT * FROM "PostprocessingData" ORDER BY "storedDate" ASC');
     
     res.json({ latestRows, allRows });
   } catch (err) {
@@ -110,7 +107,7 @@ router.get('/postprocessing/:batchNumber', async (req, res) => {
 
   try {
     const [rows] = await sequelize.query(
-      'SELECT * FROM PostprocessingData WHERE LOWER(batchNumber) = LOWER(?)',
+      'SELECT * FROM "PostprocessingData" WHERE LOWER("batchNumber") = LOWER(?)',
       { replacements: [batchNumber.trim()] }
     );
 

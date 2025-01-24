@@ -1,14 +1,14 @@
 {
   "development": {
-    "storage": "backend/coffee-processing.db",
-    "dialect": "sqlite"
+    "use_env_variable": "postgresql://postgres:Kopifabriekindonl21!@db.cvxrcxjdirmajmkbiulc.supabase.co:5432/postgres",
+    "dialect": "postgres"
   },
   "test": {
-    "storage": "backend/coffee-processing.db",
-    "dialect": "sqlite"
+    "use_env_variable": "postgresql://postgres:Kopifabriekindonl21!@db.cvxrcxjdirmajmkbiulc.supabase.co:5432/postgres",
+    "dialect": "postgres"
   },
   "production": {
-    "storage": "backend/coffee-processing.db",
-    "dialect": "sqlite"
+    "use_env_variable": "postgresql://postgres:Kopifabriekindonl21!@db.cvxrcxjdirmajmkbiulc.supabase.co:5432/postgres",
+    "dialect": "postgres"
   }
 }

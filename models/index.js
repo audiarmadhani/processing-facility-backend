@@ -2,8 +2,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const Sequelize = require('sequelize');
+const { Sequelize } = require('sequelize');
 const process = require('process');
+require('dotenv').config(); // Load environment variables
+
 const basename = path.basename(__filename);
 const env = process.env.NODE_ENV || 'development';
 const config = require(path.resolve(__dirname, '../config/config.js'))[env];
@@ -13,15 +15,31 @@ let sequelize;
 
 try {
   if (config.use_env_variable) {
-    // Use environment variable for database connection
-    sequelize = new Sequelize(process.env[config.use_env_variable], config);
+    // Use DATABASE_URL from environment variable with SSL options
+    sequelize = new Sequelize(process.env.DATABASE_URL, {
+      dialect: 'postgres',
+      dialectOptions: {
+        ssl: {
+          require: true, // Enforce SSL connection
+          rejectUnauthorized: false, // Disable certificate validation (use with caution)
+        },
+      },
+      logging: false, // Disable logging for cleaner output
+    });
   } else {
-    // Resolve the storage path to an absolute path
-    if (config.storage) {
-      config.storage = path.resolve(__dirname, '../', config.storage);
-    }
-
-    sequelize = new Sequelize(config);
+    // Use configuration from config file with SSL options
+    sequelize = new Sequelize(config.database, config.username, config.password, {
+      host: config.host,
+      dialect: 'postgres',
+      port: config.port,
+      dialectOptions: {
+        ssl: {
+          require: true, // Enforce SSL connection
+          rejectUnauthorized: false, // Disable certificate validation (use with caution)
+        },
+      },
+      logging: false, // Disable logging for cleaner output
+    });
   }
 
   // Load all model files in the current directory
@@ -45,8 +63,10 @@ try {
       db[modelName].associate(db);
     }
   });
+
+  console.log('✅ Sequelize initialized successfully.');
 } catch (error) {
-  console.error('Error initializing Sequelize:', error);
+  console.error('❌ Error initializing Sequelize:', error);
   process.exit(1); // Exit if the database connection fails
 }
 

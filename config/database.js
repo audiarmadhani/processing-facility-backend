@@ -1,19 +1,34 @@
 const { Sequelize } = require('sequelize');
-const path = require('path');
-const config = require('./config'); // Import config.js (or config.json)
+const dotenv = require('dotenv');
+dotenv.config(); // Load environment variables from .env file
 
 // Determine the environment (default to development)
 const env = process.env.NODE_ENV || 'development';
-const dbConfig = config[env];
 
-// Ensure the database storage path is absolute
-dbConfig.storage = path.resolve(__dirname, dbConfig.storage);
+// Use environment variable for PostgreSQL connection
+const isUsingEnvVariable = env === 'development' || env === 'production';
 
-// Initialize Sequelize using the configuration
-const sequelize = new Sequelize({
-  dialect: dbConfig.dialect,
-  storage: dbConfig.storage,
-  logging: false, // Disable logging
-});
+let sequelize;
+
+if (isUsingEnvVariable) {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    throw new Error('❌ DATABASE_URL environment variable is not set!');
+  }
+
+  sequelize = new Sequelize(databaseUrl, {
+    dialect: 'postgres',
+    logging: false, // Disable logging
+    dialectOptions: {
+      ssl: {
+        require: true,
+        rejectUnauthorized: false, // Necessary for hosted PostgreSQL (e.g., Supabase)
+      },
+    },
+  });
+} else {
+  throw new Error(`❌ Unsupported environment: ${env}`);
+}
 
 module.exports = sequelize;

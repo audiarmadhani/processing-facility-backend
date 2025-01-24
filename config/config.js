@@ -1,16 +1,14 @@
-const path = require('path');
-
 module.exports = {
   development: {
-    dialect: 'sqlite',
-    storage: path.resolve(__dirname, '../coffee-processing.db'),
+    use_env_variable: 'DATABASE_URL', // Use the DATABASE_URL environment variable for development
+    dialect: 'postgres',
   },
   test: {
-    dialect: 'sqlite',
-    storage: path.resolve(__dirname, '../coffee-processing.db'),
+    use_env_variable: 'DATABASE_URL', // Use the DATABASE_URL environment variable for testing
+    dialect: 'postgres',
   },
   production: {
-    dialect: 'sqlite',
-    storage: path.resolve(__dirname, '../coffee-processing.db'),
+    use_env_variable: 'DATABASE_URL', // Use the DATABASE_URL environment variable for production
+    dialect: 'postgres',
   },
-}
+};

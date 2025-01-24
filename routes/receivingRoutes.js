@@ -41,7 +41,7 @@ router.post('/receiving', async (req, res) => {
 
     // Save the receiving data
     const [receivingData] = await sequelize.query(
-      'INSERT INTO ReceivingData (batchNumber, farmerName, weight, totalBags, notes, price, type, receivingDate, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+      'INSERT INTO "ReceivingData" ("batchNumber", "farmerName", weight, "totalBags", notes, price, type, "receivingDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
       {
         replacements: [batchNumber, farmerName, weight, totalBags, notes, price, type, currentDate, currentDate, currentDate],
         transaction: t,
@@ -52,7 +52,7 @@ router.post('/receiving', async (req, res) => {
     if (Array.isArray(bagPayload) && bagPayload.length > 0) {
       const bagData = bagPayload.map((bag) => [batchNumber, bag.bagNumber, bag.weight, currentDate, currentDate]);
       await sequelize.query(
-        'INSERT INTO BagData (batchNumber, bagNumber, weight, createdAt, updatedAt) VALUES ?',
+        'INSERT INTO "BagData" ("batchNumber", "bagNumber", weight, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?) RETURNING *',
         {
           replacements: [bagData],
           transaction: t,
@@ -89,8 +89,8 @@ router.post('/receiving', async (req, res) => {
 router.get('/receiving', async (req, res) => {
   try {
     // Fetch all records for filtering purposes
-    const [allRows] = await sequelize.query('SELECT * FROM ReceivingData');
-    const [latestRows] = await sequelize.query('SELECT * FROM ReceivingData ORDER BY receivingDate ASC');
+    const [allRows] = await sequelize.query('SELECT * FROM "ReceivingData"');
+    const [latestRows] = await sequelize.query('SELECT * FROM "ReceivingData" ORDER BY "receivingDate" ASC');
     
     res.json({ latestRows, allRows });
   } catch (err) {
@@ -107,7 +107,7 @@ router.get('/receiving/:batchNumber', async (req, res) => {
 
   try {
     const [rows] = await sequelize.query(
-      'SELECT * FROM ReceivingData WHERE LOWER(batchNumber) = LOWER(?)',
+      'SELECT * FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(?)',
       { replacements: [batchNumber.trim()] }
     );
 

@@ -2,12 +2,12 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
-const { sequelize: sequelizeInstance } = require('./models'); // Sequelize instance
+const { sequelize } = require('./models'); // Sequelize instance
 const dotenv = require('dotenv');
 
 // Import routes
 const preprocessingRoutes = require('./routes/preprocessingRoutes');
-const postprocessingRoutes = require('./routes/postprocessingRoutes')
+const postprocessingRoutes = require('./routes/postprocessingRoutes');
 const receivingRoutes = require('./routes/receivingRoutes');
 const qcRoutes = require('./routes/qcRoutes');
 const latestBatchRoute = require('./routes/latestBatchRoute');
@@ -15,7 +15,7 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const farmerRoutes = require('./routes/farmerRoutes');
 const userRoutes = require('./routes/userRoutes');
-const targetRoutes = require('./routes/targetMetricsRoutes')
+const targetRoutes = require('./routes/targetMetricsRoutes');
 
 // Load environment variables
 dotenv.config();
@@ -40,6 +40,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -59,7 +60,7 @@ const apiRoutes = [
 
 apiRoutes.forEach(route => app.use('/api', route));
 
-// Serve static files for the React frontend
+// Serve static files for the React frontend (if applicable)
 // const frontendPath = path.join(__dirname, '../frontend/build');
 // app.use(express.static(frontendPath));
 
@@ -71,11 +72,11 @@ apiRoutes.forEach(route => app.use('/api', route));
 (async () => {
   try {
     console.log('⏳ Connecting to the database...');
-    await sequelizeInstance.authenticate();
+    await sequelize.authenticate(); // Sequelize authentication
     console.log('✅ Database connected successfully.');
 
     console.log('⏳ Synchronizing database models...');
-    await sequelizeInstance.sync();
+    await sequelize.sync(); // Synchronize Sequelize models
     console.log('✅ Database models synchronized.');
 
     app.listen(PORT, () => {
