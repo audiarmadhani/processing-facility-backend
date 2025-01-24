@@ -78,44 +78,23 @@ const calculateDateRanges = (type) => {
 
   if (type === 'this-week') {
     const day = today.getDay() || 7;
-    start = new Date(today);
-    start.setDate(today.getDate() - day + 1);
-    start.setHours(0, 0, 0, 0);
-    end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    end.setHours(23, 59, 59, 999);
+    start = DATE_TRUNC('week', current_date) + interval '1 day';
+    end = DATE_TRUNC('week', current_date) + interval '7 days';
   } else if (type === 'this-month') {
-    start = new Date(today.getFullYear(), today.getMonth(), 1);
-    start.setHours(0, 0, 0, 0);
-    end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    end.setHours(23, 59, 59, 999);
+    start = DATE_TRUNC('month', CURRENT_DATE);
+    end = DATE_TRUNC('month', CURRENT_DATE) + interval '1 month - 1 day';
   } else if (type === 'next-week') {
-    const currentDay = today.getDay();
-    const daysToNextMonday = currentDay === 0 ? 1 : 8 - currentDay;
-    start = new Date(today);
-    start.setDate(today.getDate() + daysToNextMonday);
-    start.setHours(0, 0, 0, 0);
-    end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    end.setHours(23, 59, 59, 999);
+    start = DATE_TRUNC('week', CURRENT_DATE) + interval '1 week';
+    end = DATE_TRUNC('week', CURRENT_DATE) + interval '2 weeks' - interval '1 day';
   } else if (type === 'next-month') {
-    start = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-    start.setHours(0, 0, 0, 0);
-    end = new Date(today.getFullYear(), today.getMonth() + 2, 0);
-    end.setHours(23, 59, 59, 999);
+    start = DATE_TRUNC('month', CURRENT_DATE + INTERVAL '1 month');
+    end = (DATE_TRUNC('month', CURRENT_DATE + INTERVAL '2 month') - INTERVAL '1 day');
   } else if (type === 'previous-week') {
-    const day = today.getDay() || 7;
-    start = new Date(today);
-    start.setDate(today.getDate() - day - 6);
-    start.setHours(0, 0, 0, 0);
-    end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    end.setHours(23, 59, 59, 999);
+    start = DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '1 week';
+    end = DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '1 day';
   } else if (type === 'previous-month') {
-    start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-    start.setHours(0, 0, 0, 0);
-    end = new Date(today.getFullYear(), today.getMonth(), 0);
-    end.setHours(23, 59, 59, 999);
+    start = DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 month';
+    end = DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 day';
   }
 
   return { start, end };
