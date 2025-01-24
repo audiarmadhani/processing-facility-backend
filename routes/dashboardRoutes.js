@@ -593,6 +593,8 @@ router.get('/dashboard-metrics', async (req, res) => {
             totalCostbyDate, 
             arabicaTotalWeightbyDate,
             robustaTotalWeightbyDate,
+            landCoveredArabica,
+            landCoveredRobusta,
 
             arabicaWeightMoM, 
             robustaWeightMoM, 
