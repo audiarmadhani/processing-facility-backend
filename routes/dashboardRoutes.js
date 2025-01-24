@@ -33,8 +33,8 @@ router.get('/dashboard-metrics', async (req, res) => {
 
         const activeFarmersQuery = `SELECT SUM(isActive) AS count FROM "Farmers"`;
 
-        const landCoveredArabicaQuery = `SELECT "registrationDate", sum("farmerLandArea") as AREA FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'  GROUP BY "registrationDate"`;
-        const landCoveredRobustaQuery = `SELECT "registrationDate", sum("farmerLandArea") as AREA FROM "Farmers" WHERE "farmType" = 'Robusta' and isactive='1'  GROUP BY "registrationDate"`;
+        const landCoveredArabicaQuery = `SELECT SUM("farmerLandArea") as AREA FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'`;
+        const landCoveredRobustaQuery = `SELECT SUM("farmerLandArea") as AREA FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'`;
         
         // Query to get the count of batch numbers in "ReceivingData" but not in "QCData"
         const pendingQCQuery = `
