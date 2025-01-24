@@ -71,11 +71,11 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Route for fetching all users
+// Route for fetching all users (temporary fix for authentication)
 router.get('/', async (req, res) => {
   try {
     const users = await sequelize.query(
-      `SELECT "id", "email", "name", "role", "createdAt", "updatedAt" FROM "users"`,
+      `SELECT "id", "email", "name", "role", "password", "createdAt", "updatedAt" FROM "users"`, // Include "password"
       { type: QueryTypes.SELECT }
     );
 
