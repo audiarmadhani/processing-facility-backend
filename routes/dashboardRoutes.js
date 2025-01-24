@@ -533,8 +533,8 @@ router.get('/dashboard-metrics', async (req, res) => {
         const activeFarmers= activeFarmersResult[0].count || 0;
         const pendingQC= pendingQCResult[0].count || 0;
         const pendingProcessing= pendingProcessingResult[0].count || 0;
-        const landCoveredArabica = landCoveredArabicaResult[0].sum || 0;
-        const landCoveredRobusta = landCoveredRobustaResult[0].count || 0;
+        const landCoveredArabica = landCoveredArabicaResult[0];
+        const landCoveredRobusta = landCoveredRobustaResult[0];
 
         const totalWeightBagsbyDate= totalWeightBagsbyDateResult || []; // Return as an array
         const totalCostbyDate= totalCostbyDateResult || []; // Return as an array
