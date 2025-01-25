@@ -35,8 +35,8 @@ router.post('/postprocessing', async (req, res) => {
     const productAbbreviation = productResults[0].abbreviation; // Access the first element
     const processingAbbreviation = processingResults[0].abbreviation; // Access the first element
 
-    console.log('Generated product:', productLine);
-    console.log('Generated processing:', processing);
+    console.log('Generated product:', productResults);
+    console.log('Generated processing:', processingResults);
 
     // Determine the current year
     const currentYear = new Date().getFullYear();
