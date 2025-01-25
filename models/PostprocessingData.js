@@ -14,12 +14,20 @@ module.exports = function(sequelize, DataTypes) {
     },
     type: {
         type: DataTypes.STRING(20),
-        allowNull: true
+        allowNull: false
       },
     processingType: {
         type: DataTypes.STRING(255),
-        allowNull: true
+        allowNull: false
       },
+    productLine: {
+      type: DataTypes.STRING(255),
+      allowNull: false
+    },
+    producer: {
+      type: DataTypes.STRING(255),
+      allowNull: false
+    },
     weight: {
       type: DataTypes.FLOAT,
       allowNull: false
