@@ -35,17 +35,23 @@ router.post('/postprocessing', async (req, res) => {
     const productAbbreviation = productResults[0].abbreviation; // Access the first element
     const processingAbbreviation = processingResults[0].abbreviation; // Access the first element
 
-    console.log('Generated product:', productResults);
-    console.log('Generated processing:', processingResults);
+    // Fetch the reference number
+    const [referenceResults] = await sequelize.query(
+      'SELECT "referenceNumber" FROM "ReferenceMappings" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ?',
+      { replacements: [productLine, processingType, producer], transaction: t }
+    );
+
+    if (referenceResults.length === 0) {
+      return res.status(400).json({ error: 'No matching reference number found for the given product line and processing type' });
+    }
+
+    const referenceNumber = referenceResults[0].referenceNumber;
 
     // Determine the current year
     const currentYear = new Date().getFullYear().toString().slice(-2);
 
     // Generate the prefix for batch number
     const batchPrefix = `${producer}${currentYear}${productAbbreviation}-${processingAbbreviation}`;
-
-    console.log('Generated processing abbreviation:', productAbbreviation);
-    console.log('Generated product abbreviation:', processingAbbreviation);
 
     // Retrieve existing batches with the same prefix to determine the sequence number
     const [existingBatches] = await sequelize.query(
@@ -62,10 +68,10 @@ router.post('/postprocessing', async (req, res) => {
     console.log('Generated Batch Number:', batchNumber);
 
     const [postprocessingData] = await sequelize.query(
-      `INSERT INTO "PostprocessingData" ("batchNumber", type, "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      `INSERT INTO "PostprocessingData" ("batchNumber", "referenceNumber", type, "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       {
         replacements: [
-          batchNumber, type, processingType, productLine, weight, totalBags, notes, quality, producer,
+          batchNumber, referenceNumber, type, processingType, productLine, weight, totalBags, notes, quality, producer,
           new Date(), new Date(), new Date()
         ],
         transaction: t,

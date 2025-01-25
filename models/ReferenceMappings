@@ -1,0 +1,27 @@
+const Sequelize = require('sequelize');
+module.exports = function(sequelize, DataTypes) {
+  return sequelize.define('ReferenceMappings', {
+    id: {
+      type: "SERIAL",
+      allowNull: true,
+      primaryKey: true,
+      unique: true
+    },
+    referenceNumber: {
+      type: DataTypes.STRING(255),
+      allowNull: false
+    },
+    productLine: {
+        type: DataTypes.STRING(255),
+        allowNull: false
+      },
+    processingType: {
+        type: DataTypes.STRING(255),
+        allowNull: false
+      }
+  }, {
+    sequelize,
+    tableName: 'ReferenceMappings',
+    timestamps: false
+  });
+};
