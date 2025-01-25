@@ -39,6 +39,9 @@ router.post('/postprocessing', async (req, res) => {
     // Generate the prefix for batch number
     const batchPrefix = `${producer}${currentYear}${product.abbreviation}-${processing.abbreviation}`;
 
+    console.log('Generated processing abbreviation:', processing.abbreviation);
+    console.log('Generated product abbreviation:', product.abbreviation);
+
     // Retrieve existing batches with the same prefix to determine the sequence number
     const [existingBatches] = await sequelize.query(
       'SELECT "batchNumber" FROM "PostprocessingData" WHERE "batchNumber" LIKE ? ORDER BY "batchNumber" DESC LIMIT 1',
