@@ -3,71 +3,60 @@ const router = express.Router();
 const sequelize = require('../config/database');
 
 // Route for creating postprocessing data
+// Route for creating postprocessing data
 router.post('/postprocessing', async (req, res) => {
   let t;
   try {
-    const { type, processingType, weight, totalBags, notes, quality } = req.body;
+    const { type, processingType, productLine, producer, weight, totalBags, notes, quality } = req.body;
 
-    if (!type || !processingType || !weight || !totalBags || !quality) {
+    if (!type || !processingType || !weight || !totalBags || !quality || !productLine || !producer) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     t = await sequelize.transaction();
 
-    // Retrieve or initialize the latest batch number
-    const [latestBatchResults] = await sequelize.query('SELECT * FROM latest_pp_batch LIMIT 1', { transaction: t });
-    let latestBatch;
-
-    if (latestBatchResults.length === 0) {
-      // Initialize the latest batch number if no record exists
-      await sequelize.query(
-        'INSERT INTO latest_pp_batch (latest_batch_number) VALUES (?)',
-        { replacements: ['1970-01-01-0000'], transaction: t }
-      );
-      latestBatch = { latest_batch_number: '1970-01-01-0000' };
-    } else {
-      latestBatch = latestBatchResults[0];
-    }
-
-    // Generate the new batch number
-    const currentDate = new Date();
-    const day = String(currentDate.getDate()).padStart(2, '0');
-    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-    const year = currentDate.getFullYear();
-
-    const currentBatchDate = `${year}-${month}-${day}`;
-    // Properly split the latest batch number
-    const lastBatchDate = latestBatch.latest_batch_number.slice(0, 10); // Extract "YYYY-MM-DD"
-    const lastSeqNumber = latestBatch.latest_batch_number.slice(11);   // Extract "XXXX"
-    let sequenceNumber = 1;
-
-    if (lastBatchDate === currentBatchDate) {
-      sequenceNumber = parseInt(lastSeqNumber, 10) + 1;
-    }
-
-    const batchNumber = `${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
-
-    console.log('Latest Batch Number:', latestBatch.latest_batch_number);
-    console.log('Last Batch Date:', lastBatchDate);
-    console.log('Last Sequence Number:', lastSeqNumber);
-    console.log('Generated Batch Number:', batchNumber);
-
-
-    const [postprocessingData] = await sequelize.query(
-      `INSERT INTO "PostprocessingData" ("batchNumber", type, "processingType", weight, "totalBags", notes, quality, "storedDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
-      {
-        replacements: [
-          batchNumber, type, processingType, weight, totalBags, notes, quality,
-          currentDate, currentDate, currentDate
-        ],
-        transaction: t,
-      }
+    // Fetch product line and processing type abbreviations
+    const [product] = await sequelize.query(
+      'SELECT abbreviation FROM "ProductLines" WHERE "productLine" = ?',
+      { replacements: [productLine], transaction: t }
     );
 
-    await sequelize.query(
-      'UPDATE latest_pp_batch SET latest_batch_number = ?',
+    const [processing] = await sequelize.query(
+      'SELECT abbreviation FROM "ProcessingTypes" WHERE "processingType" = ?',
+      { replacements: [processingType], transaction: t }
+    );
+
+    if (!product || !processing) {
+      return res.status(400).json({ error: 'Invalid product line or processing type' });
+    }
+
+    // Determine the current year
+    const currentYear = new Date().getFullYear();
+
+    // Generate the prefix for batch number
+    const batchPrefix = `${producer}${currentYear}${product.abbreviation}-${processing.abbreviation}`;
+
+    // Retrieve existing batches with the same prefix to determine the sequence number
+    const [existingBatches] = await sequelize.query(
+      'SELECT "batchNumber" FROM "PostprocessingData" WHERE "batchNumber" LIKE ? ORDER BY "batchNumber" DESC LIMIT 1',
+      { replacements: [`${batchPrefix}-%`], transaction: t }
+    );
+
+    // Determine the sequence number
+    let sequenceNumber = existingBatches.length > 0 ? parseInt(existingBatches[0].batchNumber.split('-').pop(), 10) + 1 : 1;
+
+    // Generate the new batch number
+    const batchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}`;
+
+    console.log('Generated Batch Number:', batchNumber);
+
+    const [postprocessingData] = await sequelize.query(
+      `INSERT INTO "PostprocessingData" ("batchNumber", type, "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       {
-        replacements: [batchNumber],
+        replacements: [
+          batchNumber, type, processingType, productLine, weight, totalBags, notes, quality, producer,
+          new Date(), new Date(), new Date()
+        ],
         transaction: t,
       }
     );
@@ -88,7 +77,6 @@ router.post('/postprocessing', async (req, res) => {
 // Route for fetching all postprocessing data
 router.get('/postprocessing', async (req, res) => {
   try {
-    // Fetch all records for filtering purposes
     const [allRows] = await sequelize.query('SELECT * FROM "PostprocessingData"');
     const [latestRows] = await sequelize.query('SELECT * FROM "PostprocessingData" ORDER BY "storedDate" ASC');
     
