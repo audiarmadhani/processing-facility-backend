@@ -39,7 +39,7 @@ router.post('/postprocessing', async (req, res) => {
     console.log('Generated processing:', processingResults);
 
     // Determine the current year
-    const currentYear = new Date().getFullYear();
+    const currentYear = new Date().getFullYear().toString().slice(-2);
 
     // Generate the prefix for batch number
     const batchPrefix = `${producer}${currentYear}${productAbbreviation}-${processingAbbreviation}`;
