@@ -16,12 +16,12 @@ router.post('/postprocessing', async (req, res) => {
     t = await sequelize.transaction();
 
     // Fetch product line and processing type abbreviations
-    const [product] = await sequelize.query(
+    const [productResults] = await sequelize.query(
       'SELECT abbreviation FROM "ProductLines" WHERE "productLine" = ?',
       { replacements: [productLine], transaction: t }
     );
 
-    const [processing] = await sequelize.query(
+    const [processingResults] = await sequelize.query(
       'SELECT abbreviation FROM "ProcessingTypes" WHERE "processingType" = ?',
       { replacements: [processingType], transaction: t }
     );
