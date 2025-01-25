@@ -145,4 +145,34 @@ router.get('/targets/:range', async (req, res) => {
   }
 });
 
+// Route for updating the column name of a target metric
+router.put('/targets/:id', async (req, res) => {
+  const { id } = req.params;
+  const { columnName } = req.body; // Expecting the new column name
+
+  // Validate required fields
+  if (!columnName) {
+    return res.status(400).json({ error: 'Missing required field: columnName' });
+  }
+
+  try {
+    // Update the column name in the database
+    await sequelize.query(
+      `UPDATE "TargetMetrics" 
+       SET "columnName" = ?, "updatedAt" = ? 
+       WHERE id = ?`,
+      {
+        replacements: [columnName, new Date(), id],
+      }
+    );
+
+    res.status(200).json({
+      message: 'Column name updated successfully',
+    });
+  } catch (err) {
+    console.error('Error updating column name:', err);
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
 module.exports = router;

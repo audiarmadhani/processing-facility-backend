@@ -42,6 +42,11 @@ module.exports = function(sequelize, DataTypes) {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
   },
+  columnName: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: "todo"
+  },
 }, {
   sequelize,
   tableName: 'TargetMetrics',
