@@ -30,6 +30,9 @@ router.post('/postprocessing', async (req, res) => {
       return res.status(400).json({ error: 'Invalid product line or processing type' });
     }
 
+    console.log('Generated product:', productLine);
+    console.log('Generated processing:', processing);
+
     // Determine the current year
     const currentYear = new Date().getFullYear();
 
