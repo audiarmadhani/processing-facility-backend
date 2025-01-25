@@ -26,9 +26,14 @@ router.post('/postprocessing', async (req, res) => {
       { replacements: [processingType], transaction: t }
     );
 
-    if (!product || !processing) {
+    // Check if product and processing type were found
+    if (productResults.length === 0 || processingResults.length === 0) {
       return res.status(400).json({ error: 'Invalid product line or processing type' });
     }
+
+    // Extract the abbreviations
+    const productAbbreviation = productResults[0].abbreviation; // Access the first element
+    const processingAbbreviation = processingResults[0].abbreviation; // Access the first element
 
     console.log('Generated product:', productLine);
     console.log('Generated processing:', processing);
@@ -37,10 +42,10 @@ router.post('/postprocessing', async (req, res) => {
     const currentYear = new Date().getFullYear();
 
     // Generate the prefix for batch number
-    const batchPrefix = `${producer}${currentYear}${product.abbreviation}-${processing.abbreviation}`;
+    const batchPrefix = `${producer}${currentYear}${productAbbreviation}-${processingAbbreviation}`;
 
-    console.log('Generated processing abbreviation:', processing.abbreviation);
-    console.log('Generated product abbreviation:', product.abbreviation);
+    console.log('Generated processing abbreviation:', productAbbreviation);
+    console.log('Generated product abbreviation:', processingAbbreviation);
 
     // Retrieve existing batches with the same prefix to determine the sequence number
     const [existingBatches] = await sequelize.query(
