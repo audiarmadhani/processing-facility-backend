@@ -8,8 +8,17 @@ const sequelize = require('../config/database'); // Adjust to your DB config
 router.post('/register', async (req, res) => {
   const { email, password, name, role } = req.body;
 
+  if (!email || !password || !name) {
+    return res.status(400).json({ message: 'Name, email, and password are required.' });
+  }
+
+  if (password.length < 5) {
+    return res
+      .status(400)
+      .json({ message: 'Password must be at least 8 characters long.' });
+  }
+
   try {
-    // Check if the user already exists
     const existingUser = await sequelize.query(
       `SELECT * FROM "users" WHERE "email" = :email`,
       { replacements: { email }, type: QueryTypes.SELECT }
@@ -19,15 +28,14 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ message: 'User already exists' });
     }
 
-    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
+    const userRole = role || 'staff'; // Assign default role if not provided
 
-    // Insert the new user
     await sequelize.query(
       `INSERT INTO "users" ("email", "password", "name", "role", "createdAt", "updatedAt")
        VALUES (:email, :hashedPassword, :name, :role, NOW(), NOW())`,
       {
-        replacements: { email, hashedPassword, name, role },
+        replacements: { email, hashedPassword, name, role: userRole },
         type: QueryTypes.INSERT,
       }
     );
@@ -46,27 +54,31 @@ router.post('/login', async (req, res) => {
   try {
     // Fetch the user with the given email
     const user = await sequelize.query(
-      `SELECT "id", "email", "password", "role" FROM "Users" WHERE "email" = :email`,
+      `SELECT "id", "email", "password", "name", "role" FROM "users" WHERE "email" = :email`,
       { replacements: { email }, type: QueryTypes.SELECT }
     );
 
     if (user.length === 0) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
     // Compare passwords
     const isMatch = await bcrypt.compare(password, user[0].password);
     if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
-    // Return user information (excluding password)
+    // Respond with user data (excluding password)
     res.status(200).json({
-      message: 'Login successful',
-      user: { id: user[0].id, email: user[0].email, role: user[0].role },
+      user: {
+        id: user[0].id,
+        email: user[0].email,
+        name: user[0].name,
+        role: user[0].role,
+      },
     });
   } catch (error) {
-    console.error('Error logging in user:', error);
+    console.error('Error during login:', error);
     res.status(500).json({ error: 'Server error', details: error.message });
   }
 });
@@ -75,7 +87,7 @@ router.post('/login', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const users = await sequelize.query(
-      `SELECT "id", "email", "name", "role", "password", "createdAt", "updatedAt" FROM "users"`, // Include "password"
+      `SELECT "id", "email", "name", "role", "createdAt", "updatedAt" FROM "users"`,
       { type: QueryTypes.SELECT }
     );
 
