@@ -61,7 +61,7 @@ router.get('/dashboard-metrics', async (req, res) => {
 
         const arabicaTotalWeightbyDateQuery = `
             SELECT 
-                "batchNumber" AS category, 
+                "referenceNumber" AS category, 
                 COALESCE(SUM(weight), 0) AS weight, 
                 DATE("storedDate") AS "storedDate" 
             FROM 
@@ -71,13 +71,13 @@ router.get('/dashboard-metrics', async (req, res) => {
                 AND DATE_TRUNC('month', "storedDate") = DATE_TRUNC('month', NOW()) 
                 AND type = 'Arabica' 
             GROUP BY 
-                "batchNumber", 
+                "referenceNumber", 
                 DATE("storedDate");
         `;
 
         const robustaTotalWeightbyDateQuery = `
             SELECT 
-                "batchNumber" AS category, 
+                "referenceNumber" AS category, 
                 COALESCE(SUM(weight), 0) AS weight, 
                 DATE("storedDate") AS "storedDate" 
             FROM 
@@ -87,7 +87,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                 AND DATE_TRUNC('month', "storedDate") = DATE_TRUNC('month', NOW()) 
                 AND type = 'Robusta' 
             GROUP BY 
-                "batchNumber", 
+                "referenceNumber", 
                 DATE("storedDate");
         `;
 
