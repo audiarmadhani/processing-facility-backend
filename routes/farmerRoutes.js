@@ -38,7 +38,7 @@ router.get('/farmer', async (req, res) => {
   try {
     // Fetch all records for filtering purposes
     const [allRows] = await sequelize.query('SELECT * FROM "Farmers" ORDER BY "registrationDate" ASC');
-    const [latestRows] = await sequelize.query('SELECT * FROM "Farmers" ORDER BY "registrationDate" DESC LIMIT 1');
+    const [latestRows] = await sequelize.query('SELECT * FROM "Farmers" ORDER BY "registrationDate" DESC, "farmerID" DESC LIMIT 1');
     
     res.json({ latestRows, allRows });
   } catch (err) {
