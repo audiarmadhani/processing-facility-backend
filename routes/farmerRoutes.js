@@ -6,13 +6,13 @@ const sequelize = require('../config/database');
 router.post('/farmer', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { farmerName, farmerAddress, farmerLandArea, farmerContact, latitude, longitude, farmType, notes } = req.body;
+    const { farmerName, farmerAddress, farmerLandArea, farmerContact, latitude, longitude, farmType, notes, farmVarieties } = req.body;
 
     // Save the farmer data
     const [farmerData] = await sequelize.query(
-      'INSERT INTO "Farmers" ("farmerName", "farmerAddress", "farmerLandArea", "farmerContact", "latitude", "longitude", "farmType", "notes") VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO "Farmers" ("farmerName", "farmerAddress", "farmerLandArea", "farmerContact", "latitude", "longitude", "farmType", "notes", "farmVarieties") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       {
-        replacements: [farmerName, farmerAddress, farmerLandArea, farmerContact, latitude, longitude, farmType, notes],
+        replacements: [farmerName, farmerAddress, farmerLandArea, farmerContact, latitude, longitude, farmType, notes, farmVarieties],
         transaction: t,
       }
     );

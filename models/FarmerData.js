@@ -44,7 +44,7 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.INTEGER,
       allowNull: true
     },
-    isActive: {
+    farmVarieties: {
         type: DataTypes.TEXT,
         allowNull: true
       }
