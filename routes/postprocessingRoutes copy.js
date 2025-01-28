@@ -16,42 +16,25 @@ router.post('/postprocessing', async (req, res) => {
     t = await sequelize.transaction();
 
     // Fetch product line and processing type abbreviations
-    const [productResults] = await sequelize.query(
+    const [product] = await sequelize.query(
       'SELECT abbreviation FROM "ProductLines" WHERE "productLine" = ?',
       { replacements: [productLine], transaction: t }
     );
 
-    const [processingResults] = await sequelize.query(
+    const [processing] = await sequelize.query(
       'SELECT abbreviation FROM "ProcessingTypes" WHERE "processingType" = ?',
       { replacements: [processingType], transaction: t }
     );
 
-    // Check if product and processing type were found
-    if (productResults.length === 0 || processingResults.length === 0) {
+    if (!product || !processing) {
       return res.status(400).json({ error: 'Invalid product line or processing type' });
     }
 
-    // Extract the abbreviations
-    const productAbbreviation = productResults[0].abbreviation; // Access the first element
-    const processingAbbreviation = processingResults[0].abbreviation; // Access the first element
-
-    // Fetch the reference number
-    const [referenceResults] = await sequelize.query(
-      'SELECT "referenceNumber" FROM "ReferenceMappings" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ?',
-      { replacements: [productLine, processingType, producer], transaction: t }
-    );
-
-    if (referenceResults.length === 0) {
-      return res.status(400).json({ error: 'No matching reference number found for the given product line and processing type' });
-    }
-
-    const referenceNumber = referenceResults[0].referenceNumber;
-
     // Determine the current year
-    const currentYear = new Date().getFullYear().toString().slice(-2);
+    const currentYear = new Date().getFullYear();
 
     // Generate the prefix for batch number
-    const batchPrefix = `${producer}${currentYear}${productAbbreviation}-${processingAbbreviation}`;
+    const batchPrefix = `${producer}${currentYear}${product.abbreviation}-${processing.abbreviation}`;
 
     // Retrieve existing batches with the same prefix to determine the sequence number
     const [existingBatches] = await sequelize.query(
@@ -68,10 +51,10 @@ router.post('/postprocessing', async (req, res) => {
     console.log('Generated Batch Number:', batchNumber);
 
     const [postprocessingData] = await sequelize.query(
-      `INSERT INTO "PostprocessingData" ("batchNumber", "referenceNumber", type, "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      `INSERT INTO "PostprocessingData" ("batchNumber", type, "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       {
         replacements: [
-          batchNumber, referenceNumber, type, processingType, productLine, weight, totalBags, notes, quality, producer,
+          batchNumber, type, processingType, productLine, weight, totalBags, notes, quality, producer,
           new Date(), new Date(), new Date()
         ],
         transaction: t,
@@ -95,7 +78,7 @@ router.post('/postprocessing', async (req, res) => {
 router.get('/postprocessing', async (req, res) => {
   try {
     const [allRows] = await sequelize.query('SELECT * FROM "PostprocessingData"');
-    const [latestRows] = await sequelize.query('SELECT * FROM "PostprocessingData" ORDER BY "storedDate" DESC LIMIT 1');
+    const [latestRows] = await sequelize.query('SELECT * FROM "PostprocessingData" ORDER BY "storedDate" ASC');
     
     res.json({ latestRows, allRows });
   } catch (err) {

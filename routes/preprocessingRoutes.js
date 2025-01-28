@@ -46,7 +46,7 @@ router.get('/preprocessing', async (req, res) => {
   try {
     // Fetch all records for filtering purposes
     const [allRows] = await sequelize.query('SELECT * FROM "PreprocessingData"');
-    const [latestRows] = await sequelize.query('SELECT * FROM "PreprocessingData" ORDER BY "processingDate" ASC');
+    const [latestRows] = await sequelize.query('SELECT * FROM "PreprocessingData" ORDER BY "processingDate" DESC LIMIT 1');
 
     res.json({ latestRows, allRows });
   } catch (err) {
