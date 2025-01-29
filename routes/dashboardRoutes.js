@@ -35,6 +35,49 @@ router.get('/dashboard-metrics', async (req, res) => {
 
         const landCoveredArabicaQuery = `SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'`;
         const landCoveredRobustaQuery = `SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Robusta' and isactive='1'`;
+
+        const arabicaYieldQuery = `
+            WITH pre AS (
+            SELECT b.type, sum(b.weight) as weight FROM "PreprocessingData" a left join "ReceivingData" b on a."batchNumber" = b."batchNumber" group by b.type
+            ),
+
+            post as (
+            SELECT type, SUM(weight) as weight FROM "PostprocessingData" group by type
+            )
+
+            SELECT * FROM (
+            select
+                a.type,
+                a.weight as pre_weight,
+                b.weight as post_weight,
+                ROUND(((b.weight/a.weight)*100)::numeric, 2) as yield
+            FROM pre a
+            LEFT JOIN post b on a.type = b.type
+            ) A
+            WHERE type is not null
+            AND type = 'Arabica'
+        `;
+        const robustaYieldQuery = `
+            WITH pre AS (
+            SELECT b.type, sum(b.weight) as weight FROM "PreprocessingData" a left join "ReceivingData" b on a."batchNumber" = b."batchNumber" group by b.type
+            ),
+
+            post as (
+            SELECT type, SUM(weight) as weight FROM "PostprocessingData" group by type
+            )
+
+            SELECT * FROM (
+            select
+                a.type,
+                a.weight as pre_weight,
+                b.weight as post_weight,
+                ROUND(((b.weight/a.weight)*100)::numeric, 2) as yield
+            FROM pre a
+            LEFT JOIN post b on a.type = b.type
+            ) A
+            WHERE type is not null
+            AND type = 'Robusta'
+        `;
         
         // Query to get the count of batch numbers in "ReceivingData" but not in "QCData"
         const pendingQCQuery = `
@@ -483,6 +526,9 @@ router.get('/dashboard-metrics', async (req, res) => {
         const [landCoveredArabicaResult] = await sequelize.query(landCoveredArabicaQuery);
         const [landCoveredRobustaResult] = await sequelize.query(landCoveredRobustaQuery);
 
+        const [arabicaYieldResult] = await sequelize.query(arabicaYieldQuery);
+        const [robustaYieldResult] = await sequelize.query(robustaYieldQuery);
+
         const [arabicaTotalWeightbyDateResult] = await sequelize.query(arabicaTotalWeightbyDateQuery);
         const [robustaTotalWeightbyDateResult] = await sequelize.query(robustaTotalWeightbyDateQuery);
 
@@ -535,6 +581,9 @@ router.get('/dashboard-metrics', async (req, res) => {
         const pendingProcessing= pendingProcessingResult[0].count || 0;
         const landCoveredArabica = landCoveredArabicaResult[0].sum || 0;
         const landCoveredRobusta = landCoveredRobustaResult[0].sum || 0;
+
+        const arabicaYield = arabicaYieldResult[0].sum || 0;
+        const robustaYield = robustaYieldResult[0].sum || 0;
 
         const totalWeightBagsbyDate= totalWeightBagsbyDateResult || []; // Return as an array
         const totalCostbyDate= totalCostbyDateResult || []; // Return as an array
@@ -595,6 +644,8 @@ router.get('/dashboard-metrics', async (req, res) => {
             robustaTotalWeightbyDate,
             landCoveredArabica,
             landCoveredRobusta,
+            arabicaYield,
+            robustaYield,
 
             arabicaWeightMoM, 
             robustaWeightMoM, 
