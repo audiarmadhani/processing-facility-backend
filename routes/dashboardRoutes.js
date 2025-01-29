@@ -45,7 +45,7 @@ router.get('/dashboard-metrics', async (req, res) => {
             SELECT type, SUM(weight) as weight FROM "PostprocessingData" group by type
             )
 
-            SELECT yield FROM (
+            SELECT yield as sum FROM (
             select
                 a.type,
                 a.weight as pre_weight,
@@ -66,7 +66,7 @@ router.get('/dashboard-metrics', async (req, res) => {
             SELECT type, SUM(weight) as weight FROM "PostprocessingData" group by type
             )
 
-            SELECT yield FROM (
+            SELECT yield as sum FROM (
             select
                 a.type,
                 a.weight as pre_weight,
