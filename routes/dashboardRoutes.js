@@ -31,7 +31,8 @@ router.get('/dashboard-metrics', async (req, res) => {
         const lastmonthArabicaProductionQuery = `SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE TO_CHAR("storedDate", 'YYYY-MM') = TO_CHAR(CURRENT_DATE - INTERVAL '1 month', 'YYYY-MM') AND TO_CHAR("storedDate", 'DD') <= TO_CHAR(CURRENT_DATE, 'DD') AND type = 'Arabica'`;
         const lastmonthRobustaProductionQuery = `SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE TO_CHAR("storedDate", 'YYYY-MM') = TO_CHAR(CURRENT_DATE - INTERVAL '1 month', 'YYYY-MM') AND TO_CHAR("storedDate", 'DD') <= TO_CHAR(CURRENT_DATE, 'DD') AND type = 'Robusta'`;
 
-        const activeFarmersQuery = `SELECT SUM(isActive) AS count FROM "Farmers"`;
+        const activeArabicaFarmersQuery = `SELECT SUM(isActive) AS count FROM "Farmers" where "farmType" in ('Arabica', 'Mix', 'Mixed');`;
+        const activeRobustaFarmersQuery = `SELECT SUM(isActive) AS count FROM "Farmers" where "farmType" in ('Robusta', 'Mix', 'Mixed');`;
 
         const landCoveredArabicaQuery = `SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'`;
         const landCoveredRobustaQuery = `SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Robusta' and isactive='1'`;
@@ -518,7 +519,8 @@ router.get('/dashboard-metrics', async (req, res) => {
         const [lastmonthArabicaProductionResult] = await sequelize.query(lastmonthArabicaProductionQuery);
         const [lastmonthRobustaProductionResult] = await sequelize.query(lastmonthRobustaProductionQuery);
 
-        const [activeFarmersResult] = await sequelize.query(activeFarmersQuery);
+        const [activeArabicaFarmersResult] = await sequelize.query(activeArabicaFarmersQuery);
+        const [activeRobustaFarmersResult] = await sequelize.query(activeRobustaFarmersQuery);
         const [pendingQCResult] = await sequelize.query(pendingQCQuery);
         const [pendingProcessingResult] = await sequelize.query(pendingProcessingQuery);
         const [totalWeightBagsbyDateResult] = await sequelize.query(totalWeightBagsbyDateQuery);
@@ -576,7 +578,8 @@ router.get('/dashboard-metrics', async (req, res) => {
         const lastmonthArabicaProduction= lastmonthArabicaProductionResult[0].sum || 0;
         const lastmonthRobustaProduction= lastmonthRobustaProductionResult[0].sum || 0;
 
-        const activeFarmers= activeFarmersResult[0].count || 0;
+        const activeArabicaFarmers= activeRobustaFarmersResult[0].count || 0;
+        const activeRobustaFarmers= activeArabicaFarmersResult[0].count || 0;
         const pendingQC= pendingQCResult[0].count || 0;
         const pendingProcessing= pendingProcessingResult[0].count || 0;
         const landCoveredArabica = landCoveredArabicaResult[0].sum || 0;
@@ -635,7 +638,8 @@ router.get('/dashboard-metrics', async (req, res) => {
             lastmonthArabicaProduction,
             lastmonthRobustaProduction,
 
-            activeFarmers, 
+            activeArabicaFarmers, 
+            activeRobustaFarmers,
             pendingQC, 
             pendingProcessing, 
             landCoveredArabica,
