@@ -80,17 +80,50 @@ router.get('/dashboard-metrics', async (req, res) => {
             AND type = 'Robusta'
         `;
         
-        // Query to get the count of batch numbers in "ReceivingData" but not in "QCData"
-        const pendingQCQuery = `
+        const pendingArabicaQCQuery = `
             SELECT COUNT(*) AS count FROM "ReceivingData" rd
             LEFT JOIN "QCData" qd ON rd."batchNumber" = qd."batchNumber"
             WHERE qd."batchNumber" IS NULL
+            AND rd.type = 'Arabica'
         `;
 
-        const pendingProcessingQuery = `
+        const pendingRobustaQCQuery = `
+            SELECT COUNT(*) AS count FROM "ReceivingData" rd
+            LEFT JOIN "QCData" qd ON rd."batchNumber" = qd."batchNumber"
+            WHERE qd."batchNumber" IS NULL
+            AND rd.type = 'Robusta'
+        `;
+
+        const pendingArabicaProcessingQuery = `
             SELECT COUNT(*) AS count FROM "QCData" qd
             LEFT JOIN "PreprocessingData" pd ON qd."batchNumber" = pd."batchNumber"
+            LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
             WHERE pd."batchNumber" IS NULL
+            AND rd.type = 'Arabica'
+        `;
+
+        const pendingArabicaWeightProcessingQuery = `
+            SELECT COALESCE(SUM(rd.weight),0) as SUM FROM "QCData" qd
+            LEFT JOIN "PreprocessingData" pd ON qd."batchNumber" = pd."batchNumber"
+            LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
+            WHERE pd."batchNumber" IS NULL
+            AND rd.type = 'Arabica'
+        `;
+
+        const pendingRobustaProcessingQuery = `
+            SELECT COUNT(*) AS count FROM "QCData" qd
+            LEFT JOIN "PreprocessingData" pd ON qd."batchNumber" = pd."batchNumber"
+            LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
+            WHERE pd."batchNumber" IS NULL
+            AND rd.type = 'Robusta'
+        `;
+
+        const pendingRobustaWeightProcessingQuery = `
+            SELECT COALESCE(SUM(rd.weight),0) as SUM FROM "QCData" qd
+            LEFT JOIN "PreprocessingData" pd ON qd."batchNumber" = pd."batchNumber"
+            LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
+            WHERE pd."batchNumber" IS NULL
+            AND rd.type = 'Robusta'
         `;
 
         const totalWeightBagsbyDateQuery = `
@@ -521,8 +554,15 @@ router.get('/dashboard-metrics', async (req, res) => {
 
         const [activeArabicaFarmersResult] = await sequelize.query(activeArabicaFarmersQuery);
         const [activeRobustaFarmersResult] = await sequelize.query(activeRobustaFarmersQuery);
-        const [pendingQCResult] = await sequelize.query(pendingQCQuery);
-        const [pendingProcessingResult] = await sequelize.query(pendingProcessingQuery);
+
+        const [pendingArabicaQCResult] = await sequelize.query(pendingArabicaQCQuery);
+        const [pendingRobustaQCResult] = await sequelize.query(pendingRobustaQCQuery);
+
+        const [pendingArabicaProcessingResult] = await sequelize.query(pendingArabicaProcessingQuery);
+        const [pendingArabicaWeightProcessingResult] = await sequelize.query(pendingArabicaWeightProcessingQuery);
+        const [pendingRobustaProcessingResult] = await sequelize.query(pendingRobustaProcessingQuery);
+        const [pendingRobustaWeightProcessingResult] = await sequelize.query(pendingRobustaWeightProcessingQuery);
+
         const [totalWeightBagsbyDateResult] = await sequelize.query(totalWeightBagsbyDateQuery);
         const [totalCostbyDateResult] = await sequelize.query(totalCostbyDateQuery);
         const [landCoveredArabicaResult] = await sequelize.query(landCoveredArabicaQuery);
@@ -580,8 +620,15 @@ router.get('/dashboard-metrics', async (req, res) => {
 
         const activeArabicaFarmers= activeRobustaFarmersResult[0].count || 0;
         const activeRobustaFarmers= activeArabicaFarmersResult[0].count || 0;
-        const pendingQC= pendingQCResult[0].count || 0;
-        const pendingProcessing= pendingProcessingResult[0].count || 0;
+
+        const pendingArabicaQC= pendingArabicaQCResult[0].count || 0;
+        const pendingRobustaQC= pendingRobustaQCResult[0].count || 0;
+
+        const pendingArabicaProcessing= pendingArabicaProcessingResult[0].count || 0;
+        const pendingArabicaWeightProcessing= pendingArabicaWeightProcessingResult[0].sum || 0;
+        const pendingRobustaProcessing= pendingRobustaProcessingResult[0].count || 0;
+        const pendingRobustaWeightProcessing= pendingRobustaWeightProcessingResult[0].sum || 0;
+
         const landCoveredArabica = landCoveredArabicaResult[0].sum || 0;
         const landCoveredRobusta = landCoveredRobustaResult[0].sum || 0;
 
@@ -640,8 +687,15 @@ router.get('/dashboard-metrics', async (req, res) => {
 
             activeArabicaFarmers, 
             activeRobustaFarmers,
-            pendingQC, 
-            pendingProcessing, 
+
+            pendingArabicaQC, 
+            pendingRobustaQC,
+
+            pendingArabicaProcessing, 
+            pendingArabicaWeightProcessing, 
+            pendingRobustaProcessing, 
+            pendingRobustaWeightProcessing, 
+
             landCoveredArabica,
             landCoveredRobusta,
             arabicaYield,
