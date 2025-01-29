@@ -45,7 +45,7 @@ router.get('/dashboard-metrics', async (req, res) => {
             SELECT type, SUM(weight) as weight FROM "PostprocessingData" group by type
             )
 
-            SELECT * FROM (
+            SELECT yield FROM (
             select
                 a.type,
                 a.weight as pre_weight,
@@ -66,7 +66,7 @@ router.get('/dashboard-metrics', async (req, res) => {
             SELECT type, SUM(weight) as weight FROM "PostprocessingData" group by type
             )
 
-            SELECT * FROM (
+            SELECT yield FROM (
             select
                 a.type,
                 a.weight as pre_weight,
@@ -582,8 +582,8 @@ router.get('/dashboard-metrics', async (req, res) => {
         const landCoveredArabica = landCoveredArabicaResult[0].sum || 0;
         const landCoveredRobusta = landCoveredRobustaResult[0].sum || 0;
 
-        const arabicaYield = arabicaYieldResult || 0;
-        const robustaYield = robustaYieldResult || 0;
+        const arabicaYield = arabicaYieldResult[0].sum || 0;
+        const robustaYield = robustaYieldResult[0].sum || 0;
 
         const totalWeightBagsbyDate= totalWeightBagsbyDateResult || []; // Return as an array
         const totalCostbyDate= totalCostbyDateResult || []; // Return as an array
@@ -638,14 +638,16 @@ router.get('/dashboard-metrics', async (req, res) => {
             activeFarmers, 
             pendingQC, 
             pendingProcessing, 
-            totalWeightBagsbyDate, 
-            totalCostbyDate, 
-            arabicaTotalWeightbyDate,
-            robustaTotalWeightbyDate,
             landCoveredArabica,
             landCoveredRobusta,
             arabicaYield,
             robustaYield,
+
+            totalWeightBagsbyDate, 
+            totalCostbyDate, 
+
+            arabicaTotalWeightbyDate,
+            robustaTotalWeightbyDate,
 
             arabicaWeightMoM, 
             robustaWeightMoM, 
