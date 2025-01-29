@@ -582,8 +582,8 @@ router.get('/dashboard-metrics', async (req, res) => {
         const landCoveredArabica = landCoveredArabicaResult[0].sum || 0;
         const landCoveredRobusta = landCoveredRobustaResult[0].sum || 0;
 
-        const arabicaYield = arabicaYieldResult[0].sum || 0;
-        const robustaYield = robustaYieldResult[0].sum || 0;
+        const arabicaYield = arabicaYieldResult || 0;
+        const robustaYield = robustaYieldResult || 0;
 
         const totalWeightBagsbyDate= totalWeightBagsbyDateResult || []; // Return as an array
         const totalCostbyDate= totalCostbyDateResult || []; // Return as an array
