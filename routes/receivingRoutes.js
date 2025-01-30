@@ -30,8 +30,10 @@ router.post('/receiving', async (req, res) => {
     const year = currentDate.getFullYear();
 
     const currentBatchDate = `${year}-${month}-${day}`;
-    const [lastBatchDate, lastSeqNumber] = latestBatch.latest_batch_number.split('-');
-    let sequenceNumber = 1;
+    const [lastBatchDate, lastSeqNumberStr] = latestBatch.latest_batch_number.split('-');
+    const lastSeqNumber = parseInt(lastSeqNumberStr, 10); // Convert to integer
+    
+    let sequenceNumber;
 
     // Log values for debugging
     console.log(`Latest batch: ${latestBatch.latest_batch_number}`);
