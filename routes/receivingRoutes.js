@@ -31,6 +31,11 @@ router.post('/receiving', async (req, res) => {
 
     const currentBatchDate = `${year}-${month}-${day}`;
     const [lastBatchDate, lastSeqNumber] = latestBatch.latest_batch_number.split('-').slice(0, 3).concat(latestBatch.latest_batch_number.split('-')[3]);
+    
+    console.log(`Latest batch: ${latestBatch.latest_batch_number}`);
+    console.log(`Current batch date: ${currentBatchDate}`);
+    console.log(`Last batch date: ${lastBatchDate}, last sequence number: ${lastSeqNumber}`);
+
     let sequenceNumber = 1;
 
     if (lastBatchDate === currentBatchDate) {
@@ -38,6 +43,8 @@ router.post('/receiving', async (req, res) => {
     }
 
     const batchNumber = `${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
+
+    console.log(`New batch number: ${batchNumber}`);
 
     // Save the receiving data
     const [receivingData] = await sequelize.query(
