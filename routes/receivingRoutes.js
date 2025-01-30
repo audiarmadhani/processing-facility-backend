@@ -50,14 +50,17 @@ router.post('/receiving', async (req, res) => {
 
     // Save the bag data
     if (Array.isArray(bagPayload) && bagPayload.length > 0) {
-      const bagData = bagPayload.map((bag) => [batchNumber, bag.bagNumber, bag.weight, currentDate, currentDate]);
-      await sequelize.query(
-        'INSERT INTO "BagData" ("batchNumber", "bagNumber", weight, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?) RETURNING *',
-        {
-          replacements: [bagData],
-          transaction: t,
-        }
-      );
+      const bagInsertQuery = `
+        INSERT INTO "BagData" ("batchNumber", "bagNumber", weight, "createdAt", "updatedAt") 
+        VALUES ${bagPayload.map(() => '(?, ?, ?, ?, ?)').join(', ')} RETURNING *;
+      `;
+    
+      const bagData = bagPayload.flatMap(bag => [batchNumber, bag.bagNumber, bag.weight, currentDate, currentDate]);
+    
+      await sequelize.query(bagInsertQuery, {
+        replacements: bagData,
+        transaction: t,
+      });
     }
 
     // Update the latest batch number
