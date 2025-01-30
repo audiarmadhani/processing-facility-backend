@@ -6,7 +6,7 @@ const sequelize = require('../config/database');
 router.post('/receiving', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { farmerName, weight, totalBags, notes, price, type, bagPayload } = req.body;
+    const { farmerName, weight, totalBags, notes, price, type, paymentMethod, bagPayload } = req.body;
 
     // Retrieve or initialize the latest batch number
     const [latestBatchResults] = await sequelize.query('SELECT * FROM latest_batch LIMIT 1', { transaction: t });
@@ -41,9 +41,9 @@ router.post('/receiving', async (req, res) => {
 
     // Save the receiving data
     const [receivingData] = await sequelize.query(
-      'INSERT INTO "ReceivingData" ("batchNumber", "farmerName", weight, "totalBags", notes, price, type, "receivingDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+      'INSERT INTO "ReceivingData" ("batchNumber", "farmerName", weight, "totalBags", notes, price, type, "paymentMethod", "receivingDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
       {
-        replacements: [batchNumber, farmerName, weight, totalBags, notes, price, type, currentDate, currentDate, currentDate],
+        replacements: [batchNumber, farmerName, weight, totalBags, notes, price, type, paymentMethod, currentDate, currentDate, currentDate],
         transaction: t,
       }
     );
