@@ -111,7 +111,7 @@ router.get('/receiving', async (req, res) => {
     // Fetch all records for filtering purposes
     const [allRows] = await sequelize.query('SELECT * FROM "ReceivingData"');
     const [latestRows] = await sequelize.query('SELECT * FROM "ReceivingData" ORDER BY "receivingDate" DESC LIMIT 1');
-    const [todayData] = await sequelize.query(`SELECT * FROM "ReceivingData" WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') ORDER BY "receivingDate"`);
+    const [todayData] = await sequelize.query(`SELECT * FROM "ReceivingData" WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") ORDER BY "receivingDate"`);
     
     res.json({ latestRows, allRows, todayData });
   } catch (err) {
