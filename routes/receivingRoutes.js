@@ -111,8 +111,9 @@ router.get('/receiving', async (req, res) => {
     // Fetch all records for filtering purposes
     const [allRows] = await sequelize.query('SELECT * FROM "ReceivingData"');
     const [latestRows] = await sequelize.query('SELECT * FROM "ReceivingData" ORDER BY "receivingDate" DESC LIMIT 1');
+    const [todayData] = await sequelize.query(`SELECT * FROM "ReceivingData" WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') ORDER BY "receivingDate"`);
     
-    res.json({ latestRows, allRows });
+    res.json({ latestRows, allRows, todayData });
   } catch (err) {
     console.error('Error fetching receiving data:', err);
     res.status(500).json({ message: 'Failed to fetch receiving data.' });
