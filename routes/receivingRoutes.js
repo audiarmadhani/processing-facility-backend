@@ -35,14 +35,18 @@ router.post('/receiving', async (req, res) => {
     const [lastBatchDate, lastSeqNumberStr] = latestBatch.latest_batch_number.split('-');
     const lastSeqNumber = parseInt(lastSeqNumberStr, 10); // Convert to integer
 
+    // Ensure lastBatchDate is in the expected format
+    const expectedDateFormat = `${lastBatchDate.slice(0, 4)}-${lastBatchDate.slice(5, 7)}-${lastBatchDate.slice(8, 10)}`;
+    const lastBatchDateFormatted = expectedDateFormat;
+
     let sequenceNumber;
 
     console.log(`Latest batch: ${latestBatch.latest_batch_number}`);
     console.log(`Current batch date: ${currentBatchDate}`);
-    console.log(`Last batch date: ${lastBatchDate}, last sequence number: ${lastSeqNumber}`);
+    console.log(`Last batch date: ${lastBatchDateFormatted}, last sequence number: ${lastSeqNumber}`);
 
     // Check if the last batch date matches the current batch date
-    if (lastBatchDate === currentBatchDate) {
+    if (lastBatchDateFormatted === currentBatchDate) {
       sequenceNumber = lastSeqNumber + 1; // Increment the last sequence number
     } else {
       sequenceNumber = 1; // Reset sequence if the date has changed
