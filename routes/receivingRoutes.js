@@ -23,30 +23,21 @@ router.post('/receiving', async (req, res) => {
       latestBatch = latestBatchResults[0];
     }
 
-    // Generate the new batch number
-    const currentDate = new Date();
-    const day = String(currentDate.getDate()).padStart(2, '0');
-    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-    const year = currentDate.getFullYear();
+    // Log the latest batch number to inspect its structure
+    console.log(`Latest batch number from DB: ${latestBatch.latest_batch_number}`);
 
-    const currentBatchDate = `${year}-${month}-${day}`;
+    // Split the latest batch number to extract date and sequence
+    const parts = latestBatch.latest_batch_number.split('-');
+    const lastBatchDate = parts.slice(0, 3).join('-'); // This should give us YYYY-MM-DD
+    const lastSeqNumber = parseInt(parts[3], 10); // Extract the sequence number and convert to integer
 
-    // Correctly split and parse the latest batch number
-    const [lastBatchDate, lastSeqNumberStr] = latestBatch.latest_batch_number.split('-');
-    const lastSeqNumber = parseInt(lastSeqNumberStr, 10); // Convert to integer
-
-    // Ensure lastBatchDate is in the expected format
-    const expectedDateFormat = `${lastBatchDate.slice(0, 4)}-${lastBatchDate.slice(5, 7)}-${lastBatchDate.slice(8, 10)}`;
-    const lastBatchDateFormatted = expectedDateFormat;
+    // Log the extracted values
+    console.log(`Current batch date: ${currentBatchDate}`);
+    console.log(`Last batch date: ${lastBatchDate}, last sequence number: ${lastSeqNumber}`);
 
     let sequenceNumber;
 
-    console.log(`Latest batch: ${latestBatch.latest_batch_number}`);
-    console.log(`Current batch date: ${currentBatchDate}`);
-    console.log(`Last batch date: ${lastBatchDateFormatted}, last sequence number: ${lastSeqNumber}`);
-
-    // Check if the last batch date matches the current batch date
-    if (lastBatchDateFormatted === currentBatchDate) {
+    if (lastBatchDate === currentBatchDate) {
       sequenceNumber = lastSeqNumber + 1; // Increment the last sequence number
     } else {
       sequenceNumber = 1; // Reset sequence if the date has changed
