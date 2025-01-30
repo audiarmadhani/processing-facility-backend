@@ -9,7 +9,6 @@ router.post('/receiving', async (req, res) => {
     const { farmerID, farmerName, weight, totalBags, notes, price, type, paymentMethod, bagPayload } = req.body;
 
     // Retrieve or initialize the latest batch number
-    // Retrieve or initialize the latest batch number
     const [latestBatchResults] = await sequelize.query('SELECT * FROM latest_batch LIMIT 1', { transaction: t });
     let latestBatch;
 
@@ -31,7 +30,9 @@ router.post('/receiving', async (req, res) => {
     const year = currentDate.getFullYear();
 
     const currentBatchDate = `${year}-${month}-${day}`;
-    const [lastBatchDate, lastSeqNumberStr] = latestBatch.latest_batch_number.split('-').slice(0, 3).concat(latestBatch.latest_batch_number.split('-')[3]);
+
+    // Correctly split and parse the latest batch number
+    const [lastBatchDate, lastSeqNumberStr] = latestBatch.latest_batch_number.split('-');
     const lastSeqNumber = parseInt(lastSeqNumberStr, 10); // Convert to integer
 
     let sequenceNumber;
