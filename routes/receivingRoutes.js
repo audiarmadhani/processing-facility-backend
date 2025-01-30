@@ -9,6 +9,7 @@ router.post('/receiving', async (req, res) => {
     const { farmerID, farmerName, weight, totalBags, notes, price, type, paymentMethod, bagPayload } = req.body;
 
     // Retrieve or initialize the latest batch number
+    // Retrieve or initialize the latest batch number
     const [latestBatchResults] = await sequelize.query('SELECT * FROM latest_batch LIMIT 1', { transaction: t });
     let latestBatch;
 
@@ -30,31 +31,26 @@ router.post('/receiving', async (req, res) => {
     const year = currentDate.getFullYear();
 
     const currentBatchDate = `${year}-${month}-${day}`;
-    const [lastBatchDate, lastSeqNumberStr] = latestBatch.latest_batch_number.split('-');
+    const [lastBatchDate, lastSeqNumberStr] = latestBatch.latest_batch_number.split('-').slice(0, 3).concat(latestBatch.latest_batch_number.split('-')[3]);
     const lastSeqNumber = parseInt(lastSeqNumberStr, 10); // Convert to integer
-    
+
     let sequenceNumber;
 
-    // Log values for debugging
     console.log(`Latest batch: ${latestBatch.latest_batch_number}`);
     console.log(`Current batch date: ${currentBatchDate}`);
     console.log(`Last batch date: ${lastBatchDate}, last sequence number: ${lastSeqNumber}`);
 
     // Check if the last batch date matches the current batch date
     if (lastBatchDate === currentBatchDate) {
-      // Parse the sequence number correctly
-      sequenceNumber = parseInt(lastSeqNumber, 10) + 1;
+      sequenceNumber = lastSeqNumber + 1; // Increment the last sequence number
     } else {
       sequenceNumber = 1; // Reset sequence if the date has changed
     }
 
-    // Log the new sequence number
     console.log(`New sequence number: ${sequenceNumber}`);
 
     // Generate the new batch number
     const batchNumber = `${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
-
-    // Log the new batch number
     console.log(`New batch number: ${batchNumber}`);
 
     // Save the receiving data
