@@ -49,7 +49,12 @@ router.get('/payment', async (req, res) => {
   try {
     const [notPaid] = await sequelize.query(`SELECT * FROM "PaymentData" WHERE "isPaid" = 0`);
     const [isPaid] = await sequelize.query(`SELECT * FROM "PaymentData" WHERE "isPaid" = 1`);
-    res.json(notPaid, isPaid);
+    
+    // Combine both results into a single response object
+    res.json({
+      notPaid,
+      isPaid,
+    });
   } catch (err) {
     console.error('Error fetching payment data:', err);
     res.status(500).json({ message: 'Failed to fetch payment data.' });
