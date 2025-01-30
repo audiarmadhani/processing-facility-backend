@@ -26,6 +26,13 @@ router.post('/receiving', async (req, res) => {
     // Log the latest batch number to inspect its structure
     console.log(`Latest batch number from DB: ${latestBatch.latest_batch_number}`);
 
+    // Get current date and format it for batch number
+    const currentDate = new Date();
+    const day = String(currentDate.getDate()).padStart(2, '0');
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const year = currentDate.getFullYear();
+    const currentBatchDate = `${year}-${month}-${day}`; // Define currentBatchDate
+
     // Split the latest batch number to extract date and sequence
     const parts = latestBatch.latest_batch_number.split('-');
     const lastBatchDate = parts.slice(0, 3).join('-'); // This should give us YYYY-MM-DD
