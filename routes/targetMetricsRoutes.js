@@ -8,7 +8,9 @@ router.post('/targets', async (req, res) => {
   try {
     const { 
       type, 
-      processingType, 
+      processingType,
+      productLine,
+      producer, 
       quality, 
       metric, 
       timeFrame, 
@@ -25,13 +27,15 @@ router.post('/targets', async (req, res) => {
     // Save the target metrics data
     const [TargetMetrics] = await sequelize.query(
       `INSERT INTO "TargetMetrics" 
-       (type, "processingType", quality, metric, "timeFrame", "targetValue", "startDate", "endDate", "createdAt", "updatedAt") 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+       (type, "processingType", "productLine", producer, quality, metric, "timeFrame", "targetValue", "startDate", "endDate", "createdAt", "updatedAt") 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
        RETURNING *`,
       {
         replacements: [
           type, 
           processingType, 
+          productLine,
+          producer,
           quality, 
           metric, 
           timeFrame, 
@@ -126,7 +130,7 @@ router.get('/targets/:range', async (req, res) => {
   }
 
   try {
-    const query = `WITH metric AS (SELECT id, type, "processingType", quality, metric, CASE WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") ELSE SUM("targetValue") END AS "targetValue", "columnName" FROM "TargetMetrics" WHERE "startDate" <= ? AND "endDate" >= ? GROUP BY id, type, "processingType", quality, metric, "columnName"), ttw AS (SELECT type, "processingType", quality, 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement FROM "PostprocessingData" WHERE "storedDate" BETWEEN ? AND ? GROUP BY type, "processingType", quality) SELECT a.id, a.type, a."processingType", a.quality, a.metric, a."targetValue", COALESCE(b.achievement, 0) as achievement, a."columnName" FROM metric a LEFT JOIN ttw b ON LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric);`;
+    const query = `WITH metric AS (SELECT id, type, "processingType", "productLine", producer, quality, metric, CASE WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") ELSE SUM("targetValue") END AS "targetValue", "columnName" FROM "TargetMetrics" WHERE "startDate" <= ? AND "endDate" >= ? GROUP BY id, type, "processingType" ,"productLine", producer, quality, metric, "columnName"), ttw AS (SELECT type, "processingType", "productLine", producer, quality, 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement FROM "PostprocessingData" WHERE "storedDate" BETWEEN ? AND ? GROUP BY type, "processingType", "productLine", producer, quality) SELECT a.id, a.type, a."processingType", a.quality, a.metric, a."targetValue", COALESCE(b.achievement, 0) as achievement, a."columnName" FROM metric a LEFT JOIN ttw b ON LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a."productLine") = LOWER(b."productLine") AND LOWER(a.producer) = LOWER(b.producer) AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric);`;
 
     const values = [end, start, start, end];
     const result = await sequelize.query(query, {
