@@ -47,8 +47,8 @@ router.post('/payment', async (req, res) => {
 // Route for fetching all payment data
 router.get('/payment', async (req, res) => {
   try {
-    const [notPaid] = await sequelize.query(`SELECT pd.*, CASE WHEN pd."paymentMethod" = 'Bank Transfer' THEN fm."bankAccount" ELSE NULL END AS "bankAccount", fm."bankName" FROM "PaymentData" pd LEFT JOIN "Farmers" fm on pd."farmerID" = fm."farmerID" WHERE "isPaid" = 0`);
-    const [isPaid] = await sequelize.query(`SELECT pd.*, CASE WHEN pd."paymentMethod" = 'Bank Transfer' THEN fm."bankAccount" ELSE NULL END AS "bankAccount", fm."bankName" FROM "PaymentData" pd LEFT JOIN "Farmers" fm on pd."farmerID" = fm."farmerID" WHERE "isPaid" = 1`);
+    const [notPaid] = await sequelize.query(`SELECT pd.*, CASE WHEN pd."paymentMethod" = 'Bank Transfer' THEN fm."bankAccount" ELSE NULL END AS "bankAccount", CASE WHEN pd."paymentMethod" = 'Bank Transfer' THEN fm."bankName" ELSE '' END AS "bankName" FROM "PaymentData" pd LEFT JOIN "Farmers" fm on pd."farmerID" = fm."farmerID" WHERE "isPaid" = 0`);
+    const [isPaid] = await sequelize.query(`SELECT pd.*, CASE WHEN pd."paymentMethod" = 'Bank Transfer' THEN fm."bankAccount" ELSE NULL END AS "bankAccount", CASE WHEN pd."paymentMethod" = 'Bank Transfer' THEN fm."bankName" ELSE '' END AS "bankName" FROM "PaymentData" pd LEFT JOIN "Farmers" fm on pd."farmerID" = fm."farmerID" WHERE "isPaid" = 1`);
     
     // Combine both results into a single response object
     res.json({
