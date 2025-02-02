@@ -55,6 +55,195 @@ router.get('/preprocessing', async (req, res) => {
   }
 });
 
+// Route for fetching pending processing data
+router.get('/pendingpreprocessing', async (req, res) => {
+  try {
+    // Fetch all records for filtering purposes
+    const [allRows] = await sequelize.query(`
+      WITH qc AS (
+        SELECT 
+            q."batchNumber",
+            ARRAY_TO_STRING(ARRAY_AGG(DISTINCT q.ripeness), ', ') AS ripeness,
+            ARRAY_TO_STRING(ARRAY_AGG(DISTINCT q.color), ', ') AS color,
+            ARRAY_TO_STRING(ARRAY_AGG(DISTINCT q."foreignMatter"), ', ') AS "foreignMatter",
+            ARRAY_TO_STRING(ARRAY_AGG(DISTINCT q."overallQuality"), ', ') AS "overallQuality"
+        FROM 
+            "QCData" q
+        GROUP BY 
+            q."batchNumber"
+        ORDER BY 
+            q."batchNumber"
+      )
+
+      ,rs AS (
+        SELECT 
+          q."batchNumber",
+          SUM(ripeness_score)::DECIMAL / COUNT(*) AS average_ripeness_score
+        FROM (
+          SELECT 
+            q."batchNumber",
+            q.ripeness_element,
+            ROW_NUMBER() OVER (PARTITION BY "batchNumber" ORDER BY "ripeness_element") AS row_num,
+            CASE 
+              WHEN ripeness_element = 'Ripe' THEN 50
+              WHEN ripeness_element = 'Overripe' THEN 40
+              WHEN ripeness_element = 'Unripe' THEN 30
+              ELSE 0
+            END AS ripeness_score
+          FROM (
+            SELECT 
+              q."batchNumber", 
+              q."foreignMatter",
+              q."overallQuality",
+              TRIM(unnest(string_to_array(trim(both ',' from q.ripeness), ','))) AS ripeness_element
+            FROM (
+              SELECT 
+                  q."batchNumber",
+                  STRING_AGG(DISTINCT q.ripeness, ', ') AS ripeness,
+                  STRING_AGG(DISTINCT q.color, ', ') AS color,
+                  STRING_AGG(DISTINCT q."foreignMatter", ', ') AS "foreignMatter",
+                  STRING_AGG(DISTINCT q."overallQuality", ', ') AS "overallQuality"
+              FROM 
+                  "QCData" q
+              GROUP BY 
+                  q."batchNumber"
+              ORDER BY 
+                  q."batchNumber"
+            ) q
+          ) q
+        ) q
+      GROUP BY "batchNumber"
+      ),
+
+      cs AS (
+        SELECT 
+          q."batchNumber",
+          SUM(color_score)::DECIMAL / COUNT(*) AS average_color_score
+        FROM (
+          SELECT 
+            q."batchNumber",
+            q.color_element,
+            ROW_NUMBER() OVER (PARTITION BY "batchNumber" ORDER BY "color_element") AS row_num,
+            CASE 
+              WHEN color_element = 'Black' THEN 2
+              WHEN color_element = 'Yellowish Green' THEN 7
+              WHEN color_element = 'Green' THEN 2
+              WHEN color_element = 'Yellow' THEN 15
+              WHEN color_element IN ('Dark Red', 'Red', 'Bright Red') THEN 30
+              ELSE 0
+            END AS color_score
+          FROM (
+            SELECT 
+              q."batchNumber", 
+              q."foreignMatter",
+              q."overallQuality",
+              TRIM(unnest(string_to_array(trim(both ',' from q.color), ','))) AS color_element
+            FROM (
+              SELECT 
+                  q."batchNumber",
+                  STRING_AGG(DISTINCT q.ripeness, ', ') AS ripeness,
+                  STRING_AGG(DISTINCT q.color, ', ') AS color,
+                  STRING_AGG(DISTINCT q."foreignMatter", ', ') AS "foreignMatter",
+                  STRING_AGG(DISTINCT q."overallQuality", ', ') AS "overallQuality"
+              FROM 
+                  "QCData" q
+              GROUP BY 
+                  q."batchNumber"
+              ORDER BY 
+                  q."batchNumber"
+            ) q
+          ) q
+        ) q
+      GROUP BY "batchNumber"
+      ),
+
+      fs AS (
+        SELECT 
+          q."batchNumber",
+          SUM(foreign_score)::DECIMAL / COUNT(*) AS average_foreign_score
+        FROM (
+          SELECT 
+            q."batchNumber",
+            q.foreign_element,
+            ROW_NUMBER() OVER (PARTITION BY "batchNumber" ORDER BY "foreign_element") AS row_num,
+            CASE 
+              WHEN foreign_element = 'Yes' THEN 0
+              WHEN foreign_element = 'Some' THEN 10
+              WHEN foreign_element = 'None' THEN 20
+              ELSE 0
+            END AS foreign_score
+          FROM (
+            SELECT 
+              q."batchNumber", 
+              TRIM(unnest(string_to_array(trim(both ',' from q."foreignMatter"), ','))) AS foreign_element
+            FROM (
+              SELECT 
+                  q."batchNumber",
+                  STRING_AGG(DISTINCT q.ripeness, ', ') AS ripeness,
+                  STRING_AGG(DISTINCT q.color, ', ') AS color,
+                  STRING_AGG(DISTINCT q."foreignMatter", ', ') AS "foreignMatter",
+                  STRING_AGG(DISTINCT q."overallQuality", ', ') AS "overallQuality"
+              FROM 
+                  "QCData" q
+              GROUP BY 
+                  q."batchNumber"
+              ORDER BY 
+                  q."batchNumber"
+            ) q
+          ) q
+        ) q
+      GROUP BY "batchNumber"
+      )
+
+      ,main AS (
+        SELECT 
+          r.*
+          ,r.type AS cherry_type
+          ,q.ripeness
+          ,q.color
+          ,q."foreignMatter"
+          ,q."overallQuality"
+          ,cs.average_color_score
+          ,rs.average_ripeness_score
+          ,fs.average_foreign_score
+        FROM "ReceivingData" r
+        LEFT JOIN qc q ON r."batchNumber" = q."batchNumber"
+        LEFT JOIN cs cs ON r."batchNumber" = cs."batchNumber"
+        LEFT JOIN rs rs ON r."batchNumber" = rs."batchNumber"
+        LEFT JOIN fs fs ON r."batchNumber" = fs."batchNumber"
+        WHERE r."batchNumber" IS NOT NULL
+        AND q."batchNumber" IS NOT NULL
+        ORDER BY r."batchNumber"
+      )
+
+      SELECT 
+        a."batchNumber"
+        ,cherry_type as type
+        ,ripeness
+        ,color
+        ,"foreignMatter"
+        ,"overallQuality"
+        ,weight*"totalBags" as "totalWeight"
+        ,b."bagsProcessed"
+        ,a."totalBags"
+        ,b."startProcessingDate"
+        ,b."lastProcessingDate"
+        ,a."totalBags" - COALESCE(b."bagsProcessed", 0) AS "bagsAvailable"
+        ,ROUND(COALESCE(a.average_color_score, 0) + COALESCE(a.average_ripeness_score, 0) + COALESCE(a.average_foreign_score, 0), 0)::INTEGER AS "cherryScore"
+      FROM MAIN a
+      LEFT JOIN (
+        SELECT "batchNumber", SUM("bagsProcessed") as "bagsProcessed", MIN("processingDate") as "startProcessingDate", MAX("processingDate") AS "lastProcessingDate" FROM "PreprocessingData" GROUP BY "batchNumber"
+      ) b on a."batchNumber" = b."batchNumber"
+      ORDER BY cherry_type, "cherryScore" DESC;
+      `);
+
+    res.json({ allRows });
+  } catch (err) {
+    console.error('Error fetching preprocessing data:', err);
+    res.status(500).json({ message: 'Failed to fetch preprocessing data.' });
+  }
+});
+
 // Route to get preprocessing data by batch number
 router.get('/preprocessing/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
