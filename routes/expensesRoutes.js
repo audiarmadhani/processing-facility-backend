@@ -3,6 +3,8 @@ const router = express.Router();
 const sequelize = require('../config/database');
 const { google } = require('googleapis');
 const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
 const upload = multer({ dest: 'uploads/' }); // Local upload for temporary storage
 
 // Google Drive setup
@@ -10,6 +12,9 @@ const drive = google.drive({
   version: 'v3',
   auth: 'YOUR_GOOGLE_API_KEY', // Use OAuth2 for better security
 });
+
+// Google Drive folder ID
+const folderId = '1KiEixsrplWdKad-CJiSdOUnP_mlEBlxx';
 
 // Route for creating expense data
 router.post('/expenses', upload.array('invoices'), async (req, res) => {
@@ -23,6 +28,7 @@ router.post('/expenses', upload.array('invoices'), async (req, res) => {
     for (const file of req.files) {
       const fileMetadata = {
         name: file.originalname,
+        parents: [folderId], // Specify the folder ID
         mimeType: file.mimetype,
       };
 
@@ -38,6 +44,8 @@ router.post('/expenses', upload.array('invoices'), async (req, res) => {
       });
 
       invoiceFiles.push(driveFile.data.id); // Store the Google Drive file ID
+      // Optionally delete the local file after uploading
+      fs.unlinkSync(file.path); // Remove the file from local storage
     }
 
     // Save the expense data
