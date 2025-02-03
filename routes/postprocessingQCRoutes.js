@@ -8,7 +8,7 @@ router.get('/postprocessing/:batchNumber', async (req, res) => {
     const { batchNumber } = req.params;
 
     const [batchData] = await sequelize.query(
-      'SELECT "referenceNumber", "storedDate", process, "productLine", producer, type, quality, "totalWeight", "bagsCount", notes FROM "PostprocessingData" WHERE "batchNumber" = ?',
+      'SELECT "referenceNumber", "storedDate", "processingType", "productLine", producer, type, quality, "weight", "totalBags", notes FROM "PostprocessingData" WHERE "batchNumber" = ?',
       { replacements: [batchNumber] }
     );
 
