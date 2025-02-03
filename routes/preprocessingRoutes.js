@@ -216,26 +216,45 @@ router.get('/pendingpreprocessing', async (req, res) => {
         ORDER BY r."batchNumber"
       )
 
+      ,fin as (
+        SELECT 
+          a."batchNumber"
+          ,cherry_type as type
+          ,ripeness
+          ,color
+          ,"foreignMatter"
+          ,"overallQuality"
+          ,weight*"totalBags" as "totalWeight"
+          ,b."bagsProcessed"
+          ,a."totalBags"
+          ,b."startProcessingDate"
+          ,b."lastProcessingDate"
+          ,a."totalBags" - COALESCE(b."bagsProcessed", 0) AS "bagsAvailable"
+          ,ROUND(COALESCE(a.average_color_score, 0) + COALESCE(a.average_ripeness_score, 0) + COALESCE(a.average_foreign_score, 0), 0)::INTEGER AS "cherryScore"
+        FROM MAIN a
+        LEFT JOIN (
+          SELECT "batchNumber", SUM("bagsProcessed") as "bagsProcessed", MIN("processingDate") as "startProcessingDate", MAX("processingDate") AS "lastProcessingDate" FROM "PreprocessingData" GROUP BY "batchNumber"
+        ) b on a."batchNumber" = b."batchNumber"
+        ORDER BY cherry_type, "cherryScore" DESC
+      )
+
       SELECT 
-        a."batchNumber"
-        ,cherry_type as type
-        ,ripeness
-        ,color
-        ,"foreignMatter"
-        ,"overallQuality"
-        ,weight*"totalBags" as "totalWeight"
-        ,b."bagsProcessed"
-        ,a."totalBags"
-        ,b."startProcessingDate"
-        ,b."lastProcessingDate"
-        ,a."totalBags" - COALESCE(b."bagsProcessed", 0) AS "bagsAvailable"
-        ,ROUND(COALESCE(a.average_color_score, 0) + COALESCE(a.average_ripeness_score, 0) + COALESCE(a.average_foreign_score, 0), 0)::INTEGER AS "cherryScore"
-      FROM MAIN a
-      LEFT JOIN (
-        SELECT "batchNumber", SUM("bagsProcessed") as "bagsProcessed", MIN("processingDate") as "startProcessingDate", MAX("processingDate") AS "lastProcessingDate" FROM "PreprocessingData" GROUP BY "batchNumber"
-      ) b on a."batchNumber" = b."batchNumber"
-      ORDER BY cherry_type, "cherryScore" DESC;
-      `);
+        a.*,
+        CASE 
+          WHEN type = 'Arabica' AND "cherryScore" BETWEEN 90 AND 100 THEN 'Group A'
+          WHEN type = 'Arabica' AND "cherryScore" BETWEEN 80 AND 90 THEN 'Group B'
+          WHEN type = 'Arabica' AND "cherryScore" BETWEEN 70 AND 80 THEN 'Group C'
+          WHEN type = 'Arabica' AND "cherryScore" BETWEEN 60 AND 70 THEN 'Group D'
+          WHEN type = 'Arabica' AND "cherryScore" BETWEEN 50 AND 60 THEN 'Group E'
+          WHEN type = 'Robusta' AND "cherryScore" BETWEEN 90 AND 100 THEN 'Group 1'
+          WHEN type = 'Robusta' AND "cherryScore" BETWEEN 80 AND 90 THEN 'Group 2'
+          WHEN type = 'Robusta' AND "cherryScore" BETWEEN 70 AND 80 THEN 'Group 3'
+          WHEN type = 'Robusta' AND "cherryScore" BETWEEN 60 AND 70 THEN 'Group 4'
+          WHEN type = 'Robusta' AND "cherryScore" BETWEEN 50 AND 60 THEN 'Group 5'
+        ELSE 'Group 0'
+        END AS "cherryGroup"
+      FROM fin a;
+    `);
 
     res.json({ allRows });
   } catch (err) {
