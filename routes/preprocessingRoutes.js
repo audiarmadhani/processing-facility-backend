@@ -219,18 +219,18 @@ router.get('/pendingpreprocessing', async (req, res) => {
       ,fin as (
         SELECT 
           a."batchNumber"
-          ,a."receivingDate" as receivingDateData
+          ,a."receivingDate"
           ,cherry_type as type
           ,ripeness
           ,color
           ,"foreignMatter"
           ,"overallQuality"
           ,weight*"totalBags" as "totalWeight"
-          ,b."bagsProcessed"
+          ,b."bagsProcessed" as "processedBags"
           ,a."totalBags"
           ,b."startProcessingDate"
           ,b."lastProcessingDate"
-          ,a."totalBags" - COALESCE(b."bagsProcessed", 0) AS "bagsAvailable"
+          ,a."totalBags" - COALESCE(b."bagsProcessed", 0) AS "availableBags"
           ,ROUND(COALESCE(a.average_color_score, 0) + COALESCE(a.average_ripeness_score, 0) + COALESCE(a.average_foreign_score, 0), 0)::INTEGER AS "cherryScore"
         FROM MAIN a
         LEFT JOIN (
