@@ -50,7 +50,7 @@ router.post('/expenses', upload.array('invoices'), async (req, res) => {
 
     // Save the expense data
     const [expenseData] = await sequelize.query(
-      'INSERT INTO "Expenses" ("type", "subType", "detail", "invoiceAmount", "recipient", "amountPaid", "accountDetails", "invoiceFiles") VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO "ExpensesData" ("type", "subType", "detail", "invoiceAmount", "recipient", "amountPaid", "accountDetails", "invoiceFiles") VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       {
         replacements: [type, subType, detail, invoiceAmount, recipient, amountPaid, accountDetails, JSON.stringify(invoiceFiles)],
         transaction: t,
@@ -76,7 +76,7 @@ router.post('/expenses', upload.array('invoices'), async (req, res) => {
 // Route for fetching all expense data
 router.get('/expenses', async (req, res) => {
   try {
-    const [expenses] = await sequelize.query('SELECT * FROM "Expenses" ORDER BY "createdAt" DESC');
+    const [expenses] = await sequelize.query('SELECT * FROM "ExpensesData" ORDER BY "createdAt" DESC');
     res.json(expenses);
   } catch (err) {
     console.error('Error fetching expense data:', err);
@@ -92,7 +92,7 @@ router.get('/expenses/:id', async (req, res) => {
 
   try {
     const [rows] = await sequelize.query(
-      'SELECT * FROM "Expenses" WHERE "id" = ?',
+      'SELECT * FROM "ExpensesData" WHERE "id" = ?',
       { replacements: [id] }
     );
 
