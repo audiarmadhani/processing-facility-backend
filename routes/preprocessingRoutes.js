@@ -219,7 +219,7 @@ router.get('/pendingpreprocessing', async (req, res) => {
       ,fin as (
         SELECT 
           a."batchNumber"
-          ,a."receivingDate"
+          ,a."receivingDate" as receivingDateData
           ,cherry_type as type
           ,ripeness
           ,color
