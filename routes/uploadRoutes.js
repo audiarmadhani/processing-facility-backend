@@ -27,64 +27,88 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // Set a file size limit (e.g., 5MB)
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (!['.jpg', '.jpeg', '.png'].includes(ext)) {
+    if (!['.jpg', '.jpeg', '.png', '.pdf'].includes(ext)) {
       console.error('Invalid file type');
-      return cb(new Error('Only JPG, JPEG, or PNG files are allowed'), false);
+      return cb(new Error('Only JPG, JPEG, PNG, or PDF files are allowed'), false);
     }
     cb(null, true);
   },
 });
 
-// POST route for uploading an image
-router.post('/upload-image', upload.single('file'), async (req, res) => {
+// Route for creating expenses data
+router.post('/expenses', upload.array('invoices'), async (req, res) => {
+  const t = await sequelize.transaction();
   try {
-    console.log('File upload initiated');
+    const { type, subType, expensesDetail, invoiceAmount, invoiceRecipient, amountPaid, accountDetails, year } = req.body;
 
-    const { file, body } = req;
+    // Save expenses data to the database
+    const [expensesData] = await sequelize.query(
+      'INSERT INTO "Expenses" (type, "subType", "expensesDetail", "invoiceAmount", "invoiceRecipient", "amountPaid", "accountDetails") VALUES (?, ?, ?, ?, ?, ?, ?)',
+      {
+        replacements: [type, subType, expensesDetail, invoiceAmount, invoiceRecipient, amountPaid, accountDetails],
+        transaction: t,
+      }
+    );
 
-    if (!file) {
-      console.error('No file uploaded');
-      throw new Error('No file uploaded');
-    }
+    // Upload files to Google Drive
+    const folderId = await getOrCreateYearFolder(year);
+    const fileIds = await uploadFilesToDrive(req.files, folderId);
 
-    const { path: filePath } = file;
+    // Commit the transaction
+    await t.commit();
 
-    const batchNumber = body.batchNumber;
-    if (!batchNumber) throw new Error('Batch number is required');
-
-    // Set the specific parent folder ID where you want to search/create folders
-    const parentFolderId = '1zYmbuJ1jv06E0uHyG3cTf3Vyn5a9OoUP';
-    let folderId;
-
-    const folderSearch = await drive.files.list({
-      q: `mimeType='application/vnd.google-apps.folder' and name='${batchNumber}' and '${parentFolderId}' in parents`,
-      fields: 'files(id, name)',
+    res.status(201).json({
+      message: 'Expenses data created successfully',
+      expensesData: expensesData[0], // Return the created record
+      fileIds,
     });
+  } catch (err) {
+    // Rollback transaction on error
+    await t.rollback();
+    console.error('Error creating expenses data:', err);
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
 
-    if (folderSearch.data.files.length > 0) {
-      folderId = folderSearch.data.files[0].id;
-    } else {
-      console.log('Folder not found, creating new folder');
-      const folder = await drive.files.create({
-        resource: {
-          name: batchNumber,
-          mimeType: 'application/vnd.google-apps.folder',
-          parents: [parentFolderId], // Set parent folder
-        },
-        fields: 'id',
-      });
-      folderId = folder.data.id;
-    }
+// Function to get or create a folder for the given year
+const getOrCreateYearFolder = async (year) => {
+  const parentFolderId = '1KiEixsrplWdKad-CJiSdOUnP_mlEBlxx'; // Your parent folder ID
 
-    // Upload file to the folder
+  const folderSearch = await drive.files.list({
+    q: `mimeType='application/vnd.google-apps.folder' and name='${year}' and '${parentFolderId}' in parents`,
+    fields: 'files(id, name)',
+  });
+
+  let folderId;
+  if (folderSearch.data.files.length > 0) {
+    folderId = folderSearch.data.files[0].id;
+  } else {
+    console.log('Folder not found, creating new folder');
+    const folder = await drive.files.create({
+      resource: {
+        name: year,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentFolderId], // Set parent folder
+      },
+      fields: 'id',
+    });
+    folderId = folder.data.id;
+  }
+  return folderId;
+};
+
+// Function to upload files to Google Drive
+const uploadFilesToDrive = async (files, folderId) => {
+  const fileIds = [];
+  for (const file of files) {
     const fileMetadata = {
-      name: `${batchNumber}.jpg`,
+      name: file.originalname,
       parents: [folderId],
     };
 
     const media = {
-      mimeType: 'image/jpeg',
-      body: fs.createReadStream(filePath),
+      mimeType: file.mimetype,
+      body: fs.createReadStream(file.path),
     };
 
     const uploadedFile = await drive.files.create({
@@ -94,22 +118,20 @@ router.post('/upload-image', upload.single('file'), async (req, res) => {
     });
 
     // Clean up local file
-    fs.unlinkSync(filePath);
+    fs.unlinkSync(file.path);
+    fileIds.push(uploadedFile.data.id);
+  }
+  return fileIds;
+};
 
-    res.json({
-      message: 'File uploaded successfully!',
-      file: uploadedFile.data,
-    });
-
-  } catch (error) {
-    console.error('Error during file upload:', error);
-
-    // Clean up the file if an error occurs
-    if (req.file && req.file.path) {
-      fs.unlinkSync(req.file.path);
-    }
-
-    res.status(500).json({ error: 'Failed to upload file', details: error.message });
+// Route for fetching all expenses data
+router.get('/expenses', async (req, res) => {
+  try {
+    const [expenses] = await sequelize.query('SELECT * FROM "Expenses" ORDER BY "createdAt" DESC');
+    res.json(expenses);
+  } catch (err) {
+    console.error('Error fetching expenses data:', err);
+    res.status(500).json({ message: 'Failed to fetch expenses data.' });
   }
 });
 

@@ -20,6 +20,8 @@ const databaseRoutes = require('./routes/databaseRoutes')
 const transportRoutes = require('./routes/transportRoutes')
 const locationRoutes = require('./routes/locationRoutes')
 const paymentRoutes = require('./routes/paymentRoutes')
+const expensesRoutes = require('./routes/expensesRoutes')
+
 
 // Load environment variables
 dotenv.config();
@@ -64,6 +66,7 @@ const apiRoutes = [
   transportRoutes,
   locationRoutes,
   paymentRoutes,
+  expensesRoutes,
 ];
 
 apiRoutes.forEach(route => app.use('/api', route));
