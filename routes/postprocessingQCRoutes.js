@@ -108,7 +108,7 @@ router.get('/postproqcfin', async (req, res) => {
                 "rantingSedang" * 2 +
                 "rantingKecil" * 1
                 )::float AS "defectScore",
-                ("totalBobotKotoran"/300)*100 AS "defectWeightPercentage"
+                ROUND(CAST(("totalBobotKotoran" / 300.0) * 100 AS numeric), 1)::FLOAT AS "defectWeightPercentage" AS "defectWeightPercentage"
             FROM "PostprocessingQCData" a
             )
 
