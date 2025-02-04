@@ -72,4 +72,93 @@ router.get('/postproqc', async (req, res) => {
   }
 });
 
+// Route for fetching all QC data
+router.get('/postproqcfin', async (req, res) => {
+    try {
+      const [qcData] = await sequelize.query(`
+        WITH MAIN AS (
+            SELECT 
+                a.* ,
+                CASE
+                WHEN "seranggaHidup" = true THEN 'Rejected, insect'
+                WHEN "bijiBauBusuk" = true THEN 'Rejected, rotten smell'
+                WHEN kelembapan >= 20 THEN 'Rejected, high moisture'
+                WHEN ("totalBobotKotoran"/300)*100 >= 20 THEN 'Rejected, defect weight too much'
+                ELSE 'Approved'
+                END AS "generalQuality",
+                (
+                "bijiHitam"*1 + 
+                "bijiHitamSebagian"*0.5 +
+                "bijiHitamPecah"*0.5 +
+                "kopiGelondong"*1 +
+                "bijiCoklat"*0.25 +
+                "kulitKopiBesar"*1 +
+                "kulitKopiSedang"*0.5 +
+                "kulitKopiKecil" * 0.2 +
+                "bijiBerKulitTanduk" * 0.5 +
+                "kulitTandukBesar" * 0.5 +
+                "kulitTandukSedang" * 0.2 +
+                "kulitTandukKecil" * 0.1 +
+                "bijiPecah" * 0.2 +
+                "bijiMuda" * 0.2 +
+                "bijiBerlubangSatu" * 0.1 +
+                "bijiBerlubangLebihSatu" * 0.2 +
+                "bijiBertutul" * 0.1 +
+                "rantingBesar" * 5 +
+                "rantingSedang" * 2 +
+                "rantingKecil" * 1
+                )::float AS "defectScore",
+                ("totalBobotKotoran"/300)*100 AS "defectWeightPercentage"
+            FROM "PostprocessingQCData" a
+            )
+
+            SELECT 
+            "batchNumber",
+            "generalQuality",
+            CASE
+                WHEN "defectScore" <= 5 THEN 'Specialty'
+                WHEN "defectScore" <= 11 THEN 'Grade 1'
+                WHEN "defectScore" <= 25 THEN 'Grade 2'
+                WHEN "defectScore" <= 44 THEN 'Grade 3'
+                WHEN "defectScore" <= 60 THEN 'Grade 4a'
+                WHEN "defectScore" <= 80 THEN 'Grade 4b'
+                WHEN "defectScore" <= 150 THEN 'Grade 5'
+                WHEN "defectScore" <= 225 THEN 'Grade 6'
+            ELSE 'Unknown'
+            END AS "actualGrade",
+            kelembapan,
+            "seranggaHidup",
+            "bijiBauBusuk",
+            "defectScore",
+            "totalBobotKotoran",
+            "defectWeightPercentage",
+            "bijiHitam",
+            "bijiHitamSebagian",
+            "bijiPecah",
+            "kopiGelondong",
+            "bijiCoklat",
+            "kulitKopiBesar",
+            "kulitKopiSedang",
+            "kulitKopiKecil",
+            "bijiBerKulitTanduk",
+            "kulitTandukBesar",
+            "kulitTandukSedang",
+            "kulitTandukKecil",
+            "bijiPecah",
+            "bijiMuda",
+            "bijiBerlubangSatu",
+            "bijiBerlubangLebihSatu",
+            "bijiBertutul",
+            "rantingBesar",
+            "rantingSedang",
+            "rantingKecil"
+            FROM MAIN a;
+        `);
+      res.json(qcData);
+    } catch (err) {
+      console.error('Error fetching QC data:', err);
+      res.status(500).json({ message: 'Failed to fetch QC data' });
+    }
+  });
+
 module.exports = router;
