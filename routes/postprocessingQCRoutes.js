@@ -113,7 +113,8 @@ router.get('/postproqcfin', async (req, res) => {
             )
 
             SELECT 
-            "batchNumber",
+            a."batchNumber",
+            b."referenceNumber",
             "generalQuality",
             CASE
                 WHEN "defectScore" <= 5 THEN 'Specialty'
@@ -152,7 +153,8 @@ router.get('/postproqcfin', async (req, res) => {
             "rantingBesar",
             "rantingSedang",
             "rantingKecil"
-            FROM MAIN a;
+            FROM MAIN a
+            LEFT JOIN "PostprocessingData" b on a."batchNumber" = b."batchNumber";
         `);
       res.json(qcData);
     } catch (err) {
