@@ -140,7 +140,7 @@ router.get('/receiving/:batchNumber', async (req, res) => {
         "qcDateTrunc"
       FROM "ReceivingData" a 
       LEFT JOIN qc b on a."batchNumber" = b."batchNumber" 
-      WHERE LOWER("a.batchNumber") = LOWER(?);
+      WHERE LOWER(a."batchNumber") = LOWER(?);
       `,
       { replacements: [batchNumber.trim()] }
     );
