@@ -24,7 +24,7 @@ const drive = google.drive({ version: 'v3', auth: oauth2Client });
 // Configure Multer for file uploads
 const upload = multer({
   dest: 'uploads/',
-  limits: { fileSize: 5 * 1024 * 1024 }, // Set a file size limit (e.g., 5MB)
+  limits: { fileSize: 100 * 1024 * 1024 }, // Set a file size limit (e.g., 5MB)
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (!['.jpg', '.jpeg', '.png'].includes(ext)) {
