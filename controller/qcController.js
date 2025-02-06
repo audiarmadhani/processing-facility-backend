@@ -19,6 +19,10 @@ exports.createQCData = async (req, res) => {
             foreignMatter,
             overallQuality,
             qcNotes,
+            unripePercentage,
+            semiripePercentage,
+            ripePercentage,
+            overripePercentage,
         });
 
         res.status(201).json(qcData);
