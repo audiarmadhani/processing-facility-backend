@@ -109,9 +109,9 @@ router.post('/receiving', async (req, res) => {
 router.get('/receiving', async (req, res) => {
   try {
     // Fetch all records for filtering purposes
-    const [allRows] = await sequelize.query('SELECT * FROM "ReceivingData"');
-    const [latestRows] = await sequelize.query('SELECT * FROM "ReceivingData" ORDER BY "receivingDate" DESC LIMIT 1');
-    const [todayData] = await sequelize.query(`SELECT * FROM "ReceivingData" WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") ORDER BY "receivingDate"`);
+    const [allRows] = await sequelize.query('SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a');
+    const [latestRows] = await sequelize.query('SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a DESC LIMIT 1');
+    const [todayData] = await sequelize.query(`SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") ORDER BY "receivingDate"`);
     
     res.json({ latestRows, allRows, todayData });
   } catch (err) {
@@ -128,7 +128,20 @@ router.get('/receiving/:batchNumber', async (req, res) => {
 
   try {
     const [rows] = await sequelize.query(
-      'SELECT * FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(?)',
+      `
+      WITH qc AS (
+        SELECT "batchNumber", MIN(DATE("qcDate")) AS "qcDateTrunc"
+        FROM "QCData"
+        GROUP BY "batchNumber"
+      )
+
+      SELECT 
+        a.*, DATE("receivingDate") as "receivingDateTrunc", 
+        "qcDate" 
+      FROM "ReceivingData" a 
+      LEFT JOIN qc b on a."batchNumber" = b."batchNumber" 
+      WHERE LOWER("a.batchNumber") = LOWER(?);
+      `,
       { replacements: [batchNumber.trim()] }
     );
 

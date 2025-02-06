@@ -94,8 +94,8 @@ router.post('/postprocessing', async (req, res) => {
 // Route for fetching all postprocessing data
 router.get('/postprocessing', async (req, res) => {
   try {
-    const [allRows] = await sequelize.query('SELECT * FROM "PostprocessingData"');
-    const [latestRows] = await sequelize.query('SELECT * FROM "PostprocessingData" ORDER BY "storedDate" DESC LIMIT 1');
+    const [allRows] = await sequelize.query('SELECT a.*, DATE("storedDate") storedDateTrunc FROM "PostprocessingData" a');
+    const [latestRows] = await sequelize.query('SELECT a.*, DATE("storedDate") storedDateTrunc FROM "PostprocessingData" a ORDER BY a."storedDate" DESC LIMIT 1');
     
     res.json({ latestRows, allRows });
   } catch (err) {
@@ -112,7 +112,7 @@ router.get('/postprocessing/:batchNumber', async (req, res) => {
 
   try {
     const [rows] = await sequelize.query(
-      'SELECT * FROM "PostprocessingData" WHERE LOWER("batchNumber") = LOWER(?)',
+      'SELECT a.*, DATE("storedDate") storedDateTrunc FROM "PostprocessingData" a WHERE LOWER(a."batchNumber") = LOWER(?)',
       { replacements: [batchNumber.trim()] }
     );
 

@@ -50,7 +50,7 @@ router.post('/transport', async (req, res) => {
 // Route for fetching all transport data
 router.get('/transport', async (req, res) => {
   try {
-    const [allTransportData] = await sequelize.query('SELECT * FROM "TransportData" ORDER BY "createdAt" DESC');
+    const [allTransportData] = await sequelize.query('SELECT a.*, DATE("createdAt") "createdAtTrunc" FROM "TransportData" a ORDER BY "createdAt" DESC');
     res.json(allTransportData);
   } catch (err) {
     console.error('Error fetching transport data:', err);
@@ -64,7 +64,7 @@ router.get('/transport/:batchNumber', async (req, res) => {
 
   try {
     const [rows] = await sequelize.query(
-      'SELECT * FROM "TransportData" WHERE LOWER("batchNumber") = LOWER(?)',
+      'SELECT a.*, DATE("createdAt") "createdAtTrunc" FROM "TransportData" a WHERE LOWER("batchNumber") = LOWER(?)',
       { replacements: [batchNumber.trim()] }
     );
 

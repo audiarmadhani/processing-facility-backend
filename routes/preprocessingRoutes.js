@@ -45,8 +45,8 @@ router.post('/preprocessing', async (req, res) => {
 router.get('/preprocessing', async (req, res) => {
   try {
     // Fetch all records for filtering purposes
-    const [allRows] = await sequelize.query('SELECT * FROM "PreprocessingData"');
-    const [latestRows] = await sequelize.query('SELECT * FROM "PreprocessingData" ORDER BY "processingDate" DESC LIMIT 1');
+    const [allRows] = await sequelize.query('SELECT a.*, DATE("processingDate") "processingDateTrunc" FROM "PreprocessingData" a');
+    const [latestRows] = await sequelize.query('SELECT a.*, DATE("processingDate") "processingDateTrunc" FROM "PreprocessingData" a ORDER BY a."processingDate" DESC LIMIT 1');
 
     res.json({ latestRows, allRows });
   } catch (err) {
@@ -63,6 +63,7 @@ router.get('/pendingpreprocessing', async (req, res) => {
       WITH qc AS (
         SELECT 
             q."batchNumber",
+            q."qcDate",
             ARRAY_TO_STRING(ARRAY_AGG(DISTINCT q.ripeness), ', ') AS ripeness,
             ARRAY_TO_STRING(ARRAY_AGG(DISTINCT q.color), ', ') AS color,
             ARRAY_TO_STRING(ARRAY_AGG(DISTINCT q."foreignMatter"), ', ') AS "foreignMatter",
@@ -74,7 +75,8 @@ router.get('/pendingpreprocessing', async (req, res) => {
         FROM 
             "QCData" q
         GROUP BY 
-            q."batchNumber"
+            q."batchNumber",
+            q."qcDate"
         ORDER BY 
             q."batchNumber"
       )
@@ -207,6 +209,7 @@ router.get('/pendingpreprocessing', async (req, res) => {
       ,main AS (
         SELECT 
           r.*
+          ,DATE(q."qcDate") as qcDateData
           ,r.type AS cherry_type
           ,q.ripeness
           ,q.color
@@ -230,7 +233,8 @@ router.get('/pendingpreprocessing', async (req, res) => {
       ,fin as (
         SELECT 
           a."batchNumber"
-          ,a."receivingDate" as receivingDateData
+          ,DATE(a."receivingDate") as receivingDateData
+          ,qcDateData
           ,cherry_type as type
           ,ripeness
           ,color

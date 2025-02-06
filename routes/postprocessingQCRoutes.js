@@ -8,7 +8,7 @@ router.get('/postprocessing/:batchNumber', async (req, res) => {
     const { batchNumber } = req.params;
 
     const [batchData] = await sequelize.query(
-      'SELECT "referenceNumber", "storedDate", "processingType", "productLine", producer, type, quality, "weight", "totalBags", notes FROM "PostprocessingData" WHERE "batchNumber" = ?',
+      'SELECT "referenceNumber", DATE("storedDate") "storedDate", "processingType", "productLine", producer, type, quality, "weight", "totalBags", notes FROM "PostprocessingData" WHERE "batchNumber" = ?',
       { replacements: [batchNumber] }
     );
 
@@ -64,7 +64,7 @@ router.post('/postproqc', async (req, res) => {
 // Route for fetching all QC data
 router.get('/postproqc', async (req, res) => {
   try {
-    const [qcData] = await sequelize.query('SELECT * FROM "PostprocessingQCData" ORDER BY "createdAt" DESC');
+    const [qcData] = await sequelize.query('SELECT a.*, DATE("createdAt") "createdAtTrunc" FROM "PostprocessingQCData" a ORDER BY a."createdAt" DESC');
     res.json(qcData);
   } catch (err) {
     console.error('Error fetching QC data:', err);
@@ -115,6 +115,8 @@ router.get('/postproqcfin', async (req, res) => {
             SELECT 
             a."batchNumber",
             b."referenceNumber",
+            DATE(b."storedDate") "storedDate",
+            DATE(a."createdAt") "qcDate",
             "generalQuality",
             CASE
                 WHEN "defectScore" <= 5 THEN 'Specialty'
