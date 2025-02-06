@@ -22,6 +22,7 @@ const locationRoutes = require('./routes/locationRoutes')
 const paymentRoutes = require('./routes/paymentRoutes')
 const expensesRoutes = require('./routes/expensesRoutes')
 const postprocessingQCRoutes = require('./routes/postprocessingQCRoutes')
+const uploadImageRoutes = require('./routes/uploadImageRoutes')
 
 
 // Load environment variables
@@ -69,6 +70,7 @@ const apiRoutes = [
   paymentRoutes,
   expensesRoutes,
   postprocessingQCRoutes,
+  uploadImageRoutes,
 ];
 
 apiRoutes.forEach(route => app.use('/api', route));
