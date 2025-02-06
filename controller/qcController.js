@@ -3,7 +3,7 @@ const { QCData, ReceivingData, sequelize } = require('../models');
 // Function to create QC data
 exports.createQCData = async (req, res) => {
     try {
-        const { batchNumber, ripeness, color, foreignMatter, overallQuality, qcNotes } = req.body;
+        const { batchNumber, ripeness, color, foreignMatter, overallQuality, qcNotes, unripePercentage, semiripePercentage, ripePercentage, overripePercentage } = req.body;
 
         // Check if the batch number exists in ReceivingData before creating QCData
         const receivingData = await ReceivingData.findOne({ where: { batchNumber: batchNumber.trim() } });
