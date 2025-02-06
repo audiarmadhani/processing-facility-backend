@@ -31,6 +31,22 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.TEXT,
       allowNull: true
     },
+    unripePercentage: {
+      type: DataTypes.FLOAT,
+      allowNull: true
+    },
+    semiripePercentage: {
+      type: DataTypes.FLOAT,
+      allowNull: true
+    },
+    ripePercentage: {
+      type: DataTypes.FLOAT,
+      allowNull: true
+    },
+    overripePercentage: {
+      type: DataTypes.FLOAT,
+      allowNull: true
+    },
     qcDate: {
       type: DataTypes.DATE,
       allowNull: true,
