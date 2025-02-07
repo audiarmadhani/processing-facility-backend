@@ -627,22 +627,28 @@ router.get('/dashboard-metrics', async (req, res) => {
         metrics.robustaProductionMoM = await executeQuery(robustaProductionMoMQuery); // No date filtering
 
         const restructuredMetrics = {};
+
         for (const key in metrics) {
-            if (typeof metrics[key] === 'object' && metrics[key] !== null) {
-                // Check if the object has a "count" or "sum" property
-                if (metrics[key].count !== undefined) {
-                  restructuredMetrics[key] = metrics[key].count;
-                } else if (metrics[key].sum !== undefined) {
-                  restructuredMetrics[key] = metrics[key].sum;
+            const value = metrics[key]; // Store the value for easier access
+
+            if (typeof value === 'object' && value !== null) {
+                // Check for count, sum, or avg properties and extract the value
+                if (value.count !== undefined) {
+                    restructuredMetrics[key] = value.count;
+                } else if (value.sum !== undefined) {
+                    restructuredMetrics[key] = value.sum;
+                } else if (value.avg !== undefined) {
+                    restructuredMetrics[key] = value.avg;
                 } else {
-                    restructuredMetrics[key] = metrics[key]; // Keep the original object if no count or sum
+                    // Handle cases where the object *is* the value (e.g., date objects)
+                    restructuredMetrics[key] = value;
                 }
             } else {
-                restructuredMetrics[key] = metrics[key]; // Handle non-object values
+                restructuredMetrics[key] = value; // Handle primitive values directly
             }
         }
 
-        res.json(restructuredMetrics); // Send the restructured data
+        res.json(restructuredMetrics);
 
     } catch (error) {
         console.error("Error in main route handler:", error);
