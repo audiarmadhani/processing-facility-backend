@@ -163,11 +163,11 @@ router.get('/dashboard-metrics', async (req, res) => {
             SELECT COALESCE(ROUND(SUM((b.weight / b."totalBags") * a."bagsProcessed")::numeric, 1), 0) AS sum 
             FROM "PreprocessingData" a 
             LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber" 
-            WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
+            WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             AND type = 'Arabica'
         `;
         const totalRobustaProcessedQuery = `
-            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' AND type = 'Robusta'
+            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' AND type = 'Robusta'
         `;
         const activeArabicaFarmersQuery = `
             SELECT SUM(isActive) AS count FROM "Farmers" where "farmType" in ('Arabica', 'Mix', 'Mixed');
@@ -220,10 +220,10 @@ router.get('/dashboard-metrics', async (req, res) => {
             AND type = 'Robusta'
         `;
         const lastmonthArabicaProcessedQuery = `
-            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND type = 'Arabica'
+            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND type = 'Arabica'
         `;
         const lastmonthRobustaProcessedQuery = `
-            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND type = 'Robusta'
+            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND type = 'Robusta'
         `;
 
         // Example queries for production data
@@ -350,7 +350,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                 "PostprocessingData" 
             WHERE 
                 "storedDate" IS NOT NULL 
-                AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Arabica' 
             GROUP BY 
                 "referenceNumber", 
@@ -365,7 +365,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                 "PostprocessingData" 
             WHERE 
                 "storedDate" IS NOT NULL 
-                AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Robusta' 
             GROUP BY 
                 "referenceNumber", 
@@ -606,14 +606,14 @@ router.get('/dashboard-metrics', async (req, res) => {
             RDA AS (
                 SELECT DATE("processingDate") as "processingDate", COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS "TotalWeightThisMonth"
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
-                WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                WHERE "processedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Arabica'
                 GROUP BY DATE("processingDate")
             ),
             RDB AS (
                 SELECT DATE("processingDate") as "processingDate", COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS "TotalWeightLastMonth"
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
-                WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
+                WHERE "processedDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND type = 'Arabica'
                 GROUP BY DATE("processingDate")
             )
@@ -636,14 +636,14 @@ router.get('/dashboard-metrics', async (req, res) => {
             RDA AS (
                 SELECT DATE("processingDate") as "processingDate", COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS "TotalWeightThisMonth"
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
-                WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                WHERE "processedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Robusta'
                 GROUP BY DATE("processingDate")
             ),
             RDB AS (
                 SELECT DATE("processingDate") as "processingDate", COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS "TotalWeightLastMonth"
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
-                WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
+                WHERE "processedDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND type = 'Robusta'
                 GROUP BY DATE("processingDate")
             )
@@ -666,14 +666,14 @@ router.get('/dashboard-metrics', async (req, res) => {
                 RDA AS (
                 SELECT DATE("storedDate") as "storedDate", COALESCE(SUM(Weight), 0) AS "TotalWeightThisMonth"
                 FROM "PostprocessingData" 
-                WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                WHERE "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Arabica'
                 GROUP BY DATE("storedDate")
             ),
             RDB AS (
                 SELECT DATE("storedDate") as "storedDate", COALESCE(SUM(Weight), 0) AS "TotalWeightLastMonth"
                 FROM "PostprocessingData" 
-                WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
+                WHERE "storedDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND type = 'Arabica'
                 GROUP BY DATE("storedDate")
             )
@@ -697,14 +697,14 @@ router.get('/dashboard-metrics', async (req, res) => {
                 RDA AS (
                 SELECT DATE("storedDate") as "storedDate", COALESCE(SUM(Weight), 0) AS "TotalWeightThisMonth"
                 FROM "PostprocessingData" 
-                WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                WHERE "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Robusta'
                 GROUP BY DATE("storedDate")
             ),
             RDB AS (
                 SELECT DATE("storedDate") as "storedDate", COALESCE(SUM(Weight), 0) AS "TotalWeightLastMonth"
                 FROM "PostprocessingData" 
-                WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
+                WHERE "storedDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND type = 'Robusta'
                 GROUP BY DATE("storedDate")
             )
