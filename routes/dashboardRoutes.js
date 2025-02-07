@@ -74,37 +74,37 @@ router.get('/dashboard-metrics', async (req, res) => {
 
         // Now use startDate and endDate in your queries (example)
 
-        metrics.totalBatches = await executeQuery(`SELECT COUNT(*) AS count FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')}`, { startDate, endDate }); // Correct!
-        metrics.totalArabicaWeight = await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Arabica'`, { startDate, endDate }); // Correct!
-        metrics.totalRobustaWeight = await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Robusta'`, { startDate, endDate }); // Correct!
-        metrics.totalArabicaCost = await executeQuery(`SELECT COALESCE(SUM(price*weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Arabica'`, { startDate, endDate }); // Correct!
-        metrics.totalRobustaCost = await executeQuery(`SELECT COALESCE(SUM(price*weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Robusta'`, { startDate, endDate }); // Correct!
-        metrics.avgArabicaCost = await executeQuery(`SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Arabica'`, { startDate, endDate }); // Correct!
-        metrics.avgRobustaCost = await executeQuery(`SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Robusta'`, { startDate, endDate }); // Correct!
-        metrics.totalArabicaProcessed = await executeQuery(`SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE ${generateDateFilter(startDate, endDate, 'processingDate')} AND type = 'Arabica'`, { startDate, endDate }); // Correct!
-        metrics.totalRobustaProcessed = await executeQuery(`SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE ${generateDateFilter(startDate, endDate, 'processingDate')} AND type = 'Robusta'`, { startDate, endDate }); // Correct!
-        metrics.totalArabicaProduction = await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE ${generateDateFilter(startDate, endDate, 'storedDate')} AND type = 'Arabica'`, { startDate, endDate }); // Correct!
-        metrics.totalRobustaProduction = await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE ${generateDateFilter(startDate, endDate, 'storedDate')} AND type = 'Robusta'`, { startDate, endDate }); // Correct!
+        metrics.totalBatches = (await executeQuery(`SELECT COUNT(*) AS count FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')}`, { startDate, endDate }))[0]?.count?? 0; // Correct!
+        metrics.totalArabicaWeight = (await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Arabica'`, { startDate, endDate }))[0]?.sum?? 0; // Correct!
+        metrics.totalRobustaWeight = (await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Robusta'`, { startDate, endDate }))[0]?.sum?? 0; // Correct!
+        metrics.totalArabicaCost = (await executeQuery(`SELECT COALESCE(SUM(price*weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Arabica'`, { startDate, endDate }))[0]?.sum?? 0; // Correct!
+        metrics.totalRobustaCost = (await executeQuery(`SELECT COALESCE(SUM(price*weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Robusta'`, { startDate, endDate }))[0]?.sum?? 0; // Correct!
+        metrics.avgArabicaCost = (await executeQuery(`SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Arabica'`, { startDate, endDate }))[0]?.avg?? 0; // Correct!
+        metrics.avgRobustaCost = (await executeQuery(`SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg FROM "ReceivingData" WHERE ${generateDateFilter(startDate, endDate, 'receivingDate')} AND type = 'Robusta'`, { startDate, endDate }))[0]?.avg?? 0; // Correct!
+        metrics.totalArabicaProcessed = (await executeQuery(`SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE ${generateDateFilter(startDate, endDate, 'processingDate')} AND type = 'Arabica'`, { startDate, endDate }))[0]?.sum?? 0; // Correct!
+        metrics.totalRobustaProcessed = (await executeQuery(`SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE ${generateDateFilter(startDate, endDate, 'processingDate')} AND type = 'Robusta'`, { startDate, endDate }))[0]?.sum?? 0; // Correct!
+        metrics.totalArabicaProduction = (await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE ${generateDateFilter(startDate, endDate, 'storedDate')} AND type = 'Arabica'`, { startDate, endDate }))[0]?.sum?? 0; // Correct!
+        metrics.totalRobustaProduction = (await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE ${generateDateFilter(startDate, endDate, 'storedDate')} AND type = 'Robusta'`, { startDate, endDate }))[0]?.sum?? 0; // Correct!
 
         // Metrics comparing current vs. previous (Corrected!)
-        metrics.lastmonthArabicaWeight = await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Arabica'`, { startDate: startDatePrevious, endDate: endDatePrevious }); // Correct replacements!
-        metrics.lastmonthRobustaWeight = await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Robusta'`, { startDate: startDatePrevious, endDate: endDatePrevious }); // Correct replacements!
-        metrics.lastmonthArabicaCost = await executeQuery(`SELECT COALESCE(SUM(price*weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Arabica'`, { startDate: startDatePrevious, endDate: endDatePrevious }); // Correct replacements!
-        metrics.lastmonthRobustaCost = await executeQuery(`SELECT COALESCE(SUM(price*weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Robusta'`, { startDate: startDatePrevious, endDate: endDatePrevious }); // Correct replacements!
-        metrics.lastmonthAvgArabicaCost = await executeQuery(`SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Arabica'`, { startDate: startDatePrevious, endDate: endDatePrevious }); // Correct replacements!
-        metrics.lastmonthAvgRobustaCost = await executeQuery(`SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Robusta'`, { startDate: startDatePrevious, endDate: endDatePrevious }); // Correct replacements!
-        metrics.lastmonthArabicaProcessed = await executeQuery(`SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'processingDate')} AND type = 'Arabica'`, { startDate: startDatePrevious, endDate: endDatePrevious }); // Correct replacements!
-        metrics.lastmonthRobustaProcessed = await executeQuery(`SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'processingDate')} AND type = 'Robusta'`, { startDate: startDatePrevious, endDate: endDatePrevious }); // Correct replacements!
-        metrics.lastmonthArabicaProduction = await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'storedDate')} AND type = 'Arabica'`, { startDate: startDatePrevious, endDate: endDatePrevious }); // Correct replacements!
-        metrics.lastmonthRobustaProduction = await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'storedDate')} AND type = 'Robusta'`, { startDate: startDatePrevious, endDate: endDatePrevious }); // Correct replacements!
+        metrics.lastmonthArabicaWeight = (await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Arabica'`, { startDate: startDatePrevious, endDate: endDatePrevious }))[0]?.sum?? 0; // Correct replacements!
+        metrics.lastmonthRobustaWeight = (await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Robusta'`, { startDate: startDatePrevious, endDate: endDatePrevious }))[0]?.sum?? 0; // Correct replacements!
+        metrics.lastmonthArabicaCost = (await executeQuery(`SELECT COALESCE(SUM(price*weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Arabica'`, { startDate: startDatePrevious, endDate: endDatePrevious }))[0]?.sum?? 0; // Correct replacements!
+        metrics.lastmonthRobustaCost = (await executeQuery(`SELECT COALESCE(SUM(price*weight), 0) AS sum FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Robusta'`, { startDate: startDatePrevious, endDate: endDatePrevious }))[0]?.sum?? 0; // Correct replacements!
+        metrics.lastmonthAvgArabicaCost = (await executeQuery(`SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Arabica'`, { startDate: startDatePrevious, endDate: endDatePrevious }))[0]?.avg?? 0; // Correct replacements!
+        metrics.lastmonthAvgRobustaCost = (await executeQuery(`SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg FROM "ReceivingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'receivingDate')} AND type = 'Robusta'`, { startDate: startDatePrevious, endDate: endDatePrevious }))[0]?.avg?? 0; // Correct replacements!
+        metrics.lastmonthArabicaProcessed = (await executeQuery(`SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'processingDate')} AND type = 'Arabica'`, { startDate: startDatePrevious, endDate: endDatePrevious }))[0]?.sum?? 0; // Correct replacements!
+        metrics.lastmonthRobustaProcessed = (await executeQuery(`SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'processingDate')} AND type = 'Robusta'`, { startDate: startDatePrevious, endDate: endDatePrevious }))[0]?.sum?? 0; // Correct replacements!
+        metrics.lastmonthArabicaProduction = (await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'storedDate')} AND type = 'Arabica'`, { startDate: startDatePrevious, endDate: endDatePrevious }))[0]?.sum?? 0; // Correct replacements!
+        metrics.lastmonthRobustaProduction = (await executeQuery(`SELECT COALESCE(SUM(weight), 0) AS sum FROM "PostprocessingData" WHERE ${generateDateFilter(startDatePrevious, endDatePrevious, 'storedDate')} AND type = 'Robusta'`, { startDate: startDatePrevious, endDate: endDatePrevious }))[0]?.sum?? 0; // Correct replacements!
 
         // ... (rest of the code)
 
-        metrics.activeArabicaFarmers = await executeQuery(`SELECT COUNT(*) AS count FROM "Farmers" where "farmType" in ('Arabica', 'Mix', 'Mixed') AND isActive = 1`);
-        metrics.activeRobustaFarmers = await executeQuery(`SELECT COUNT(*) AS count FROM "Farmers" where "farmType" in ('Robusta', 'Mix', 'Mixed') AND isActive = 1`);
+        metrics.activeArabicaFarmers = (await executeQuery(`SELECT COUNT(*) AS count FROM "Farmers" where "farmType" in ('Arabica', 'Mix', 'Mixed') AND isActive = 1`))[0]?.count?? 0;
+        metrics.activeRobustaFarmers = (await executeQuery(`SELECT COUNT(*) AS count FROM "Farmers" where "farmType" in ('Robusta', 'Mix', 'Mixed') AND isActive = 1`))[0]?.count?? 0;
 
-        metrics.landCoveredArabica = await executeQuery(`SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'`);
-        metrics.landCoveredRobusta = await executeQuery(`SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Robusta' and isactive='1'`);
+        metrics.landCoveredArabica = (await executeQuery(`SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'`))[0]?.sum?? 0;
+        metrics.landCoveredRobusta = (await executeQuery(`SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Robusta' and isactive='1'`))[0]?.sum?? 0;
 
         const arabicaYieldQuery = `
             WITH pre AS (
@@ -626,29 +626,7 @@ router.get('/dashboard-metrics', async (req, res) => {
         metrics.arabicaProductionMoM = await executeQuery(arabicaProductionMoMQuery); // No date filtering
         metrics.robustaProductionMoM = await executeQuery(robustaProductionMoMQuery); // No date filtering
 
-        const restructuredMetrics = {};
-
-        for (const key in metrics) {
-            const value = metrics[key]; // Store the value for easier access
-
-            if (typeof value === 'object' && value !== null) {
-                // Check for count, sum, or avg properties and extract the value
-                if (value.count !== undefined) {
-                    restructuredMetrics[key] = value.count;
-                } else if (value.sum !== undefined) {
-                    restructuredMetrics[key] = value.sum;
-                } else if (value.avg !== undefined) {
-                    restructuredMetrics[key] = value.avg;
-                } else {
-                    // Handle cases where the object *is* the value (e.g., date objects)
-                    restructuredMetrics[key] = value;
-                }
-            } else {
-                restructuredMetrics[key] = value; // Handle primitive values directly
-            }
-        }
-
-        res.json(restructuredMetrics);
+        res.json(metrics);
 
     } catch (error) {
         console.error("Error in main route handler:", error);
