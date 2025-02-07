@@ -785,70 +785,72 @@ router.get('/dashboard-metrics', async (req, res) => {
  
  
         // Extract the relevant values from query results
-        const totalBatches = totalBatchesResult[0].count || 0;
- 
-        const totalArabicaWeight = totalArabicaWeightResult[0].sum || 0;
-        const totalRobustaWeight= totalRobustaWeightResult[0].sum || 0;
-        const lastmonthArabicaWeight= lastmonthArabicaWeightResult[0].sum || 0;
-        const lastmonthRobustaWeight= lastmonthRobustaWeightResult[0].sum || 0;
- 
-        const totalArabicaCost= totalArabicaCostResult[0].sum || 0;
-        const totalRobustaCost= totalRobustaCostResult[0].sum || 0;
-        const lastmonthArabicaCost= lastmonthArabicaCostResult[0].sum || 0;
-        const lastmonthRobustaCost= lastmonthRobustaCostResult[0].sum || 0;
- 
-        const avgArabicaCost= avgArabicaCostResult[0].avg || 0;
-        const avgRobustaCost= avgRobustaCostResult[0].avg || 0;
-        const lastmonthAvgArabicaCost= lastmonthAvgArabicaCostResult[0].avg || 0;
-        const lastmonthAvgRobustaCost= lastmonthAvgRobustaCostResult[0].avg || 0;
- 
-        const totalArabicaProcessed= totalArabicaProcessedResult[0].sum || 0;
-        const totalRobustaProcessed= totalRobustaProcessedResult[0].sum || 0;
-        const lastmonthArabicaProcessed= lastmonthArabicaProcessedResult[0].sum || 0;
-        const lastmonthRobustaProcessed= lastmonthRobustaProcessedResult[0].sum || 0;
- 
-        const totalArabicaProduction= totalArabicaProductionResult[0].sum || 0;
-        const totalRobustaProduction= totalRobustaProductionResult[0].sum || 0;
-        const lastmonthArabicaProduction= lastmonthArabicaProductionResult[0].sum || 0;
-        const lastmonthRobustaProduction= lastmonthRobustaProductionResult[0].sum || 0;
- 
-        const activeArabicaFarmers= activeRobustaFarmersResult[0].count || 0;
-        const activeRobustaFarmers= activeArabicaFarmersResult[0].count || 0;
- 
-        const pendingArabicaQC= pendingArabicaQCResult[0].count || 0;
-        const pendingRobustaQC= pendingRobustaQCResult[0].count || 0;
- 
-        const pendingArabicaProcessing= pendingArabicaProcessingResult[0].count || 0;
-        const pendingArabicaWeightProcessing= pendingArabicaWeightProcessingResult[0].sum || 0;
-        const pendingRobustaProcessing= pendingRobustaProcessingResult[0].count || 0;
-        const pendingRobustaWeightProcessing= pendingRobustaWeightProcessingResult[0].sum || 0;
- 
-        const landCoveredArabica = landCoveredArabicaResult[0].sum || 0;
-        const landCoveredRobusta = landCoveredRobustaResult[0].sum || 0;
- 
-        const arabicaYield = arabicaYieldResult[0].sum || 0;
-        const robustaYield = robustaYieldResult[0].sum || 0;
- 
-        const totalWeightBagsbyDate= totalWeightBagsbyDateResult || []; // Return as an array
-        const totalCostbyDate= totalCostbyDateResult || []; // Return as an array
- 
-        const arabicaTotalWeightbyDate= arabicaTotalWeightbyDateResult || []; // Return as an array
-        const robustaTotalWeightbyDate= robustaTotalWeightbyDateResult || []; // Return as an array
- 
-        const arabicaWeightMoM= arabicaWeightMoMResult || []; // Return as an array
-        const robustaWeightMoM= robustaWeightMoMResult || []; // Return as an array
- 
-        const arabicaCostMoM= arabicaCostMoMResult || [];
-        const robustaCostMoM= robustaCostMoMResult || [];
- 
-        const arabicaAvgCostMoM= arabicaAvgCostMoMResult || [];
-        const robustaAvgCostMoM= robustaAvgCostMoMResult || [];
- 
-        const arabicaProcessedMoM= arabicaProcessedMoMResult || [];
-        const robustaProcessedMoM= robustaProcessedMoMResult || [];
- 
-        const arabicaProductionMoM= arabicaProductionMoMResult || [];
-        const robustaProductionMoM= robustaProductionMoMResult || [];
+        // Convert all numeric values to numbers using Number()
+				const totalBatches = Number(totalBatchesResult[0].count) || 0;
+
+				const totalArabicaWeight = Number(totalArabicaWeightResult[0].sum) || 0;
+				const totalRobustaWeight = Number(totalRobustaWeightResult[0].sum) || 0;
+				const lastmonthArabicaWeight = Number(lastmonthArabicaWeightResult[0].sum) || 0;
+				const lastmonthRobustaWeight = Number(lastmonthRobustaWeightResult[0].sum) || 0;
+
+				const totalArabicaCost = Number(totalArabicaCostResult[0].sum) || 0;
+				const totalRobustaCost = Number(totalRobustaCostResult[0].sum) || 0;
+				const lastmonthArabicaCost = Number(lastmonthArabicaCostResult[0].sum) || 0;
+				const lastmonthRobustaCost = Number(lastmonthRobustaCostResult[0].sum) || 0;
+
+				const avgArabicaCost = Number(avgArabicaCostResult[0].avg) || 0;
+				const avgRobustaCost = Number(avgRobustaCostResult[0].avg) || 0;
+				const lastmonthAvgArabicaCost = Number(lastmonthAvgArabicaCostResult[0].avg) || 0;
+				const lastmonthAvgRobustaCost = Number(lastmonthAvgRobustaCostResult[0].avg) || 0;
+
+				const totalArabicaProcessed = Number(totalArabicaProcessedResult[0].sum) || 0;
+				const totalRobustaProcessed = Number(totalRobustaProcessedResult[0].sum) || 0;
+				const lastmonthArabicaProcessed = Number(lastmonthArabicaProcessedResult[0].sum) || 0;
+				const lastmonthRobustaProcessed = Number(lastmonthRobustaProcessedResult[0].sum) || 0;
+
+				const totalArabicaProduction = Number(totalArabicaProductionResult[0].sum) || 0;
+				const totalRobustaProduction = Number(totalRobustaProductionResult[0].sum) || 0;
+				const lastmonthArabicaProduction = Number(lastmonthArabicaProductionResult[0].sum) || 0;
+				const lastmonthRobustaProduction = Number(lastmonthRobustaProductionResult[0].sum) || 0;
+
+				const activeArabicaFarmers = Number(activeArabicaFarmersResult[0].count) || 0;
+				const activeRobustaFarmers = Number(activeRobustaFarmersResult[0].count) || 0;
+
+				const pendingArabicaQC = Number(pendingArabicaQCResult[0].count) || 0;
+				const pendingRobustaQC = Number(pendingRobustaQCResult[0].count) || 0;
+
+				const pendingArabicaProcessing = Number(pendingArabicaProcessingResult[0].count) || 0;
+				const pendingArabicaWeightProcessing = Number(pendingArabicaWeightProcessingResult[0].sum) || 0;
+				const pendingRobustaProcessing = Number(pendingRobustaProcessingResult[0].count) || 0;
+				const pendingRobustaWeightProcessing = Number(pendingRobustaWeightProcessingResult[0].sum) || 0;
+
+				const landCoveredArabica = Number(landCoveredArabicaResult[0].sum) || 0;
+				const landCoveredRobusta = Number(landCoveredRobustaResult[0].sum) || 0;
+
+				const arabicaYield = Number(arabicaYieldResult[0].sum) || 0;
+				const robustaYield = Number(robustaYieldResult[0].sum) || 0;
+
+				// Arrays are not converted to numbers, so leave them as is
+				const totalWeightBagsbyDate = totalWeightBagsbyDateResult || [];
+				const totalCostbyDate = totalCostbyDateResult || [];
+
+				const arabicaTotalWeightbyDate = arabicaTotalWeightbyDateResult || [];
+				const robustaTotalWeightbyDate = robustaTotalWeightbyDateResult || [];
+
+				const arabicaWeightMoM = arabicaWeightMoMResult || [];
+				const robustaWeightMoM = robustaWeightMoMResult || [];
+
+				const arabicaCostMoM = arabicaCostMoMResult || [];
+				const robustaCostMoM = robustaCostMoMResult || [];
+
+				const arabicaAvgCostMoM = arabicaAvgCostMoMResult || [];
+				const robustaAvgCostMoM = robustaAvgCostMoMResult || [];
+
+				const arabicaProcessedMoM = arabicaProcessedMoMResult || [];
+				const robustaProcessedMoM = robustaProcessedMoMResult || [];
+
+				const arabicaProductionMoM = arabicaProductionMoMResult || [];
+				const robustaProductionMoM = robustaProductionMoMResult || [];
  
         // Return the metrics
         res.json({
