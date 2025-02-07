@@ -100,8 +100,8 @@ router.get('/dashboard-metrics', async (req, res) => {
 
         // ... (rest of the code)
 
-        metrics.activeArabicaFarmers = await executeQuery(`SELECT COUNT(*) AS count FROM "Farmers" where "farmType" in ('Arabica', 'Mix', 'Mixed') AND isActive = true`);
-        metrics.activeRobustaFarmers = await executeQuery(`SELECT COUNT(*) AS count FROM "Farmers" where "farmType" in ('Robusta', 'Mix', 'Mixed') AND isActive = true`);
+        metrics.activeArabicaFarmers = await executeQuery(`SELECT COUNT(*) AS count FROM "Farmers" where "farmType" in ('Arabica', 'Mix', 'Mixed') AND isActive = 1`);
+        metrics.activeRobustaFarmers = await executeQuery(`SELECT COUNT(*) AS count FROM "Farmers" where "farmType" in ('Robusta', 'Mix', 'Mixed') AND isActive = 1`);
 
         metrics.landCoveredArabica = await executeQuery(`SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Arabica' and isactive='1'`);
         metrics.landCoveredRobusta = await executeQuery(`SELECT COALESCE(SUM("farmerLandArea"), 0) as sum FROM "Farmers" WHERE "farmType" = 'Robusta' and isactive='1'`);
