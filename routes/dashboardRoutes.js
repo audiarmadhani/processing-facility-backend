@@ -5,7 +5,7 @@ const sequelize = require('../config/database');
 router.get('/dashboard-metrics', async (req, res) => {
     try {
         let startDate, endDate, startDatePrevious, endDatePrevious;
-        const timeframe = req.query.timeframe || 'thisMonth';
+        const timeframe = req.query.timeframe || 'previousMonth';
         const currentDate = new Date();
 
         switch (timeframe) {
@@ -73,6 +73,16 @@ router.get('/dashboard-metrics', async (req, res) => {
             const endDatePrevious = new Date(currentDate.getFullYear(), currentDate.getMonth(), 0);
             const whereClause = `"${dateField}" BETWEEN '${formatDate(startDatePrevious)}' AND '${formatDate(endDatePrevious)}' AND TO_CHAR("${dateField}", 'DD') <= TO_CHAR(CURRENT_DATE, 'DD')`; // Combined condition
             return query.includes('WHERE') ? `${query} AND ${whereClause}` : `${query} WHERE ${whereClause}`;
+        };
+
+        const formatMoMQuery = (query, dateField) => {
+            let thisMonthWhere = `TO_CHAR("${dateField}", 'YYYY-MM') = TO_CHAR(NOW(), 'YYYY-MM')`;
+            let lastMonthWhere = `TO_CHAR("${dateField}", 'YYYY-MM') = TO_CHAR(CURRENT_DATE - INTERVAL '1 month', 'YYYY-MM') AND TO_CHAR("${dateField}", 'DD') <= TO_CHAR(CURRENT_DATE, 'DD')`;
+
+            return {
+                thisMonth: query.includes('WHERE') ? `${query} AND ${thisMonthWhere}` : `${query} WHERE ${thisMonthWhere}`,
+                lastMonth: query.includes('WHERE') ? `${query} AND ${lastMonthWhere}` : `${query} WHERE ${lastMonthWhere}`
+            };
         };
         
         const formatDate = (date) => date.toISOString().slice(0, 10); // Keep formatDate function
@@ -159,63 +169,63 @@ router.get('/dashboard-metrics', async (req, res) => {
             AND type = 'Robusta'
         `;
  
-        const pendingArabicaQCQuery = `
+        const pendingArabicaQCQuery = formatQuery(`
             SELECT COUNT(*) AS count FROM "ReceivingData" rd
             LEFT JOIN "QCData" qd ON rd."batchNumber" = qd."batchNumber"
             WHERE qd."batchNumber" IS NULL
             AND rd.type = 'Arabica'
-        `;
+        `, "receivingDate"); // Add date filter;
  
-        const pendingRobustaQCQuery = `
+        const pendingRobustaQCQuery = formatQuery(`
             SELECT COUNT(*) AS count FROM "ReceivingData" rd
             LEFT JOIN "QCData" qd ON rd."batchNumber" = qd."batchNumber"
             WHERE qd."batchNumber" IS NULL
             AND rd.type = 'Robusta'
-        `;
+        `, "receivingDate"); // Add date filter;
  
-        const pendingArabicaProcessingQuery = `
+        const pendingArabicaProcessingQuery = formatQuery(`
             SELECT COUNT(*) AS count FROM "QCData" qd
             LEFT JOIN "PreprocessingData" pd ON qd."batchNumber" = pd."batchNumber"
             LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
             WHERE pd."batchNumber" IS NULL
             AND rd.type = 'Arabica'
-        `;
+        `, "receivingDate"); // Add date filter
  
-        const pendingArabicaWeightProcessingQuery = `
+        const pendingArabicaWeightProcessingQuery = formatQuery(`
             SELECT COALESCE(SUM(rd.weight),0) as SUM FROM "QCData" qd
             LEFT JOIN "PreprocessingData" pd ON qd."batchNumber" = pd."batchNumber"
             LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
             WHERE pd."batchNumber" IS NULL
             AND rd.type = 'Arabica'
-        `;
+        `, "receivingDate"); // Add date filter
  
-        const pendingRobustaProcessingQuery = `
+        const pendingRobustaProcessingQuery = formatQuery(`
             SELECT COUNT(*) AS count FROM "QCData" qd
             LEFT JOIN "PreprocessingData" pd ON qd."batchNumber" = pd."batchNumber"
             LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
             WHERE pd."batchNumber" IS NULL
             AND rd.type = 'Robusta'
-        `;
+        `, "receivingDate"); // Add date filter
  
-        const pendingRobustaWeightProcessingQuery = `
+        const pendingRobustaWeightProcessingQuery = formatQuery(`
             SELECT COALESCE(SUM(rd.weight),0) as SUM FROM "QCData" qd
             LEFT JOIN "PreprocessingData" pd ON qd."batchNumber" = pd."batchNumber"
             LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
             WHERE pd."batchNumber" IS NULL
             AND rd.type = 'Robusta'
-        `;
+        `, "receivingDate"); // Add date filter
  
-        const totalWeightBagsbyDateQuery = `
+        const totalWeightBagsbyDateQuery = formatQuery(`
             SELECT DATE("receivingDate") as DATE, SUM(weight) as TOTAL_WEIGHT, SUM("totalBags") as TOTAL_BAGS 
             FROM "ReceivingData" 
             GROUP BY DATE("receivingDate")
-        `;
+        `, "receivingDate");
  
-        const totalCostbyDateQuery = `
+        const totalCostbyDateQuery = formatQuery(`
             SELECT DATE("receivingDate") as DATE, SUM(price) as PRICE FROM "ReceivingData" GROUP BY DATE("receivingDate")
-        `;
+        `, "receivingDate");
  
-        const arabicaTotalWeightbyDateQuery = `
+        const arabicaTotalWeightbyDateQuery = formatQuery(`
             SELECT 
                 "referenceNumber" AS category, 
                 COALESCE(SUM(weight), 0) AS weight, 
@@ -224,14 +234,13 @@ router.get('/dashboard-metrics', async (req, res) => {
                 "PostprocessingData" 
             WHERE 
                 "storedDate" IS NOT NULL 
-                AND DATE_TRUNC('month', "storedDate") = DATE_TRUNC('month', NOW()) 
                 AND type = 'Arabica' 
             GROUP BY 
                 "referenceNumber", 
-                DATE("storedDate");
-        `;
- 
-        const robustaTotalWeightbyDateQuery = `
+                DATE("storedDate")
+        `, "storedDate");  // Apply date filter to storedDate
+
+        const robustaTotalWeightbyDateQuery = formatQuery(`
             SELECT 
                 "referenceNumber" AS category, 
                 COALESCE(SUM(weight), 0) AS weight, 
@@ -240,33 +249,30 @@ router.get('/dashboard-metrics', async (req, res) => {
                 "PostprocessingData" 
             WHERE 
                 "storedDate" IS NOT NULL 
-                AND DATE_TRUNC('month', "storedDate") = DATE_TRUNC('month', NOW()) 
                 AND type = 'Robusta' 
             GROUP BY 
                 "referenceNumber", 
-                DATE("storedDate");
-        `;
+                DATE("storedDate")
+        `, "storedDate"); // Apply date filter to storedDate
  
-        const arabicaWeightMoMQuery = `
+        const arabicaWeightMoMQuery = formatMoMQuery(`
             WITH RECURSIVE "DateRange" AS (
-                SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
+                SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date"
                 UNION ALL
-                SELECT "Date" + INTERVAL '1 day' -- Add one day to the previous date
+                SELECT "Date" + INTERVAL '1 day'
                 FROM "DateRange"
-                WHERE "Date" + INTERVAL '1 day' <= CURRENT_DATE -- Stop at today's date
+                WHERE "Date" + INTERVAL '1 day' <= CURRENT_DATE
             ),
             RDA AS (
                 SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(Weight), 0) AS "TotalWeightThisMonth"
                 FROM "ReceivingData" 
-                WHERE TO_CHAR("receivingDate", 'YYYY-MM') = TO_CHAR(NOW(), 'YYYY-MM')
-                AND type = 'Arabica'
+                WHERE type = 'Arabica'
                 GROUP BY DATE("receivingDate")::TIMESTAMP
             ),
             RDB AS (
                 SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(Weight), 0) AS "TotalWeightLastMonth"
                 FROM "ReceivingData" 
-                WHERE TO_CHAR("receivingDate", 'YYYY-MM') = TO_CHAR(CURRENT_DATE - INTERVAL '1 month', 'YYYY-MM') AND TO_CHAR("receivingDate", 'DD') <= TO_CHAR(CURRENT_DATE, 'DD') 
-                AND type = 'Arabica'
+                WHERE type = 'Arabica'
                 GROUP BY DATE("receivingDate")::TIMESTAMP
             )
             SELECT 
@@ -275,29 +281,28 @@ router.get('/dashboard-metrics', async (req, res) => {
                 SUM(COALESCE(c."TotalWeightLastMonth", 0)) OVER (ORDER BY a."Date") AS "TotalWeightLastMonth"
             FROM "DateRange" a
             LEFT JOIN RDA b ON a."Date" = b."receivingDate"
-            LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."receivingDate");
-        `;
- 
-        const robustaWeightMoMQuery = `
+            LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."receivingDate")
+        `, "receivingDate");
+
+
+        const robustaWeightMoMQuery = formatMoMQuery(`
             WITH RECURSIVE "DateRange" AS (
-                SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
+                SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date"
                 UNION ALL
-                SELECT "Date" + INTERVAL '1 day' -- Add one day to the previous date
+                SELECT "Date" + INTERVAL '1 day'
                 FROM "DateRange"
-                WHERE "Date" + INTERVAL '1 day' <= CURRENT_DATE -- Stop at today's date
+                WHERE "Date" + INTERVAL '1 day' <= CURRENT_DATE
             ),
             RDA AS (
                 SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(Weight), 0) AS "TotalWeightThisMonth"
                 FROM "ReceivingData" 
-                WHERE TO_CHAR("receivingDate", 'YYYY-MM') = TO_CHAR(NOW(), 'YYYY-MM')
-                AND type = 'Robusta'
+                WHERE type = 'Robusta'
                 GROUP BY DATE("receivingDate")::TIMESTAMP
             ),
             RDB AS (
                 SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(Weight), 0) AS "TotalWeightLastMonth"
                 FROM "ReceivingData" 
-                WHERE TO_CHAR("receivingDate", 'YYYY-MM') = TO_CHAR(CURRENT_DATE - INTERVAL '1 month', 'YYYY-MM') AND TO_CHAR("receivingDate", 'DD') <= TO_CHAR(CURRENT_DATE, 'DD') 
-                AND type = 'Robusta'
+                WHERE type = 'Robusta'
                 GROUP BY DATE("receivingDate")::TIMESTAMP
             )
             SELECT 
@@ -306,10 +311,10 @@ router.get('/dashboard-metrics', async (req, res) => {
                 SUM(COALESCE(c."TotalWeightLastMonth", 0)) OVER (ORDER BY a."Date") AS "TotalWeightLastMonth"
             FROM "DateRange" a
             LEFT JOIN RDA b ON a."Date" = b."receivingDate"
-            LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."receivingDate");
-        `;
+            LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."receivingDate")
+        `, "receivingDate");
  
-        const arabicaCostMoMQuery = `
+        const arabicaCostMoMQuery = formatMoMQuery(`
             WITH RECURSIVE "DateRange" AS (
                 SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
                 UNION ALL
@@ -338,9 +343,9 @@ router.get('/dashboard-metrics', async (req, res) => {
             FROM "DateRange" a
             LEFT JOIN RDA b ON a."Date" = b."receivingDate"
             LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."receivingDate");
-        `;
+        `, "receivingDate");
  
-        const robustaCostMoMQuery = `
+        const robustaCostMoMQuery = formatMoMQuery(`
             WITH RECURSIVE "DateRange" AS (
                 SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
                 UNION ALL
@@ -369,9 +374,9 @@ router.get('/dashboard-metrics', async (req, res) => {
             FROM "DateRange" a
             LEFT JOIN RDA b ON a."Date" = b."receivingDate"
             LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."receivingDate");
-        `;
+        `, "receivingDate");
  
-        const arabicaAvgCostMoMQuery = `
+        const arabicaAvgCostMoMQuery = formatMoMQuery(`
             WITH RECURSIVE "DateRange" AS (
                 SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
                 UNION ALL
@@ -422,9 +427,9 @@ router.get('/dashboard-metrics', async (req, res) => {
                     ELSE 0 
                 END, 1) AS "RunningAverageCostLastMonth"
             FROM Cumulative a;
-        `;
+        `, "receivingDate");
  
-        const robustaAvgCostMoMQuery = `
+        const robustaAvgCostMoMQuery = formatMoMQuery(`
             WITH RECURSIVE "DateRange" AS (
                 SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
                 UNION ALL
@@ -475,9 +480,9 @@ router.get('/dashboard-metrics', async (req, res) => {
                     ELSE 0 
                 END, 1) AS "RunningAverageCostLastMonth"
             FROM Cumulative a;
-        `;
+        `, "receivingDate");
  
-        const arabicaProcessedMoMQuery = `
+        const arabicaProcessedMoMQuery = formatMoMQuery(`
             WITH RECURSIVE "DateRange" AS (
                 SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
                 UNION ALL
@@ -506,9 +511,9 @@ router.get('/dashboard-metrics', async (req, res) => {
             FROM "DateRange" a
             LEFT JOIN RDA b ON a."Date" = b."processingDate"
             LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."processingDate");
-        `;
+        `, "processingDate");
  
-        const robustaProcessedMoMQuery = `
+        const robustaProcessedMoMQuery = formatMoMQuery(`
             WITH RECURSIVE "DateRange" AS (
                 SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
                 UNION ALL
@@ -537,9 +542,9 @@ router.get('/dashboard-metrics', async (req, res) => {
             FROM "DateRange" a
             LEFT JOIN RDA b ON a."Date" = b."processingDate"
             LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."processingDate");
-        `;
+        `, "processingDate");
  
-        const arabicaProductionMoMQuery = `
+        const arabicaProductionMoMQuery = formatMoMQuery(`
             WITH RECURSIVE "DateRange" AS (
                 SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
                 UNION ALL
@@ -569,9 +574,9 @@ router.get('/dashboard-metrics', async (req, res) => {
             LEFT JOIN RDA b ON a."Date" = b."storedDate"
             LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."storedDate")
             ;
-        `;
+        `, "storedDate");
  
-        const robustaProductionMoMQuery = `
+        const robustaProductionMoMQuery = formatMoMQuery(`
             WITH RECURSIVE "DateRange" AS (
                 SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
                 UNION ALL
@@ -601,7 +606,7 @@ router.get('/dashboard-metrics', async (req, res) => {
             LEFT JOIN RDA b ON a."Date" = b."storedDate"
             LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."storedDate")
             ;
-        `;
+        `, "storedDate");
  
         // Execute queries
         const [totalBatchesResult] = await sequelize.query(totalBatchesQuery);
