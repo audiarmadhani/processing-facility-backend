@@ -626,7 +626,23 @@ router.get('/dashboard-metrics', async (req, res) => {
         metrics.arabicaProductionMoM = await executeQuery(arabicaProductionMoMQuery); // No date filtering
         metrics.robustaProductionMoM = await executeQuery(robustaProductionMoMQuery); // No date filtering
 
-        res.json(metrics);
+        const restructuredMetrics = {};
+        for (const key in metrics) {
+            if (typeof metrics[key] === 'object' && metrics[key] !== null) {
+                // Check if the object has a "count" or "sum" property
+                if (metrics[key].count !== undefined) {
+                  restructuredMetrics[key] = metrics[key].count;
+                } else if (metrics[key].sum !== undefined) {
+                  restructuredMetrics[key] = metrics[key].sum;
+                } else {
+                    restructuredMetrics[key] = metrics[key]; // Keep the original object if no count or sum
+                }
+            } else {
+                restructuredMetrics[key] = metrics[key]; // Handle non-object values
+            }
+        }
+
+        res.json(restructuredMetrics); // Send the restructured data
 
     } catch (error) {
         console.error("Error in main route handler:", error);
