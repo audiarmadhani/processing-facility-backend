@@ -718,6 +718,54 @@ router.get('/dashboard-metrics', async (req, res) => {
             ;
         `;
 
+				const arabicaCherryQualitybyDateQuery = `
+            SELECT 
+							"qcDate", 
+							COALESCE(avg("unripePercentage"), 0) "unripePercentage",
+							COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
+							COALESCE(avg("ripePercentage"), 0) "ripePercentage",
+							COALESCE(avg("overripePercentage"), 0) "overripePercentage"
+						FROM (
+							SELECT 
+								a."batchNumber",
+								DATE(min("qcDate")) "qcDate",
+								COALESCE(avg("unripePercentage"), 0) "unripePercentage",
+								COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
+								COALESCE(avg("ripePercentage"), 0) "ripePercentage",
+								COALESCE(avg("overripePercentage"), 0) "overripePercentage"
+							FROM "QCData" a
+							LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+							WHERE "unripePercentage" IS NOT NULL
+							AND b.type = 'Arabica'
+							GROUP BY a."batchNumber"
+						) a
+						GROUP BY "qcDate"
+        `;
+
+				const robustaCherryQualitybyDateQuery = `
+            SELECT 
+							"qcDate", 
+							COALESCE(avg("unripePercentage"), 0) "unripePercentage",
+							COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
+							COALESCE(avg("ripePercentage"), 0) "ripePercentage",
+							COALESCE(avg("overripePercentage"), 0) "overripePercentage"
+						FROM (
+							SELECT 
+								a."batchNumber",
+								DATE(min("qcDate")) "qcDate",
+								COALESCE(avg("unripePercentage"), 0) "unripePercentage",
+								COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
+								COALESCE(avg("ripePercentage"), 0) "ripePercentage",
+								COALESCE(avg("overripePercentage"), 0) "overripePercentage"
+							FROM "QCData" a
+							LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+							WHERE "unripePercentage" IS NOT NULL
+							AND b.type = 'Robusta'
+							GROUP BY a."batchNumber"
+						) a
+						GROUP BY "qcDate"
+        `;
+
         // Execute queries
         const [totalBatchesResult] = await sequelize.query(totalBatchesQuery);
  
@@ -782,6 +830,9 @@ router.get('/dashboard-metrics', async (req, res) => {
  
         const [arabicaProductionMoMResult] = await sequelize.query(arabicaProductionMoMQuery);
         const [robustaProductionMoMResult] = await sequelize.query(robustaProductionMoMQuery);
+
+				const [arabicaCherryQualitybyDateResult] = await sequelize.query(arabicaCherryQualitybyDateQuery);
+        const [robustaCherryQualitybyDateResult] = await sequelize.query(robustaCherryQualitybyDateQuery);
  
  
         // Extract the relevant values from query results
@@ -851,6 +902,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 
 				const arabicaProductionMoM = arabicaProductionMoMResult || [];
 				const robustaProductionMoM = robustaProductionMoMResult || [];
+
+				const arabicaCherryQualitybyDate = arabicaCherryQualitybyDateResult || [];
+				const robustaCherryQualitybyDate = robustaCherryQualitybyDateResult || [];
  
         // Return the metrics
         res.json({
@@ -917,6 +971,9 @@ router.get('/dashboard-metrics', async (req, res) => {
  
             arabicaProductionMoM,
             robustaProductionMoM,
+
+						arabicaCherryQualitybyDate,
+						robustaCherryQualitybyDate,
  
         });
     } catch (err) {
