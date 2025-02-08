@@ -766,6 +766,14 @@ router.get('/dashboard-metrics', async (req, res) => {
 						GROUP BY "qcDate"
         `;
 
+				const arabicaFarmersContributionQuery = `
+            SELECT "farmerName", sum(weight) as "totalWeight" FROM "ReceivingData" WHERE type = 'Arabica' AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' GROUP BY "farmerName" ORDER BY sum(weight) desc
+        `;
+
+				const robustaFarmersContributionQuery = `
+            SELECT "farmerName", sum(weight) as "totalWeight" FROM "ReceivingData" WHERE type = 'Robusta' AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' GROUP BY "farmerName" ORDER BY sum(weight) desc
+        `;
+
         // Execute queries
         const [totalBatchesResult] = await sequelize.query(totalBatchesQuery);
  
@@ -833,6 +841,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 
 				const [arabicaCherryQualitybyDateResult] = await sequelize.query(arabicaCherryQualitybyDateQuery);
         const [robustaCherryQualitybyDateResult] = await sequelize.query(robustaCherryQualitybyDateQuery);
+
+				const [arabicaFarmersContributionResult] = await sequelize.query(arabicaFarmersContributionQuery);
+        const [robustaFarmersContributionResult] = await sequelize.query(robustaFarmersContributionQuery);
  
  
         // Extract the relevant values from query results
@@ -905,6 +916,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 
 				const arabicaCherryQualitybyDate = arabicaCherryQualitybyDateResult || [];
 				const robustaCherryQualitybyDate = robustaCherryQualitybyDateResult || [];
+
+				const arabicaFarmersContribution = arabicaFarmersContributionResult || [];
+				const robustaFarmersContribution = robustaFarmersContributionResult || [];
  
         // Return the metrics
         res.json({
@@ -974,6 +988,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 
 						arabicaCherryQualitybyDate,
 						robustaCherryQualitybyDate,
+
+						arabicaFarmersContribution,
+						robustaFarmersContribution,
  
         });
     } catch (err) {
