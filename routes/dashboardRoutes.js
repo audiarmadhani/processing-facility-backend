@@ -827,8 +827,8 @@ router.get('/dashboard-metrics', async (req, res) => {
 				const landCoveredArabica = Number(landCoveredArabicaResult[0].sum) || 0;
 				const landCoveredRobusta = Number(landCoveredRobustaResult[0].sum) || 0;
 
-				const arabicaYield = Number(arabicaYieldResult[0]) || 0;
-				const robustaYield = Number(robustaYieldResult[0]) || 0;
+				const arabicaYield = Number(arabicaYieldResult[0].sum) || 0;
+				const robustaYield = Number(robustaYieldResult[0].sum) || 0;
 
 				// Arrays are not converted to numbers, so leave them as is
 				const totalWeightBagsbyDate = totalWeightBagsbyDateResult || [];
