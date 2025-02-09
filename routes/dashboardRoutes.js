@@ -767,49 +767,55 @@ router.get('/dashboard-metrics', async (req, res) => {
         `;
 
 				const arabicaFarmersContributionQuery = `
-            SELECT 
-							"farmerName"
-							, sum(weight) as "totalWeight" 
-							, avg("unripePercentage") "unripePercentage"
-							, avg("semiripePercentage") "semiripePercentage"
-							, avg("ripePercentage") "ripePercentage"
-							, avg("overripePercentage") "overripePercentage"
-							, CASE WHEN "ripePercentage" IS NULL THEN 100 END AS "unknownRipeness"
+            SELECT
+								"farmerName",
+								SUM(weight) AS totalWeight,
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "unripePercentage" ELSE 0 END), 0) AS unripePercentage,
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "semiripePercentage" ELSE 0 END), 0) AS semiripePercentage,
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "ripePercentage" ELSE 0 END), 0) AS ripePercentage,
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "overripePercentage" ELSE 0 END), 0) AS overripePercentage,
+								CASE WHEN AVG("ripePercentage") IS NULL THEN 100 ELSE 0 END AS unknownRipeness  -- Handles the all-null case
 						FROM "ReceivingData" a
 						LEFT JOIN (
-							SELECT 
-								"batchNumber", avg("unripePercentage") "unripePercentage", avg("semiripePercentage") "semiripePercentage", avg("ripePercentage") "ripePercentage", avg("overripePercentage") "overripePercentage" 
-							FROM "QCData" 
-							WHERE "ripePercentage" IS NOT NULL
-							GROUP BY "batchNumber"
-						) b on a."batchNumber" = b."batchNumber"
-						WHERE type = 'Arabica' 
-						AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
-						GROUP BY "farmerName", CASE WHEN "ripePercentage" IS NULL THEN 100 END
-						ORDER BY sum(weight) desc
+								SELECT
+										"batchNumber",
+										AVG("unripePercentage") AS "unripePercentage",
+										AVG("semiripePercentage") AS "semiripePercentage",
+										AVG("ripePercentage") AS "ripePercentage",
+										AVG("overripePercentage") AS "overripePercentage"
+								FROM "QCData"
+								WHERE "ripePercentage" IS NOT NULL
+								GROUP BY "batchNumber"
+						) b ON a."batchNumber" = b."batchNumber"
+						WHERE type = 'Arabica'
+						GROUP BY "farmerName"
+						ORDER BY totalWeight DESC
         `;
 
 				const robustaFarmersContributionQuery = `
-            SELECT 
-							"farmerName"
-							, sum(weight) as "totalWeight" 
-							, avg("unripePercentage") "unripePercentage"
-							, avg("semiripePercentage") "semiripePercentage"
-							, avg("ripePercentage") "ripePercentage"
-							, avg("overripePercentage") "overripePercentage"
-							, CASE WHEN "ripePercentage" IS NULL THEN 100 END AS "unknownRipeness"
+            SELECT
+								"farmerName",
+								SUM(weight) AS totalWeight,
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "unripePercentage" ELSE 0 END), 0) AS unripePercentage,
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "semiripePercentage" ELSE 0 END), 0) AS semiripePercentage,
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "ripePercentage" ELSE 0 END), 0) AS ripePercentage,
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "overripePercentage" ELSE 0 END), 0) AS overripePercentage,
+								CASE WHEN AVG("ripePercentage") IS NULL THEN 100 ELSE 0 END AS unknownRipeness  -- Handles the all-null case
 						FROM "ReceivingData" a
 						LEFT JOIN (
-							SELECT 
-								"batchNumber", avg("unripePercentage") "unripePercentage", avg("semiripePercentage") "semiripePercentage", avg("ripePercentage") "ripePercentage", avg("overripePercentage") "overripePercentage" 
-							FROM "QCData" 
-							WHERE "ripePercentage" IS NOT NULL
-							GROUP BY "batchNumber"
-						) b on a."batchNumber" = b."batchNumber"
-						WHERE type = 'Robusta' 
-						AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
-						GROUP BY "farmerName", CASE WHEN "ripePercentage" IS NULL THEN 100 END
-						ORDER BY sum(weight) desc
+								SELECT
+										"batchNumber",
+										AVG("unripePercentage") AS "unripePercentage",
+										AVG("semiripePercentage") AS "semiripePercentage",
+										AVG("ripePercentage") AS "ripePercentage",
+										AVG("overripePercentage") AS "overripePercentage"
+								FROM "QCData"
+								WHERE "ripePercentage" IS NOT NULL
+								GROUP BY "batchNumber"
+						) b ON a."batchNumber" = b."batchNumber"
+						WHERE type = 'Robusta'
+						GROUP BY "farmerName"
+						ORDER BY totalWeight DESC
         `;
 
         // Execute queries
