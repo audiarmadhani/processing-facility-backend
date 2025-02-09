@@ -767,11 +767,49 @@ router.get('/dashboard-metrics', async (req, res) => {
         `;
 
 				const arabicaFarmersContributionQuery = `
-            SELECT "farmerName", sum(weight) as "totalWeight" FROM "ReceivingData" WHERE type = 'Arabica' AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' GROUP BY "farmerName" ORDER BY sum(weight) desc
+            SELECT 
+							"farmerName"
+							, sum(weight) as "totalWeight" 
+							, avg("unripePercentage") "unripePercentage"
+							, avg("semiripePercentage") "semiripePercentage"
+							, avg("ripePercentage") "ripePercentage"
+							, avg("overripePercentage") "overripePercentage"
+							, CASE WHEN "ripePercentage" IS NULL THEN 100 END AS "unknownRipeness"
+						FROM "ReceivingData" a
+						LEFT JOIN (
+							SELECT 
+								"batchNumber", avg("unripePercentage") "unripePercentage", avg("semiripePercentage") "semiripePercentage", avg("ripePercentage") "ripePercentage", avg("overripePercentage") "overripePercentage" 
+							FROM "QCData" 
+							WHERE "ripePercentage" IS NOT NULL
+							GROUP BY "batchNumber"
+						) b on a."batchNumber" = b."batchNumber"
+						WHERE type = 'Arabica' 
+						AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
+						GROUP BY "farmerName", CASE WHEN "ripePercentage" IS NULL THEN 100 END
+						ORDER BY sum(weight) desc
         `;
 
 				const robustaFarmersContributionQuery = `
-            SELECT "farmerName", sum(weight) as "totalWeight" FROM "ReceivingData" WHERE type = 'Robusta' AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' GROUP BY "farmerName" ORDER BY sum(weight) desc
+            SELECT 
+							"farmerName"
+							, sum(weight) as "totalWeight" 
+							, avg("unripePercentage") "unripePercentage"
+							, avg("semiripePercentage") "semiripePercentage"
+							, avg("ripePercentage") "ripePercentage"
+							, avg("overripePercentage") "overripePercentage"
+							, CASE WHEN "ripePercentage" IS NULL THEN 100 END AS "unknownRipeness"
+						FROM "ReceivingData" a
+						LEFT JOIN (
+							SELECT 
+								"batchNumber", avg("unripePercentage") "unripePercentage", avg("semiripePercentage") "semiripePercentage", avg("ripePercentage") "ripePercentage", avg("overripePercentage") "overripePercentage" 
+							FROM "QCData" 
+							WHERE "ripePercentage" IS NOT NULL
+							GROUP BY "batchNumber"
+						) b on a."batchNumber" = b."batchNumber"
+						WHERE type = 'Robusta' 
+						AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
+						GROUP BY "farmerName", CASE WHEN "ripePercentage" IS NULL THEN 100 END
+						ORDER BY sum(weight) desc
         `;
 
         // Execute queries
