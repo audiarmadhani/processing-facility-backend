@@ -769,12 +769,12 @@ router.get('/dashboard-metrics', async (req, res) => {
 				const arabicaFarmersContributionQuery = `
             SELECT
 								"farmerName",
-								SUM(weight) AS totalWeight,
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "unripePercentage" ELSE 0 END), 0) AS unripePercentage,
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "semiripePercentage" ELSE 0 END), 0) AS semiripePercentage,
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "ripePercentage" ELSE 0 END), 0) AS ripePercentage,
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "overripePercentage" ELSE 0 END), 0) AS overripePercentage,
-								CASE WHEN AVG("ripePercentage") IS NULL THEN 100 ELSE 0 END AS unknownRipeness  -- Handles the all-null case
+								SUM(weight) AS "totalWeight",
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "unripePercentage" ELSE 0 END), 0) AS "unripePercentage",
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "semiripePercentage" ELSE 0 END), 0) AS "semiripePercentage",
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "ripePercentage" ELSE 0 END), 0) AS "ripePercentage",
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "overripePercentage" ELSE 0 END), 0) AS "overripePercentage",
+								CASE WHEN AVG("ripePercentage") IS NULL THEN 100 ELSE 0 END AS "unknownRipeness"  -- Handles the all-null case
 						FROM "ReceivingData" a
 						LEFT JOIN (
 								SELECT
@@ -795,12 +795,12 @@ router.get('/dashboard-metrics', async (req, res) => {
 				const robustaFarmersContributionQuery = `
             SELECT
 								"farmerName",
-								SUM(weight) AS totalWeight,
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "unripePercentage" ELSE 0 END), 0) AS unripePercentage,
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "semiripePercentage" ELSE 0 END), 0) AS semiripePercentage,
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "ripePercentage" ELSE 0 END), 0) AS ripePercentage,
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "overripePercentage" ELSE 0 END), 0) AS overripePercentage,
-								CASE WHEN AVG("ripePercentage") IS NULL THEN 100 ELSE 0 END AS unknownRipeness  -- Handles the all-null case
+								SUM(weight) AS "totalWeight",
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "unripePercentage" ELSE 0 END), 0) AS "unripePercentage",
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "semiripePercentage" ELSE 0 END), 0) AS "semiripePercentage",
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "ripePercentage" ELSE 0 END), 0) AS "ripePercentage",
+								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "overripePercentage" ELSE 0 END), 0) AS "overripePercentage",
+								CASE WHEN AVG("ripePercentage") IS NULL THEN 100 ELSE 0 END AS "unknownRipeness"  -- Handles the all-null case
 						FROM "ReceivingData" a
 						LEFT JOIN (
 								SELECT
