@@ -828,6 +828,162 @@ router.get('/dashboard-metrics', async (req, res) => {
 						GROUP BY "farmerName"
         `;
 
+				const arabicaSankeyQuery = `
+            WITH "Cherries" AS (
+								SELECT 
+										SUM(weight) AS total_cherries_weight
+								FROM "ReceivingData"
+								WHERE type = 'Arabica'
+						),
+						"ProcessedGreenBeans" AS (
+								SELECT 
+									SUM(ROUND(CAST((b.weight/b."totalBags") * a."bagsProcessed" AS numeric), 2)::FLOAT) as total_processed_green_beans_weight
+								FROM "PreprocessingData" a
+								LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+								WHERE b.type = 'Arabica'
+						),
+						"FinishedGreenBeans" AS (
+							SELECT
+								weight,
+								producer,
+								quality,
+								"productLine",
+								"processingType"
+							FROM "PostprocessingData"
+							WHERE type = 'Arabica'
+						),
+						"Losses" AS (
+								SELECT 
+										c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) as total_losses
+								FROM "Cherries" c
+								LEFT JOIN "ProcessedGreenBeans" pgb ON 1=1
+						),
+						CombinedFlows AS (  -- Combine all flows first
+								SELECT 
+										'Cherries' AS from_node,
+										'Processed Green Beans' AS to_node,
+										COALESCE(pgb.total_processed_green_beans_weight, 0) AS value
+								FROM "ProcessedGreenBeans" pgb
+								UNION ALL
+								SELECT 
+										'Cherries' AS from_node,
+										'Other Losses' AS to_node,
+										COALESCE(l.total_losses, 0) AS value
+								FROM "Losses" l
+								UNION ALL
+								SELECT
+										'Processed Green Beans' AS from_node,
+										'Finished Green Beans' AS to_node,
+										weight as value
+								FROM "FinishedGreenBeans"
+								UNION ALL
+								SELECT
+										'Finished Green Beans' AS from_node,
+										producer AS to_node,
+										weight as value
+								FROM "FinishedGreenBeans"
+								UNION ALL
+								SELECT
+										producer AS from_node,
+										quality AS to_node,
+										weight as value
+								FROM "FinishedGreenBeans"
+								UNION ALL
+								SELECT
+										quality AS from_node,
+										(SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS to_node,
+										weight as value
+								FROM "FinishedGreenBeans" fgb
+								UNION ALL
+								SELECT
+										(SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS from_node,
+										(SELECT "processingType" FROM "ProcessingTypes" WHERE "processingType" = fgb."processingType") AS to_node,
+										weight as value
+								FROM "FinishedGreenBeans" fgb
+						)
+						SELECT from_node, to_node, SUM(value) AS value  -- Aggregate *after* combining
+						FROM CombinedFlows
+						GROUP BY from_node, to_node;
+        `;
+
+				const robustaSankeyQuery = `
+            WITH "Cherries" AS (
+								SELECT 
+										SUM(weight) AS total_cherries_weight
+								FROM "ReceivingData"
+								WHERE type = 'Robusta'
+						),
+						"ProcessedGreenBeans" AS (
+								SELECT 
+									SUM(ROUND(CAST((b.weight/b."totalBags") * a."bagsProcessed" AS numeric), 2)::FLOAT) as total_processed_green_beans_weight
+								FROM "PreprocessingData" a
+								LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+								WHERE b.type = 'Robusta'
+						),
+						"FinishedGreenBeans" AS (
+							SELECT
+								weight,
+								producer,
+								quality,
+								"productLine",
+								"processingType"
+							FROM "PostprocessingData"
+							WHERE type = 'Robusta'
+						),
+						"Losses" AS (
+								SELECT 
+										c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) as total_losses
+								FROM "Cherries" c
+								LEFT JOIN "ProcessedGreenBeans" pgb ON 1=1
+						),
+						CombinedFlows AS (  -- Combine all flows first
+								SELECT 
+										'Cherries' AS from_node,
+										'Processed Green Beans' AS to_node,
+										COALESCE(pgb.total_processed_green_beans_weight, 0) AS value
+								FROM "ProcessedGreenBeans" pgb
+								UNION ALL
+								SELECT 
+										'Cherries' AS from_node,
+										'Other Losses' AS to_node,
+										COALESCE(l.total_losses, 0) AS value
+								FROM "Losses" l
+								UNION ALL
+								SELECT
+										'Processed Green Beans' AS from_node,
+										'Finished Green Beans' AS to_node,
+										weight as value
+								FROM "FinishedGreenBeans"
+								UNION ALL
+								SELECT
+										'Finished Green Beans' AS from_node,
+										producer AS to_node,
+										weight as value
+								FROM "FinishedGreenBeans"
+								UNION ALL
+								SELECT
+										producer AS from_node,
+										quality AS to_node,
+										weight as value
+								FROM "FinishedGreenBeans"
+								UNION ALL
+								SELECT
+										quality AS from_node,
+										(SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS to_node,
+										weight as value
+								FROM "FinishedGreenBeans" fgb
+								UNION ALL
+								SELECT
+										(SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS from_node,
+										(SELECT "processingType" FROM "ProcessingTypes" WHERE "processingType" = fgb."processingType") AS to_node,
+										weight as value
+								FROM "FinishedGreenBeans" fgb
+						)
+						SELECT from_node, to_node, SUM(value) AS value  -- Aggregate *after* combining
+						FROM CombinedFlows
+						GROUP BY from_node, to_node;
+        `;
+
         // Execute queries
         const [totalBatchesResult] = await sequelize.query(totalBatchesQuery);
  
@@ -898,6 +1054,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 
 				const [arabicaFarmersContributionResult] = await sequelize.query(arabicaFarmersContributionQuery);
         const [robustaFarmersContributionResult] = await sequelize.query(robustaFarmersContributionQuery);
+
+				const [arabicaSankeyResult] = await sequelize.query(arabicaSankeyQuery);
+        const [robustaSankeyResult] = await sequelize.query(robustaSankeyQuery);
  
  
         // Extract the relevant values from query results
@@ -973,6 +1132,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 
 				const arabicaFarmersContribution = arabicaFarmersContributionResult || [];
 				const robustaFarmersContribution = robustaFarmersContributionResult || [];
+
+				const arabicaSankey = arabicaSankeyResult || [];
+				const robustaSankey = robustaSankeyResult || [];
  
         // Return the metrics
         res.json({
@@ -1045,6 +1207,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 
 						arabicaFarmersContribution,
 						robustaFarmersContribution,
+
+						arabicaSankey,
+						robustaSankey,
  
         });
     } catch (err) {
