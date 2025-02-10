@@ -37,7 +37,7 @@ router.post('/postprocessing', async (req, res) => {
 
     // Fetch the reference number
     const [referenceResults] = await sequelize.query(
-      'SELECT "referenceNumber" FROM "ReferenceMappings" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "quality" = ? AND "type" = ?',
+      'SELECT "referenceNumber" FROM "ReferenceMappings_duplicate" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "quality" = ? AND "type" = ?',
       { replacements: [productLine, processingType, producer, quality, type], transaction: t }
     );
 
