@@ -788,8 +788,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 								GROUP BY "batchNumber"
 						) b ON a."batchNumber" = b."batchNumber"
 						WHERE type = 'Arabica'
+						AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
 						GROUP BY "farmerName"
-						ORDER BY totalWeight DESC
+						ORDER BY "totalWeight" DESC
         `;
 
 				const robustaFarmersContributionQuery = `
@@ -814,8 +815,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 								GROUP BY "batchNumber"
 						) b ON a."batchNumber" = b."batchNumber"
 						WHERE type = 'Robusta'
+						AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
 						GROUP BY "farmerName"
-						ORDER BY totalWeight DESC
+						ORDER BY "totalWeight" DESC
         `;
 
         // Execute queries
