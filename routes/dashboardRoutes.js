@@ -767,57 +767,65 @@ router.get('/dashboard-metrics', async (req, res) => {
         `;
 
 				const arabicaFarmersContributionQuery = `
-            SELECT
-								"farmerName",
-								SUM(weight) AS "totalWeight",
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "unripePercentage" ELSE 0 END), 0) AS "unripePercentage",
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "semiripePercentage" ELSE 0 END), 0) AS "semiripePercentage",
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "ripePercentage" ELSE 0 END), 0) AS "ripePercentage",
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "overripePercentage" ELSE 0 END), 0) AS "overripePercentage",
-								CASE WHEN AVG("ripePercentage") IS NULL THEN 100 ELSE 0 END AS "unknownRipeness"  -- Handles the all-null case
-						FROM "ReceivingData" a
+            SELECT 
+							a."farmerName"
+							,sum(a.weight) weight
+							,COALESCE(SUM("unripeWeight"), 0) "unripeWeight"
+							,COALESCE(SUM("semiripeWeight"), 0) "semiripeWeight"
+							,COALESCE(SUM("ripeWeight"), 0) "ripeWeight"
+							,COALESCE(SUM("overripeWeight"), 0) "overripeWeight"
+							,CASE WHEN 
+								(sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0))) < 0 THEN 0
+								ELSE (sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0)))
+								END AS "unknownWeight"
+						from "ReceivingData" a
 						LEFT JOIN (
-								SELECT
-										"batchNumber",
-										AVG("unripePercentage") AS "unripePercentage",
-										AVG("semiripePercentage") AS "semiripePercentage",
-										AVG("ripePercentage") AS "ripePercentage",
-										AVG("overripePercentage") AS "overripePercentage"
-								FROM "QCData"
-								WHERE "ripePercentage" IS NOT NULL
-								GROUP BY "batchNumber"
-						) b ON a."batchNumber" = b."batchNumber"
-						WHERE type = 'Arabica'
+							SELECT
+								a."batchNumber",
+								SUM(b.weight),
+								SUM(b.weight) * AVG("unripePercentage")/100 AS "unripeWeight",
+								SUM(b.weight) * AVG("semiripePercentage")/100 AS "semiripeWeight",
+								SUM(b.weight) * AVG("ripePercentage")/100 AS "ripeWeight",
+								SUM(b.weight) * AVG("overripePercentage")/100 AS "overripeWeight"
+							FROM "QCData" a
+							LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+							WHERE "ripePercentage" IS NOT NULL
+							GROUP BY a."batchNumber"
+						) b on a."batchNumber" = b."batchNumber"
+						WHERE a.type = 'Arabica'
 						AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
 						GROUP BY "farmerName"
-						ORDER BY "totalWeight" DESC
         `;
 
 				const robustaFarmersContributionQuery = `
-            SELECT
-								"farmerName",
-								SUM(weight) AS "totalWeight",
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "unripePercentage" ELSE 0 END), 0) AS "unripePercentage",
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "semiripePercentage" ELSE 0 END), 0) AS "semiripePercentage",
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "ripePercentage" ELSE 0 END), 0) AS "ripePercentage",
-								COALESCE(AVG(CASE WHEN "ripePercentage" IS NOT NULL THEN "overripePercentage" ELSE 0 END), 0) AS "overripePercentage",
-								CASE WHEN AVG("ripePercentage") IS NULL THEN 100 ELSE 0 END AS "unknownRipeness"  -- Handles the all-null case
-						FROM "ReceivingData" a
+            SELECT 
+							a."farmerName"
+							,sum(a.weight) weight
+							,COALESCE(SUM("unripeWeight"), 0) "unripeWeight"
+							,COALESCE(SUM("semiripeWeight"), 0) "semiripeWeight"
+							,COALESCE(SUM("ripeWeight"), 0) "ripeWeight"
+							,COALESCE(SUM("overripeWeight"), 0) "overripeWeight"
+							,CASE WHEN 
+								(sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0))) < 0 THEN 0
+								ELSE (sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0)))
+								END AS "unknownWeight"
+						from "ReceivingData" a
 						LEFT JOIN (
-								SELECT
-										"batchNumber",
-										AVG("unripePercentage") AS "unripePercentage",
-										AVG("semiripePercentage") AS "semiripePercentage",
-										AVG("ripePercentage") AS "ripePercentage",
-										AVG("overripePercentage") AS "overripePercentage"
-								FROM "QCData"
-								WHERE "ripePercentage" IS NOT NULL
-								GROUP BY "batchNumber"
-						) b ON a."batchNumber" = b."batchNumber"
-						WHERE type = 'Robusta'
+							SELECT
+								a."batchNumber",
+								SUM(b.weight),
+								SUM(b.weight) * AVG("unripePercentage")/100 AS "unripeWeight",
+								SUM(b.weight) * AVG("semiripePercentage")/100 AS "semiripeWeight",
+								SUM(b.weight) * AVG("ripePercentage")/100 AS "ripeWeight",
+								SUM(b.weight) * AVG("overripePercentage")/100 AS "overripeWeight"
+							FROM "QCData" a
+							LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+							WHERE "ripePercentage" IS NOT NULL
+							GROUP BY a."batchNumber"
+						) b on a."batchNumber" = b."batchNumber"
+						WHERE a.type = 'Robusta'
 						AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
 						GROUP BY "farmerName"
-						ORDER BY "totalWeight" DESC
         `;
 
         // Execute queries
