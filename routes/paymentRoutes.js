@@ -16,14 +16,24 @@ router.post('/payment', async (req, res) => {
       isPaid,
     } = req.body;
 
-    // Save the transport data
-    const [transportData] = await sequelize.query(
+    // Get the latest batch number
+    const [batchResult] = await sequelize.query(
+      `SELECT latest_batch_number FROM latest_batch`,
+      { transaction: t }
+    );
+    // Assume batchResult is an array with at least one row
+    const batchNumber = batchResult[0].latest_batch_number;
+
+    // Insert the payment data along with the batch number
+    const [paymentData] = await sequelize.query(
       `
-      INSERT INTO "PaymentData" ("farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid") 
-      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *
+      INSERT INTO "PaymentData" 
+        ("farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid", "batchNumber") 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      RETURNING *
       `,
       {
-        replacements: [farmerName, farmerID, totalAmount, date, paymentMethod, paymentDescription, isPaid],
+        replacements: [farmerName, farmerID, totalAmount, date, paymentMethod, paymentDescription, isPaid, batchNumber],
         transaction: t,
       }
     );
@@ -31,10 +41,10 @@ router.post('/payment', async (req, res) => {
     // Commit the transaction
     await t.commit();
 
-    // Respond with success
+    // Respond with the created record
     res.status(201).json({
       message: 'Payment data created successfully',
-      transportData: transportData[0], // Return the created record
+      paymentData: paymentData[0],
     });
   } catch (err) {
     // Rollback transaction on error
