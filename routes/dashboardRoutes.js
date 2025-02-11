@@ -830,52 +830,69 @@ router.get('/dashboard-metrics', async (req, res) => {
 
 				const arabicaSankeyQuery = `
             WITH "Cherries" AS (
-								SELECT 
+								SELECT
 										SUM(weight) AS total_cherries_weight
 								FROM "ReceivingData"
 								WHERE type = 'Arabica'
 						),
 						"ProcessedGreenBeans" AS (
-								SELECT 
-									SUM(ROUND(CAST((b.weight/b."totalBags") * a."bagsProcessed" AS numeric), 2)::FLOAT) as total_processed_green_beans_weight
+								SELECT
+										SUM(ROUND(CAST((b.weight/b."totalBags") * a."bagsProcessed" AS numeric), 2)::FLOAT) as total_processed_green_beans_weight,
+										b."batchNumber" -- Include batch number for joining later
 								FROM "PreprocessingData" a
 								LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
 								WHERE b.type = 'Arabica'
+								GROUP BY b."batchNumber"
 						),
 						"FinishedGreenBeans" AS (
-							SELECT
-								weight,
-								producer,
-								quality,
-								"productLine",
-								"processingType"
-							FROM "PostprocessingData"
-							WHERE type = 'Arabica'
+								SELECT
+										weight,
+										producer,
+										quality,
+										"productLine",
+										"processingType",
+										"batchNumber" -- Include batch number for joining
+								FROM "PostprocessingData"
+								WHERE type = 'Arabica'
 						),
-						"Losses" AS (
-								SELECT 
-										c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) as total_losses
+						"LossesFromCherries" AS ( -- Losses from cherries to processed green beans
+								SELECT
+										c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) as total_unprocessed_cherries
 								FROM "Cherries" c
 								LEFT JOIN "ProcessedGreenBeans" pgb ON 1=1
 						),
-						CombinedFlows AS (  -- Combine all flows first
-								SELECT 
+						"LossesFromProcessed" AS ( -- New: Losses from processed to finished green beans
+								SELECT
+										COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) - COALESCE(SUM(fgb.weight), 0) AS total_losses_processed,
+										pgb."batchNumber"
+								FROM "ProcessedGreenBeans" pgb
+								LEFT JOIN "FinishedGreenBeans" fgb ON pgb."batchNumber" = fgb."batchNumber"
+								GROUP BY pgb."batchNumber"
+						),
+						CombinedFlows AS (
+								SELECT
 										'Cherries' AS from_node,
 										'Processed Green Beans' AS to_node,
 										COALESCE(pgb.total_processed_green_beans_weight, 0) AS value
 								FROM "ProcessedGreenBeans" pgb
 								UNION ALL
-								SELECT 
+								SELECT
 										'Cherries' AS from_node,
-										'Other Losses' AS to_node,
-										COALESCE(l.total_losses, 0) AS value
-								FROM "Losses" l
+										'Unprocessed Cherries' AS to_node,  -- More specific name
+										COALESCE(lc.total_unprocessed_cherries, 0) AS value
+								FROM "LossesFromCherries" lc
 								UNION ALL
 								SELECT
 										'Processed Green Beans' AS from_node,
 										'Finished Green Beans' AS to_node,
 										weight as value
 								FROM "FinishedGreenBeans"
+								UNION ALL
+								SELECT
+										'Processed Green Beans' AS from_node,
+										'Processing Loss' AS to_node, -- New flow for processed losses
+										COALESCE(lp.total_losses_processed, 0) AS value
+								FROM "LossesFromProcessed" lp
 								UNION ALL
 								SELECT
 										'Finished Green Beans' AS from_node,
@@ -901,59 +918,76 @@ router.get('/dashboard-metrics', async (req, res) => {
 										weight as value
 								FROM "FinishedGreenBeans" fgb
 						)
-						SELECT from_node, to_node, SUM(value) AS value  -- Aggregate *after* combining
+						SELECT from_node, to_node, SUM(value) AS value
 						FROM CombinedFlows
 						GROUP BY from_node, to_node;
         `;
 
 				const robustaSankeyQuery = `
             WITH "Cherries" AS (
-								SELECT 
+								SELECT
 										SUM(weight) AS total_cherries_weight
 								FROM "ReceivingData"
 								WHERE type = 'Robusta'
 						),
 						"ProcessedGreenBeans" AS (
-								SELECT 
-									SUM(ROUND(CAST((b.weight/b."totalBags") * a."bagsProcessed" AS numeric), 2)::FLOAT) as total_processed_green_beans_weight
+								SELECT
+										SUM(ROUND(CAST((b.weight/b."totalBags") * a."bagsProcessed" AS numeric), 2)::FLOAT) as total_processed_green_beans_weight,
+										b."batchNumber" -- Include batch number for joining later
 								FROM "PreprocessingData" a
 								LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
 								WHERE b.type = 'Robusta'
+								GROUP BY b."batchNumber"
 						),
 						"FinishedGreenBeans" AS (
-							SELECT
-								weight,
-								producer,
-								quality,
-								"productLine",
-								"processingType"
-							FROM "PostprocessingData"
-							WHERE type = 'Robusta'
+								SELECT
+										weight,
+										producer,
+										quality,
+										"productLine",
+										"processingType",
+										"batchNumber" -- Include batch number for joining
+								FROM "PostprocessingData"
+								WHERE type = 'Robusta'
 						),
-						"Losses" AS (
-								SELECT 
-										c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) as total_losses
+						"LossesFromCherries" AS ( -- Losses from cherries to processed green beans
+								SELECT
+										c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) as total_unprocessed_cherries
 								FROM "Cherries" c
 								LEFT JOIN "ProcessedGreenBeans" pgb ON 1=1
 						),
-						CombinedFlows AS (  -- Combine all flows first
-								SELECT 
+						"LossesFromProcessed" AS ( -- New: Losses from processed to finished green beans
+								SELECT
+										COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) - COALESCE(SUM(fgb.weight), 0) AS total_losses_processed,
+										pgb."batchNumber"
+								FROM "ProcessedGreenBeans" pgb
+								LEFT JOIN "FinishedGreenBeans" fgb ON pgb."batchNumber" = fgb."batchNumber"
+								GROUP BY pgb."batchNumber"
+						),
+						CombinedFlows AS (
+								SELECT
 										'Cherries' AS from_node,
 										'Processed Green Beans' AS to_node,
 										COALESCE(pgb.total_processed_green_beans_weight, 0) AS value
 								FROM "ProcessedGreenBeans" pgb
 								UNION ALL
-								SELECT 
+								SELECT
 										'Cherries' AS from_node,
-										'Other Losses' AS to_node,
-										COALESCE(l.total_losses, 0) AS value
-								FROM "Losses" l
+										'Unprocessed Cherries' AS to_node,  -- More specific name
+										COALESCE(lc.total_unprocessed_cherries, 0) AS value
+								FROM "LossesFromCherries" lc
 								UNION ALL
 								SELECT
 										'Processed Green Beans' AS from_node,
 										'Finished Green Beans' AS to_node,
 										weight as value
 								FROM "FinishedGreenBeans"
+								UNION ALL
+								SELECT
+										'Processed Green Beans' AS from_node,
+										'Processing Loss' AS to_node, -- New flow for processed losses
+										COALESCE(lp.total_losses_processed, 0) AS value
+								FROM "LossesFromProcessed" lp
 								UNION ALL
 								SELECT
 										'Finished Green Beans' AS from_node,
@@ -979,7 +1013,7 @@ router.get('/dashboard-metrics', async (req, res) => {
 										weight as value
 								FROM "FinishedGreenBeans" fgb
 						)
-						SELECT from_node, to_node, SUM(value) AS value  -- Aggregate *after* combining
+						SELECT from_node, to_node, SUM(value) AS value
 						FROM CombinedFlows
 						GROUP BY from_node, to_node;
         `;
