@@ -834,6 +834,7 @@ router.get('/dashboard-metrics', async (req, res) => {
 										SUM(weight) AS total_cherries_weight
 								FROM "ReceivingData"
 								WHERE type = 'Arabica'
+								AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
 						),
 						"ProcessedGreenBeans" AS (
 								SELECT
@@ -842,6 +843,7 @@ router.get('/dashboard-metrics', async (req, res) => {
 								FROM "PreprocessingData" a
 								LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
 								WHERE b.type = 'Arabica'
+								AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
 								GROUP BY b."batchNumber"
 						),
 						"FinishedGreenBeans" AS (
@@ -854,7 +856,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 										"batchNumber" -- Include batch number for joining
 								FROM "PostprocessingData"
 								WHERE type = 'Arabica'
+								AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
 						),
+
 						"LossesFromCherries" AS ( -- Losses from cherries to processed green beans
 								SELECT
 										c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) as total_unprocessed_cherries
@@ -890,7 +894,7 @@ router.get('/dashboard-metrics', async (req, res) => {
 								UNION ALL
 								SELECT
 										'Processed Green Beans' AS from_node,
-										'Processing Loss' AS to_node, -- New flow for processed losses
+										'Processing Loss & Unfinished Processing' AS to_node, -- New flow for processed losses
 										COALESCE(lp.total_losses_processed, 0) AS value
 								FROM "LossesFromProcessed" lp
 								UNION ALL
@@ -929,6 +933,7 @@ router.get('/dashboard-metrics', async (req, res) => {
 										SUM(weight) AS total_cherries_weight
 								FROM "ReceivingData"
 								WHERE type = 'Robusta'
+								AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
 						),
 						"ProcessedGreenBeans" AS (
 								SELECT
@@ -937,6 +942,7 @@ router.get('/dashboard-metrics', async (req, res) => {
 								FROM "PreprocessingData" a
 								LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
 								WHERE b.type = 'Robusta'
+								AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
 								GROUP BY b."batchNumber"
 						),
 						"FinishedGreenBeans" AS (
@@ -949,7 +955,9 @@ router.get('/dashboard-metrics', async (req, res) => {
 										"batchNumber" -- Include batch number for joining
 								FROM "PostprocessingData"
 								WHERE type = 'Robusta'
+								AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
 						),
+
 						"LossesFromCherries" AS ( -- Losses from cherries to processed green beans
 								SELECT
 										c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) as total_unprocessed_cherries
@@ -985,7 +993,7 @@ router.get('/dashboard-metrics', async (req, res) => {
 								UNION ALL
 								SELECT
 										'Processed Green Beans' AS from_node,
-										'Processing Loss' AS to_node, -- New flow for processed losses
+										'Processing Loss & Unfinished Processing' AS to_node, -- New flow for processed losses
 										COALESCE(lp.total_losses_processed, 0) AS value
 								FROM "LossesFromProcessed" lp
 								UNION ALL
