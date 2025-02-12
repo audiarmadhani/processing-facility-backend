@@ -22,7 +22,7 @@ router.post('/events', async (req, res) => {
     }
 
     const [CalendarEvent] = await sequelize.query(
-      `INSERT INTO "CalendarEvents" (eventName, startDate, endDate, eventDescription, allDay, location, category, created_at)
+      `INSERT INTO "CalendarEvent" (eventName, startDate, endDate, eventDescription, allDay, location, category, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING *`,
       {
@@ -101,7 +101,7 @@ router.put('/events/:id', async (req, res) => {
 
   try {
     await sequelize.query(
-      `UPDATE "CalendarEvents" SET 
+      `UPDATE "CalendarEvent" SET 
         eventName = ?, 
         startDate = ?, 
         endDate = ?, 
