@@ -154,13 +154,6 @@ router.put('/targets/:id', async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { 
-      type, 
-      processingType,
-      productLine,
-      producer, 
-      quality, 
-      metric, 
-      timeFrame, 
       targetValue, 
       startDate, 
       endDate 
@@ -174,16 +167,9 @@ router.put('/targets/:id', async (req, res) => {
     // Save the target metrics data
     const [TargetMetrics] = await sequelize.query(
       `UPDATE "TargetMetrics" 
-       SET type = ?, "processingType" = ?, "productLine" = ?, producer = ?, quality = ?, metric = ?, "timeFrame" = ?, "targetValue" = ?, "startDate" = ?, "endDate" = ?, "updatedAt" = ? WHERE id = ?`,
+       SET "targetValue" = ?, "startDate" = ?, "endDate" = ?, "updatedAt" = ? WHERE id = ?`,
       {
         replacements: [
-          type, 
-          processingType, 
-          productLine,
-          producer,
-          quality, 
-          metric, 
-          timeFrame, 
           targetValue, 
           startDate, 
           endDate, 
