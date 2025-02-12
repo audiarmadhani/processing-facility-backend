@@ -151,30 +151,77 @@ router.get('/targets/:range', async (req, res) => {
 
 // Route for updating the column name of a target metric
 router.put('/targets/:id', async (req, res) => {
-  const { id } = req.params;
-  const { columnName } = req.body; // Expecting the new column name
-
-  // Validate required fields
-  if (!columnName) {
-    return res.status(400).json({ error: 'Missing required field: columnName' });
-  }
-
+  const t = await sequelize.transaction();
   try {
-    // Update the column name in the database
-    await sequelize.query(
+    const { 
+      type, 
+      processingType,
+      productLine,
+      producer, 
+      quality, 
+      metric, 
+      timeFrame, 
+      targetValue, 
+      startDate, 
+      endDate 
+    } = req.body;
+
+    // Validate required fields
+    if (!type || !processingType || !quality || !metric || !timeFrame || !targetValue || !startDate || !endDate) {
+      return res.status(400).json({ error: 'Missing required fields.' });
+    }
+
+    // Save the target metrics data
+    const [TargetMetrics] = await sequelize.query(
       `UPDATE "TargetMetrics" 
-       SET "columnName" = ?, "updatedAt" = ? 
+       SET type = ?, "processingType" = ?, "productLine" = ?, producer = ?, quality = ?, metric = ?, "timeFrame" = ?, "targetValue" = ?, "startDate" = ?, "endDate" = ?, "updatedAt" = ?) 
        WHERE id = ?`,
       {
-        replacements: [columnName, new Date(), id],
+        replacements: [
+          type, 
+          processingType, 
+          productLine,
+          producer,
+          quality, 
+          metric, 
+          timeFrame, 
+          targetValue, 
+          startDate, 
+          endDate, 
+          new Date(), 
+          id,
+        ],
+        transaction: t,
       }
     );
 
-    res.status(200).json({
-      message: 'Column name updated successfully',
+    // Commit the transaction
+    await t.commit();
+
+    // Respond with success
+    res.status(201).json({
+      message: 'Target metrics updated successfully',
     });
   } catch (err) {
-    console.error('Error updating column name:', err);
+    // Rollback transaction on error
+    await t.rollback();
+    console.error('Error updating target metrics data:', err);
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
+// Route for deleting a calendar event
+router.delete('/targets/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await sequelize.query('DELETE FROM "TargetMetrics" WHERE id = ?', {
+      replacements: [id],
+    });
+
+    res.status(200).json({ message: 'Target deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting target:', err);
     res.status(500).json({ error: 'Server error', details: err.message });
   }
 });
