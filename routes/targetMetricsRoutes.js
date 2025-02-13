@@ -7,11 +7,7 @@ router.post('/targets', async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { 
-      type, 
-      processingType,
-      productLine,
-      producer, 
-      quality, 
+      referenceNumber, 
       metric, 
       timeFrame, 
       targetValue, 
@@ -20,23 +16,19 @@ router.post('/targets', async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!type || !processingType || !quality || !metric || !timeFrame || !targetValue || !startDate || !endDate) {
+    if (!referenceNumber || !metric || !timeFrame || !targetValue || !startDate || !endDate) {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
 
     // Save the target metrics data
     const [TargetMetrics] = await sequelize.query(
       `INSERT INTO "TargetMetrics" 
-       (type, "processingType", "productLine", producer, quality, metric, "timeFrame", "targetValue", "startDate", "endDate", "createdAt", "updatedAt") 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+       ("referenceNumber", metric, "timeFrame", "targetValue", "startDate", "endDate", "createdAt", "updatedAt") 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
        RETURNING *`,
       {
         replacements: [
-          type, 
-          processingType, 
-          productLine,
-          producer,
-          quality, 
+          referenceNumber, 
           metric, 
           timeFrame, 
           targetValue, 
@@ -73,6 +65,18 @@ router.get('/targets', async (req, res) => {
   } catch (err) {
     console.error('Error fetching target metrics data:', err);
     res.status(500).json({ message: 'Failed to fetch target metrics data.' });
+  }
+});
+
+// Route for fetching all target metrics data
+router.get('/referenceMappings', async (req, res) => {
+  try {
+    // Fetch all records for filtering purposes
+    const [allRows] = await sequelize.query('SELECT * FROM "ReferenceMappings_duplicate"');
+    res.json(allRows);
+  } catch (err) {
+    console.error('Error fetching reference mappings data:', err);
+    res.status(500).json({ message: 'Failed to fetch reference mappings data.' });
   }
 });
 
