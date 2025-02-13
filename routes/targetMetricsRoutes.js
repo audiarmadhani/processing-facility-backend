@@ -84,7 +84,7 @@ const calculateDateRanges = (type) => {
   const today = new Date();
   let start, end;
 
-  if (type === 'this-week') {
+  if (type === 'this_week') {
     const dayOfWeek = today.getDay() || 7; // Convert Sunday (0) to 7 for ISO week
     start = new Date(today);
     start.setDate(today.getDate() - dayOfWeek + 1); // Start of this week (Monday)
@@ -92,31 +92,34 @@ const calculateDateRanges = (type) => {
     end = new Date(start);
     end.setDate(start.getDate() + 6); // End of this week (Sunday)
     end.setHours(23, 59, 59, 999);
-  } else if (type === 'this-month') {
+
+  } else if (type === 'this_month') {
     start = new Date(today.getFullYear(), today.getMonth(), 1); // Start of the month
     end = new Date(today.getFullYear(), today.getMonth() + 1, 0); // End of the month
-  } else if (type === 'next-week') {
+
+  } else if (type === 'next_week') {
     const dayOfWeek = today.getDay() || 7;
     start = new Date(today);
     start.setDate(today.getDate() - dayOfWeek + 8); // Start of next week (Monday)
     start.setHours(0, 0, 0, 0);
-
     end = new Date(start);
     end.setDate(start.getDate() + 6); // End of next week (Sunday)
     end.setHours(23, 59, 59, 999);
-  } else if (type === 'next-month') {
+
+  } else if (type === 'next_month') {
     start = new Date(today.getFullYear(), today.getMonth() + 1, 1); // Start of next month
     end = new Date(today.getFullYear(), today.getMonth() + 2, 0); // End of next month
-  } else if (type === 'previous-week') {
+
+  } else if (type === 'previous_week') {
     const dayOfWeek = today.getDay() || 7;
     start = new Date(today);
     start.setDate(today.getDate() - dayOfWeek - 6); // Start of previous week (Monday)
     start.setHours(0, 0, 0, 0);
-
     end = new Date(start);
     end.setDate(start.getDate() + 6); // End of previous week (Sunday)
     end.setHours(23, 59, 59, 999);
-  } else if (type === 'previous-month') {
+
+  } else if (type === 'previous_month') {
     start = new Date(today.getFullYear(), today.getMonth() - 1, 1); // Start of previous month
     end = new Date(today.getFullYear(), today.getMonth(), 0); // End of previous month
   }
@@ -136,7 +139,7 @@ router.get('/targets/:range', async (req, res) => {
   try {
     const query = `
     WITH metric AS (
-      SELECT id, "referenceNumber", metric, CASE WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") ELSE SUM("targetValue") END AS "targetValue" 
+      SELECT id, "referenceNumber", metric, SUM("targetValue") END AS "targetValue" 
       FROM "TargetMetrics" 
       WHERE "startDate" <= ? AND "endDate" >= ? 
       GROUP BY id, "referenceNumber"
@@ -156,7 +159,7 @@ router.get('/targets/:range', async (req, res) => {
       a."targetValue", 
       COALESCE(b.achievement, 0) as achievement 
     FROM metric a 
-    LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber") AND LOWER(a.metric) = LOWER(b.metric);
+    LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber");
     `;
 
     const values = [end, start, start, end];
