@@ -134,7 +134,30 @@ router.get('/targets/:range', async (req, res) => {
   }
 
   try {
-    const query = `WITH metric AS (SELECT id, type, "processingType", "productLine", producer, quality, metric, CASE WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") ELSE SUM("targetValue") END AS "targetValue" FROM "TargetMetrics" WHERE "startDate" <= ? AND "endDate" >= ? GROUP BY id, type, "processingType" ,"productLine", producer, quality, metric), ttw AS (SELECT type, "processingType", "productLine", producer, quality, 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement FROM "PostprocessingData" WHERE "storedDate" BETWEEN ? AND ? GROUP BY type, "processingType", "productLine", producer, quality) SELECT a.id, a.type, a."processingType", a."productLine", a.producer, a.quality, a.metric, a."targetValue", COALESCE(b.achievement, 0) as achievement FROM metric a LEFT JOIN ttw b ON LOWER(a.type) = LOWER(b.type) AND LOWER(a."processingType") = LOWER(b."processingType") AND LOWER(a."productLine") = LOWER(b."productLine") AND LOWER(a.producer) = LOWER(b.producer) AND LOWER(a.quality) = LOWER(b.quality) AND LOWER(a.metric) = LOWER(b.metric);`;
+    const query = `
+    WITH metric AS (
+      SELECT id, "referenceNumber", metric, CASE WHEN metric = 'Average Cherry Cost' THEN AVG("targetValue") ELSE SUM("targetValue") END AS "targetValue" 
+      FROM "TargetMetrics" 
+      WHERE "startDate" <= ? AND "endDate" >= ? 
+      GROUP BY id, "referenceNumber"
+    ), 
+
+    ttw AS (
+      SELECT "referenceNumber", 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement 
+      FROM "PostprocessingData" 
+      WHERE "storedDate" BETWEEN ? AND ? 
+      GROUP BY "referenceNumber"
+    ) 
+
+    SELECT 
+      a.id, 
+      a."referenceNumber", 
+      a.metric, 
+      a."targetValue", 
+      COALESCE(b.achievement, 0) as achievement 
+    FROM metric a 
+    LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber") AND LOWER(a.metric) = LOWER(b.metric);
+    `;
 
     const values = [end, start, start, end];
     const result = await sequelize.query(query, {
