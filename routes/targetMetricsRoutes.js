@@ -156,11 +156,12 @@ router.put('/targets/:id', async (req, res) => {
     const { 
       targetValue, 
       startDate, 
-      endDate 
+      endDate,
+      id
     } = req.body;
 
     // Validate required fields
-    if (!targetValue || !startDate || !endDate) {
+    if (!targetValue || !startDate || !endDate || !id) {
       return res.status(400).json({ error: 'Missing required fields.' });
     }
 
