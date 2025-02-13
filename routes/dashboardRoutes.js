@@ -1090,11 +1090,11 @@ router.get('/dashboard-metrics', async (req, res) => {
 
 				const arabicaAchievementQuery = `
             WITH metric AS (
-							SELECT id, "referenceNumber", metric, SUM("targetValue") END AS "targetValue" 
-							FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber")
+							SELECT id, "referenceNumber", SUM("targetValue") AS "targetValue" 
+							FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber") a
 							WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
 							AND type = 'Arabica'
-							GROUP BY id, "referenceNumber"
+							GROUP BY id, "referenceNumber", metric
 						), 
 
 						ttw AS (
@@ -1105,22 +1105,22 @@ router.get('/dashboard-metrics', async (req, res) => {
 						) 
 
 						SELECT 
-							a.id, 
 							a."referenceNumber", 
-							a.metric, 
 							a."targetValue", 
-							COALESCE(b.achievement, 0) as achievement 
+							COALESCE(b.achievement, 0) as achievement,
+							ROUND(CAST((COALESCE(b.achievement, 0) / a."targetValue")*100 AS numeric) , 2)::FLOAT AS "targetPercentage"
 						FROM metric a 
-						LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber");
+						LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber")
+						ORDER BY ROUND(CAST((COALESCE(b.achievement, 0) / a."targetValue")*100 AS numeric) , 2)::FLOAT DESC;
         `;
 
 				const robustaAchievementQuery = `
             WITH metric AS (
-							SELECT id, "referenceNumber", metric, SUM("targetValue") END AS "targetValue" 
-							FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber")
+							SELECT id, "referenceNumber", SUM("targetValue") AS "targetValue" 
+							FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber") a
 							WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
 							AND type = 'Robusta'
-							GROUP BY id, "referenceNumber"
+							GROUP BY id, "referenceNumber", metric
 						), 
 
 						ttw AS (
@@ -1131,13 +1131,13 @@ router.get('/dashboard-metrics', async (req, res) => {
 						) 
 
 						SELECT 
-							a.id, 
 							a."referenceNumber", 
-							a.metric, 
 							a."targetValue", 
-							COALESCE(b.achievement, 0) as achievement 
+							COALESCE(b.achievement, 0) as achievement,
+							ROUND(CAST((COALESCE(b.achievement, 0) / a."targetValue")*100 AS numeric) , 2)::FLOAT AS "targetPercentage"
 						FROM metric a 
-						LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber");
+						LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber")
+						ORDER BY ROUND(CAST((COALESCE(b.achievement, 0) / a."targetValue")*100 AS numeric) , 2)::FLOAT DESC;
         `;
 
 
