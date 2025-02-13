@@ -60,7 +60,7 @@ router.post('/targets', async (req, res) => {
 router.get('/targets', async (req, res) => {
   try {
     // Fetch all records for filtering purposes
-    const [allRows] = await sequelize.query('SELECT * FROM "TargetMetrics"');
+    const [allRows] = await sequelize.query('SELECT a.*, "productLine", "processingType", producer, quality, type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber"');
     res.json(allRows);
   } catch (err) {
     console.error('Error fetching target metrics data:', err);
