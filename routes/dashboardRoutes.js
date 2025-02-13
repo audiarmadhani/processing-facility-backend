@@ -372,34 +372,34 @@ router.get('/dashboard-metrics', async (req, res) => {
                 DATE("storedDate");
         `;
         const arabicaWeightMoMQuery = `
-						WITH RECURSIVE "DateRange" AS (
-								SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
-								UNION ALL
-								SELECT "Date" + INTERVAL '1 day' -- Add one day to the previous date
-								FROM "DateRange"
-								WHERE "Date" + INTERVAL '1 day' <= CURRENT_DATE -- Stop at today's date
-						),
-						RDA AS (
-								SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(Weight), 0) AS "TotalWeightThisMonth"
-								FROM "ReceivingData" 
-								WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-								AND type = 'Arabica'
-								GROUP BY DATE("receivingDate")::TIMESTAMP
-						),
-						RDB AS (
-								SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(Weight), 0) AS "TotalWeightLastMonth"
-								FROM "ReceivingData" 
-								WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
-								AND type = 'Arabica'
-								GROUP BY DATE("receivingDate")::TIMESTAMP
-						)
-						SELECT 
-								TO_CHAR(a."Date", 'Mon-DD') AS "Date",
-								SUM(COALESCE(b."TotalWeightThisMonth", 0)) OVER (ORDER BY a."Date") AS "TotalWeightThisMonth", 
-								SUM(COALESCE(c."TotalWeightLastMonth", 0)) OVER (ORDER BY a."Date") AS "TotalWeightLastMonth"
-						FROM "DateRange" a
-						LEFT JOIN RDA b ON a."Date" = b."receivingDate"
-						LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."receivingDate");
+            WITH RECURSIVE "DateRange" AS (
+                    SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
+                    UNION ALL
+                    SELECT "Date" + INTERVAL '1 day' -- Add one day to the previous date
+                    FROM "DateRange"
+                    WHERE "Date" + INTERVAL '1 day' <= CURRENT_DATE -- Stop at today's date
+            ),
+            RDA AS (
+                    SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(Weight), 0) AS "TotalWeightThisMonth"
+                    FROM "ReceivingData" 
+                    WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                    AND type = 'Arabica'
+                    GROUP BY DATE("receivingDate")::TIMESTAMP
+            ),
+            RDB AS (
+                    SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(Weight), 0) AS "TotalWeightLastMonth"
+                    FROM "ReceivingData" 
+                    WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
+                    AND type = 'Arabica'
+                    GROUP BY DATE("receivingDate")::TIMESTAMP
+            )
+            SELECT 
+                    TO_CHAR(a."Date", 'Mon-DD') AS "Date",
+                    SUM(COALESCE(b."TotalWeightThisMonth", 0)) OVER (ORDER BY a."Date") AS "TotalWeightThisMonth", 
+                    SUM(COALESCE(c."TotalWeightLastMonth", 0)) OVER (ORDER BY a."Date") AS "TotalWeightLastMonth"
+            FROM "DateRange" a
+            LEFT JOIN RDA b ON a."Date" = b."receivingDate"
+            LEFT JOIN RDB c ON EXTRACT(DAY FROM a."Date") = EXTRACT(DAY FROM c."receivingDate");
 				`;
         const robustaWeightMoMQuery = `
             WITH RECURSIVE "DateRange" AS (
