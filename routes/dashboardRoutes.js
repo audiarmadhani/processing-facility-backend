@@ -342,6 +342,15 @@ router.get('/dashboard-metrics', async (req, res) => {
             AND type = 'Robusta'
         `;
         const arabicaTotalWeightbyDateQuery = `
+            WITH RECURSIVE "DateRange" AS (
+                SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
+                UNION ALL
+                SELECT "Date" + INTERVAL '1 day' -- Add one day to the previous date
+                FROM "DateRange"
+                WHERE "Date" + INTERVAL '1 day' <= CURRENT_DATE -- Stop at today's date
+            ),
+
+            ppd AS (
             SELECT 
                 "referenceNumber" AS category, 
                 COALESCE(SUM(weight), 0) AS weight, 
@@ -354,9 +363,26 @@ router.get('/dashboard-metrics', async (req, res) => {
                 AND type = 'Arabica' 
             GROUP BY 
                 "referenceNumber", 
-                DATE("storedDate");
+                DATE("storedDate")
+            )
+
+            SELECT 
+            TO_CHAR(a."Date", 'Mon-DD') AS "storedDate",
+            category,
+            SUM(COALESCE(b."weight", 0)) OVER (ORDER BY a."Date") AS weight
+            FROM "DateRange" a
+            LEFT JOIN ppd b ON a."Date" = b."storedDate";
         `;
         const robustaTotalWeightbyDateQuery = `
+            WITH RECURSIVE "DateRange" AS (
+                SELECT DATE_TRUNC('month', CURRENT_DATE)::TIMESTAMP AS "Date" -- Start of the current month
+                UNION ALL
+                SELECT "Date" + INTERVAL '1 day' -- Add one day to the previous date
+                FROM "DateRange"
+                WHERE "Date" + INTERVAL '1 day' <= CURRENT_DATE -- Stop at today's date
+            ),
+
+            ppd AS (
             SELECT 
                 "referenceNumber" AS category, 
                 COALESCE(SUM(weight), 0) AS weight, 
@@ -369,7 +395,15 @@ router.get('/dashboard-metrics', async (req, res) => {
                 AND type = 'Robusta' 
             GROUP BY 
                 "referenceNumber", 
-                DATE("storedDate");
+                DATE("storedDate")
+            )
+
+            SELECT 
+            TO_CHAR(a."Date", 'Mon-DD') AS "storedDate",
+            category,
+            SUM(COALESCE(b."weight", 0)) OVER (ORDER BY a."Date") AS weight
+            FROM "DateRange" a
+            LEFT JOIN ppd b ON a."Date" = b."storedDate";
         `;
         const arabicaWeightMoMQuery = `
             WITH RECURSIVE "DateRange" AS (
@@ -1090,56 +1124,84 @@ router.get('/dashboard-metrics', async (req, res) => {
 
         const arabicaAchievementQuery = `
             WITH metric AS (
-                SELECT id, "referenceNumber", SUM("targetValue") AS "targetValue" 
-                FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber") a
+                SELECT 
+                    id, 
+                    "referenceNumber", 
+                    SUM("targetValue") AS "targetValue"
+                FROM (
+                    SELECT 
+                        a.*, 
+                        b.type 
+                    FROM "TargetMetrics" a 
+                    LEFT JOIN "ReferenceMappings_duplicate" b ON a."referenceNumber" = b."referenceNumber"
+                ) a
                 WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Arabica'
                 GROUP BY id, "referenceNumber", metric
             ), 
-
             ttw AS (
-                SELECT "referenceNumber", 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement 
+                SELECT 
+                    "referenceNumber", 
+                    'Total Weight Produced' AS metric, 
+                    COALESCE(SUM(weight), 0) AS achievement 
                 FROM "PostprocessingData" 
                 WHERE "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 GROUP BY "referenceNumber"
-            ) 
+            ),
+            date_series AS (
+                SELECT generate_series('${formattedCurrentStartDate}'::date, '${formattedCurrentEndDate}'::date, '1 day'::interval)::date AS dt
+            )
 
             SELECT 
-                a."referenceNumber", 
-                SUM(a."targetValue"), 
-                SUM(COALESCE(b.achievement, 0)) as achievement,
-                ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT AS "targetPercentage"
-            FROM metric a 
+                d.dt AS "Date",
+                a."referenceNumber",        
+                ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / NULLIF(SUM(a."targetValue"), 0))*100 AS numeric), 2)::FLOAT AS "targetPercentage"
+            FROM date_series d
+            CROSS JOIN metric a  -- Cross join with the date series
             LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber")
-            GROUP BY a."referenceNumber"
-            ORDER BY a."referenceNumber" ASC, ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT DESC;
-`;
+            GROUP BY d.dt, a."referenceNumber"
+            ORDER BY d.dt, a."referenceNumber";
+            `;
 
         const robustaAchievementQuery = `
             WITH metric AS (
-                SELECT id, "referenceNumber", SUM("targetValue") AS "targetValue" 
-                FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber") a
+                SELECT 
+                    id, 
+                    "referenceNumber", 
+                    SUM("targetValue") AS "targetValue"
+                FROM (
+                    SELECT 
+                        a.*, 
+                        b.type 
+                    FROM "TargetMetrics" a 
+                    LEFT JOIN "ReferenceMappings_duplicate" b ON a."referenceNumber" = b."referenceNumber"
+                ) a
                 WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Robusta'
                 GROUP BY id, "referenceNumber", metric
             ), 
-
             ttw AS (
-                SELECT "referenceNumber", 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement 
+                SELECT 
+                    "referenceNumber", 
+                    'Total Weight Produced' AS metric, 
+                    COALESCE(SUM(weight), 0) AS achievement 
                 FROM "PostprocessingData" 
                 WHERE "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 GROUP BY "referenceNumber"
-            ) 
+            ),
+            date_series AS (
+                SELECT generate_series('${formattedCurrentStartDate}'::date, '${formattedCurrentEndDate}'::date, '1 day'::interval)::date AS dt
+            )
 
             SELECT 
-                a."referenceNumber", 
-                SUM(a."targetValue"), 
-                SUM(COALESCE(b.achievement, 0)) as achievement,
-                ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT AS "targetPercentage"
-            FROM metric a 
+                d.dt AS "Date",
+                a."referenceNumber",        
+                ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / NULLIF(SUM(a."targetValue"), 0))*100 AS numeric), 2)::FLOAT AS "targetPercentage"
+            FROM date_series d
+            CROSS JOIN metric a  -- Cross join with the date series
             LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber")
-            GROUP BY a."referenceNumber"
-            ORDER BY a."referenceNumber" ASC, ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT DESC;
+            GROUP BY d.dt, a."referenceNumber"
+            ORDER BY d.dt, a."referenceNumber";
         `;
 
 
