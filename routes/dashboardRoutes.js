@@ -718,428 +718,428 @@ router.get('/dashboard-metrics', async (req, res) => {
             ;
         `;
 
-				const arabicaCherryQualitybyDateQuery = `
+        const arabicaCherryQualitybyDateQuery = `
             SELECT 
-							"qcDate", 
-							COALESCE(avg("unripePercentage"), 0) "unripePercentage",
-							COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
-							COALESCE(avg("ripePercentage"), 0) "ripePercentage",
-							COALESCE(avg("overripePercentage"), 0) "overripePercentage"
-						FROM (
-							SELECT 
-								a."batchNumber",
-								DATE(min("qcDate")) "qcDate",
-								COALESCE(avg("unripePercentage"), 0) "unripePercentage",
-								COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
-								COALESCE(avg("ripePercentage"), 0) "ripePercentage",
-								COALESCE(avg("overripePercentage"), 0) "overripePercentage"
-							FROM "QCData" a
-							LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
-							WHERE "unripePercentage" IS NOT NULL
-							AND b.type = 'Arabica'
-							GROUP BY a."batchNumber"
-						) a
-						GROUP BY "qcDate"
+                "qcDate", 
+                COALESCE(avg("unripePercentage"), 0) "unripePercentage",
+                COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
+                COALESCE(avg("ripePercentage"), 0) "ripePercentage",
+                COALESCE(avg("overripePercentage"), 0) "overripePercentage"
+            FROM (
+                SELECT 
+                    a."batchNumber",
+                    DATE(min("qcDate")) "qcDate",
+                    COALESCE(avg("unripePercentage"), 0) "unripePercentage",
+                    COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
+                    COALESCE(avg("ripePercentage"), 0) "ripePercentage",
+                    COALESCE(avg("overripePercentage"), 0) "overripePercentage"
+                FROM "QCData" a
+                LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+                WHERE "unripePercentage" IS NOT NULL
+                AND b.type = 'Arabica'
+                GROUP BY a."batchNumber"
+            ) a
+            GROUP BY "qcDate"
         `;
 
-				const robustaCherryQualitybyDateQuery = `
+        const robustaCherryQualitybyDateQuery = `
             SELECT 
-							"qcDate", 
-							COALESCE(avg("unripePercentage"), 0) "unripePercentage",
-							COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
-							COALESCE(avg("ripePercentage"), 0) "ripePercentage",
-							COALESCE(avg("overripePercentage"), 0) "overripePercentage"
-						FROM (
-							SELECT 
-								a."batchNumber",
-								DATE(min("qcDate")) "qcDate",
-								COALESCE(avg("unripePercentage"), 0) "unripePercentage",
-								COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
-								COALESCE(avg("ripePercentage"), 0) "ripePercentage",
-								COALESCE(avg("overripePercentage"), 0) "overripePercentage"
-							FROM "QCData" a
-							LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
-							WHERE "unripePercentage" IS NOT NULL
-							AND b.type = 'Robusta'
-							GROUP BY a."batchNumber"
-						) a
-						GROUP BY "qcDate"
+                "qcDate", 
+                COALESCE(avg("unripePercentage"), 0) "unripePercentage",
+                COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
+                COALESCE(avg("ripePercentage"), 0) "ripePercentage",
+                COALESCE(avg("overripePercentage"), 0) "overripePercentage"
+            FROM (
+                SELECT 
+                    a."batchNumber",
+                    DATE(min("qcDate")) "qcDate",
+                    COALESCE(avg("unripePercentage"), 0) "unripePercentage",
+                    COALESCE(avg("semiripePercentage"), 0) "semiripePercentage",
+                    COALESCE(avg("ripePercentage"), 0) "ripePercentage",
+                    COALESCE(avg("overripePercentage"), 0) "overripePercentage"
+                FROM "QCData" a
+                LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+                WHERE "unripePercentage" IS NOT NULL
+                AND b.type = 'Robusta'
+                GROUP BY a."batchNumber"
+            ) a
+            GROUP BY "qcDate"
         `;
 
-				const arabicaFarmersContributionQuery = `
+        const arabicaFarmersContributionQuery = `
             SELECT 
-							a."farmerName"
-							,sum(a.weight) weight
-							,COALESCE(SUM("unripeWeight"), 0) "unripeWeight"
-							,COALESCE(SUM("semiripeWeight"), 0) "semiripeWeight"
-							,COALESCE(SUM("ripeWeight"), 0) "ripeWeight"
-							,COALESCE(SUM("overripeWeight"), 0) "overripeWeight"
-							,CASE WHEN 
-								(sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0))) < 0 THEN 0
-								ELSE (sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0)))
-								END AS "unknownWeight"
-						from "ReceivingData" a
-						LEFT JOIN (
-							SELECT
-								a."batchNumber",
-								SUM(b.weight),
-								SUM(b.weight) * AVG("unripePercentage")/100 AS "unripeWeight",
-								SUM(b.weight) * AVG("semiripePercentage")/100 AS "semiripeWeight",
-								SUM(b.weight) * AVG("ripePercentage")/100 AS "ripeWeight",
-								SUM(b.weight) * AVG("overripePercentage")/100 AS "overripeWeight"
-							FROM "QCData" a
-							LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
-							WHERE "ripePercentage" IS NOT NULL
-							GROUP BY a."batchNumber"
-						) b on a."batchNumber" = b."batchNumber"
-						WHERE a.type = 'Arabica'
-						AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
-						GROUP BY "farmerName"
+                a."farmerName"
+                ,sum(a.weight) weight
+                ,COALESCE(SUM("unripeWeight"), 0) "unripeWeight"
+                ,COALESCE(SUM("semiripeWeight"), 0) "semiripeWeight"
+                ,COALESCE(SUM("ripeWeight"), 0) "ripeWeight"
+                ,COALESCE(SUM("overripeWeight"), 0) "overripeWeight"
+                ,CASE WHEN 
+                    (sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0))) < 0 THEN 0
+                    ELSE (sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0)))
+                    END AS "unknownWeight"
+            from "ReceivingData" a
+            LEFT JOIN (
+                SELECT
+                    a."batchNumber",
+                    SUM(b.weight),
+                    SUM(b.weight) * AVG("unripePercentage")/100 AS "unripeWeight",
+                    SUM(b.weight) * AVG("semiripePercentage")/100 AS "semiripeWeight",
+                    SUM(b.weight) * AVG("ripePercentage")/100 AS "ripeWeight",
+                    SUM(b.weight) * AVG("overripePercentage")/100 AS "overripeWeight"
+                FROM "QCData" a
+                LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+                WHERE "ripePercentage" IS NOT NULL
+                GROUP BY a."batchNumber"
+            ) b on a."batchNumber" = b."batchNumber"
+            WHERE a.type = 'Arabica'
+            AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
+            GROUP BY "farmerName"
         `;
 
-				const robustaFarmersContributionQuery = `
+        const robustaFarmersContributionQuery = `
             SELECT 
-							a."farmerName"
-							,sum(a.weight) weight
-							,COALESCE(SUM("unripeWeight"), 0) "unripeWeight"
-							,COALESCE(SUM("semiripeWeight"), 0) "semiripeWeight"
-							,COALESCE(SUM("ripeWeight"), 0) "ripeWeight"
-							,COALESCE(SUM("overripeWeight"), 0) "overripeWeight"
-							,CASE WHEN 
-								(sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0))) < 0 THEN 0
-								ELSE (sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0)))
-								END AS "unknownWeight"
-						from "ReceivingData" a
-						LEFT JOIN (
-							SELECT
-								a."batchNumber",
-								SUM(b.weight),
-								SUM(b.weight) * AVG("unripePercentage")/100 AS "unripeWeight",
-								SUM(b.weight) * AVG("semiripePercentage")/100 AS "semiripeWeight",
-								SUM(b.weight) * AVG("ripePercentage")/100 AS "ripeWeight",
-								SUM(b.weight) * AVG("overripePercentage")/100 AS "overripeWeight"
-							FROM "QCData" a
-							LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
-							WHERE "ripePercentage" IS NOT NULL
-							GROUP BY a."batchNumber"
-						) b on a."batchNumber" = b."batchNumber"
-						WHERE a.type = 'Robusta'
-						AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
-						GROUP BY "farmerName"
+                a."farmerName"
+                ,sum(a.weight) weight
+                ,COALESCE(SUM("unripeWeight"), 0) "unripeWeight"
+                ,COALESCE(SUM("semiripeWeight"), 0) "semiripeWeight"
+                ,COALESCE(SUM("ripeWeight"), 0) "ripeWeight"
+                ,COALESCE(SUM("overripeWeight"), 0) "overripeWeight"
+                ,CASE WHEN 
+                    (sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0))) < 0 THEN 0
+                    ELSE (sum(a.weight) - (COALESCE(SUM("unripeWeight"), 0) + COALESCE(SUM("semiripeWeight"), 0) + COALESCE(SUM("ripeWeight"), 0) + COALESCE(SUM("overripeWeight"), 0)))
+                    END AS "unknownWeight"
+            from "ReceivingData" a
+            LEFT JOIN (
+                SELECT
+                    a."batchNumber",
+                    SUM(b.weight),
+                    SUM(b.weight) * AVG("unripePercentage")/100 AS "unripeWeight",
+                    SUM(b.weight) * AVG("semiripePercentage")/100 AS "semiripeWeight",
+                    SUM(b.weight) * AVG("ripePercentage")/100 AS "ripeWeight",
+                    SUM(b.weight) * AVG("overripePercentage")/100 AS "overripeWeight"
+                FROM "QCData" a
+                LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+                WHERE "ripePercentage" IS NOT NULL
+                GROUP BY a."batchNumber"
+            ) b on a."batchNumber" = b."batchNumber"
+            WHERE a.type = 'Robusta'
+            AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
+            GROUP BY "farmerName"
         `;
 
-				const arabicaSankeyQuery = `
+        const arabicaSankeyQuery = `
             WITH "Cherries" AS (
-							SELECT
-								SUM(weight) AS total_cherries_weight
-							FROM "ReceivingData"
-							WHERE type = 'Arabica'
-								AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-						),
-						"ProcessedGreenBeans" AS (
-							SELECT
-								SUM(ROUND(CAST((b.weight / b."totalBags") * a."bagsProcessed" AS numeric), 2)::FLOAT) AS total_processed_green_beans_weight,
-								b."batchNumber" -- for later joining
-							FROM "PreprocessingData" a
-							LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber"
-							WHERE b.type = 'Arabica'
-								AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-							GROUP BY b."batchNumber"
-						),
-						"FinishedGreenBeans" AS (
-							SELECT
-								weight,
-								producer,
-								quality,
-								"productLine",
-								"processingType",
-								"batchNumber" -- for later joining
-							FROM "PostprocessingData"
-							WHERE type = 'Arabica'
-								AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-						),
-						"LossesFromCherries" AS (
-							-- This computes the unprocessed cherries as the difference
-							SELECT
-								c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) AS total_unprocessed_cherries
-							FROM "Cherries" c
-							LEFT JOIN "ProcessedGreenBeans" pgb ON 1 = 1
-						),
-						"LossesFromProcessed" AS (
-							SELECT
-								COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) - COALESCE(SUM(fgb.weight), 0) AS total_losses_processed,
-								pgb."batchNumber"
-							FROM "ProcessedGreenBeans" pgb
-							LEFT JOIN "FinishedGreenBeans" fgb ON pgb."batchNumber" = fgb."batchNumber"
-							GROUP BY pgb."batchNumber"
-						),
-						CombinedFlows AS (
-							-- Flow from Cherries to Processed Green Beans (from Preprocessing)
-							SELECT
-								'Cherries' AS from_node,
-								'Processed Cherries' AS to_node,
-								COALESCE(pgb.total_processed_green_beans_weight, 0) AS value
-							FROM "ProcessedGreenBeans" pgb
+                SELECT
+                    SUM(weight) AS total_cherries_weight
+                FROM "ReceivingData"
+                WHERE type = 'Arabica'
+                    AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+            ),
+            "ProcessedGreenBeans" AS (
+                SELECT
+                    SUM(ROUND(CAST((b.weight / b."totalBags") * a."bagsProcessed" AS numeric), 2)::FLOAT) AS total_processed_green_beans_weight,
+                    b."batchNumber" -- for later joining
+                FROM "PreprocessingData" a
+                LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber"
+                WHERE b.type = 'Arabica'
+                    AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                GROUP BY b."batchNumber"
+            ),
+            "FinishedGreenBeans" AS (
+                SELECT
+                    weight,
+                    producer,
+                    quality,
+                    "productLine",
+                    "processingType",
+                    "batchNumber" -- for later joining
+                FROM "PostprocessingData"
+                WHERE type = 'Arabica'
+                    AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+            ),
+            "LossesFromCherries" AS (
+                -- This computes the unprocessed cherries as the difference
+                SELECT
+                    c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) AS total_unprocessed_cherries
+                FROM "Cherries" c
+                LEFT JOIN "ProcessedGreenBeans" pgb ON 1 = 1
+            ),
+            "LossesFromProcessed" AS (
+                SELECT
+                    COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) - COALESCE(SUM(fgb.weight), 0) AS total_losses_processed,
+                    pgb."batchNumber"
+                FROM "ProcessedGreenBeans" pgb
+                LEFT JOIN "FinishedGreenBeans" fgb ON pgb."batchNumber" = fgb."batchNumber"
+                GROUP BY pgb."batchNumber"
+            ),
+            CombinedFlows AS (
+                -- Flow from Cherries to Processed Green Beans (from Preprocessing)
+                SELECT
+                    'Cherries' AS from_node,
+                    'Processed Cherries' AS to_node,
+                    COALESCE(pgb.total_processed_green_beans_weight, 0) AS value
+                FROM "ProcessedGreenBeans" pgb
 
-							UNION ALL
+                UNION ALL
 
-							-- Flow from Cherries to Unprocessed Cherries (losses from cherries)
-							SELECT
-								'Cherries' AS from_node,
-								'Unprocessed Cherries' AS to_node,
-								COALESCE(lc.total_unprocessed_cherries, 0) AS value
-							FROM "LossesFromCherries" lc
+                -- Flow from Cherries to Unprocessed Cherries (losses from cherries)
+                SELECT
+                    'Cherries' AS from_node,
+                    'Unprocessed Cherries' AS to_node,
+                    COALESCE(lc.total_unprocessed_cherries, 0) AS value
+                FROM "LossesFromCherries" lc
 
-							UNION ALL
+                UNION ALL
 
-							-- **Conditional extra flow:** If the unprocessed cherries flow is 0,
-							-- add an extra flow from Cherries to Processed Green Beans with a value equal
-							-- to the total Finished Green Beans weight.
-							SELECT
-								'Cherries' AS from_node,
-								'Processed Cherries' AS to_node,
-								(SELECT COALESCE(SUM(weight), 0) FROM "FinishedGreenBeans") AS value
-							WHERE (SELECT COALESCE(total_unprocessed_cherries, 0) FROM "LossesFromCherries") = 0
+                -- **Conditional extra flow:** If the unprocessed cherries flow is 0,
+                -- add an extra flow from Cherries to Processed Green Beans with a value equal
+                -- to the total Finished Green Beans weight.
+                SELECT
+                    'Cherries' AS from_node,
+                    'Processed Cherries' AS to_node,
+                    (SELECT COALESCE(SUM(weight), 0) FROM "FinishedGreenBeans") AS value
+                WHERE (SELECT COALESCE(total_unprocessed_cherries, 0) FROM "LossesFromCherries") = 0
 
-							UNION ALL
+                UNION ALL
 
-							-- Flow from Processed Green Beans to Finished Green Beans (by FinishedGreenBeans records)
-							SELECT
-								'Processed Cherries' AS from_node,
-								'Finished Green Beans' AS to_node,
-								weight AS value
-							FROM "FinishedGreenBeans"
+                -- Flow from Processed Green Beans to Finished Green Beans (by FinishedGreenBeans records)
+                SELECT
+                    'Processed Cherries' AS from_node,
+                    'Finished Green Beans' AS to_node,
+                    weight AS value
+                FROM "FinishedGreenBeans"
 
-							UNION ALL
+                UNION ALL
 
-							-- Flow representing processing losses
-							SELECT
-								'Processed Cherries' AS from_node,
-								'Processing Loss & Unfinished Processing' AS to_node,
-								COALESCE(lp.total_losses_processed, 0) AS value
-							FROM "LossesFromProcessed" lp
+                -- Flow representing processing losses
+                SELECT
+                    'Processed Cherries' AS from_node,
+                    'Processing Loss & Unfinished Processing' AS to_node,
+                    COALESCE(lp.total_losses_processed, 0) AS value
+                FROM "LossesFromProcessed" lp
 
-							UNION ALL
+                UNION ALL
 
-							-- Other flows from Finished Green Beans (producer, quality, etc.)
-							SELECT
-								'Finished Green Beans' AS from_node,
-								producer AS to_node,
-								weight AS value
-							FROM "FinishedGreenBeans"
+                -- Other flows from Finished Green Beans (producer, quality, etc.)
+                SELECT
+                    'Finished Green Beans' AS from_node,
+                    producer AS to_node,
+                    weight AS value
+                FROM "FinishedGreenBeans"
 
-							UNION ALL
+                UNION ALL
 
-							SELECT
-								producer AS from_node,
-								quality AS to_node,
-								weight AS value
-							FROM "FinishedGreenBeans"
+                SELECT
+                    producer AS from_node,
+                    quality AS to_node,
+                    weight AS value
+                FROM "FinishedGreenBeans"
 
-							UNION ALL
+                UNION ALL
 
-							SELECT
-								quality AS from_node,
-								(SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS to_node,
-								weight AS value
-							FROM "FinishedGreenBeans" fgb
+                SELECT
+                    quality AS from_node,
+                    (SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS to_node,
+                    weight AS value
+                FROM "FinishedGreenBeans" fgb
 
-							UNION ALL
+                UNION ALL
 
-							SELECT
-								(SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS from_node,
-								(SELECT "processingType" FROM "ProcessingTypes" WHERE "processingType" = fgb."processingType") AS to_node,
-								weight AS value
-							FROM "FinishedGreenBeans" fgb
-						)
+                SELECT
+                    (SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS from_node,
+                    (SELECT "processingType" FROM "ProcessingTypes" WHERE "processingType" = fgb."processingType") AS to_node,
+                    weight AS value
+                FROM "FinishedGreenBeans" fgb
+            )
 
-						SELECT from_node, to_node, SUM(value) AS value
-						FROM CombinedFlows
-						GROUP BY from_node, to_node;
+            SELECT from_node, to_node, SUM(value) AS value
+            FROM CombinedFlows
+            GROUP BY from_node, to_node;
         `;
 
-				const robustaSankeyQuery = `
+        const robustaSankeyQuery = `
             WITH "Cherries" AS (
-							SELECT
-								SUM(weight) AS total_cherries_weight
-							FROM "ReceivingData"
-							WHERE type = 'Robusta'
-								AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-						),
-						"ProcessedGreenBeans" AS (
-							SELECT
-								SUM(ROUND(CAST((b.weight / b."totalBags") * a."bagsProcessed" AS numeric), 2)::FLOAT) AS total_processed_green_beans_weight,
-								b."batchNumber" -- for later joining
-							FROM "PreprocessingData" a
-							LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber"
-							WHERE b.type = 'Robusta'
-								AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-							GROUP BY b."batchNumber"
-						),
-						"FinishedGreenBeans" AS (
-							SELECT
-								weight,
-								producer,
-								quality,
-								"productLine",
-								"processingType",
-								"batchNumber" -- for later joining
-							FROM "PostprocessingData"
-							WHERE type = 'Robusta'
-								AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-						),
-						"LossesFromCherries" AS (
-							-- This computes the unprocessed cherries as the difference
-							SELECT
-								c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) AS total_unprocessed_cherries
-							FROM "Cherries" c
-							LEFT JOIN "ProcessedGreenBeans" pgb ON 1 = 1
-						),
-						"LossesFromProcessed" AS (
-							SELECT
-								COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) - COALESCE(SUM(fgb.weight), 0) AS total_losses_processed,
-								pgb."batchNumber"
-							FROM "ProcessedGreenBeans" pgb
-							LEFT JOIN "FinishedGreenBeans" fgb ON pgb."batchNumber" = fgb."batchNumber"
-							GROUP BY pgb."batchNumber"
-						),
-						CombinedFlows AS (
-							-- Flow from Cherries to Processed Green Beans (from Preprocessing)
-							SELECT
-								'Cherries' AS from_node,
-								'Processed Cherries' AS to_node,
-								COALESCE(pgb.total_processed_green_beans_weight, 0) AS value
-							FROM "ProcessedGreenBeans" pgb
+                SELECT
+                    SUM(weight) AS total_cherries_weight
+                FROM "ReceivingData"
+                WHERE type = 'Robusta'
+                    AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+            ),
+            "ProcessedGreenBeans" AS (
+                SELECT
+                    SUM(ROUND(CAST((b.weight / b."totalBags") * a."bagsProcessed" AS numeric), 2)::FLOAT) AS total_processed_green_beans_weight,
+                    b."batchNumber" -- for later joining
+                FROM "PreprocessingData" a
+                LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber"
+                WHERE b.type = 'Robusta'
+                    AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                GROUP BY b."batchNumber"
+            ),
+            "FinishedGreenBeans" AS (
+                SELECT
+                    weight,
+                    producer,
+                    quality,
+                    "productLine",
+                    "processingType",
+                    "batchNumber" -- for later joining
+                FROM "PostprocessingData"
+                WHERE type = 'Robusta'
+                    AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+            ),
+            "LossesFromCherries" AS (
+                -- This computes the unprocessed cherries as the difference
+                SELECT
+                    c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) AS total_unprocessed_cherries
+                FROM "Cherries" c
+                LEFT JOIN "ProcessedGreenBeans" pgb ON 1 = 1
+            ),
+            "LossesFromProcessed" AS (
+                SELECT
+                    COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) - COALESCE(SUM(fgb.weight), 0) AS total_losses_processed,
+                    pgb."batchNumber"
+                FROM "ProcessedGreenBeans" pgb
+                LEFT JOIN "FinishedGreenBeans" fgb ON pgb."batchNumber" = fgb."batchNumber"
+                GROUP BY pgb."batchNumber"
+            ),
+            CombinedFlows AS (
+                -- Flow from Cherries to Processed Green Beans (from Preprocessing)
+                SELECT
+                    'Cherries' AS from_node,
+                    'Processed Cherries' AS to_node,
+                    COALESCE(pgb.total_processed_green_beans_weight, 0) AS value
+                FROM "ProcessedGreenBeans" pgb
 
-							UNION ALL
+                UNION ALL
 
-							-- Flow from Cherries to Unprocessed Cherries (losses from cherries)
-							SELECT
-								'Cherries' AS from_node,
-								'Unprocessed Cherries' AS to_node,
-								COALESCE(lc.total_unprocessed_cherries, 0) AS value
-							FROM "LossesFromCherries" lc
+                -- Flow from Cherries to Unprocessed Cherries (losses from cherries)
+                SELECT
+                    'Cherries' AS from_node,
+                    'Unprocessed Cherries' AS to_node,
+                    COALESCE(lc.total_unprocessed_cherries, 0) AS value
+                FROM "LossesFromCherries" lc
 
-							UNION ALL
+                UNION ALL
 
-							-- **Conditional extra flow:** If the unprocessed cherries flow is 0,
-							-- add an extra flow from Cherries to Processed Green Beans with a value equal
-							-- to the total Finished Green Beans weight.
-							SELECT
-								'Cherries' AS from_node,
-								'Processed Cherries' AS to_node,
-								(SELECT COALESCE(SUM(weight), 0) FROM "FinishedGreenBeans") AS value
-							WHERE (SELECT COALESCE(total_unprocessed_cherries, 0) FROM "LossesFromCherries") = 0
+                -- **Conditional extra flow:** If the unprocessed cherries flow is 0,
+                -- add an extra flow from Cherries to Processed Green Beans with a value equal
+                -- to the total Finished Green Beans weight.
+                SELECT
+                    'Cherries' AS from_node,
+                    'Processed Cherries' AS to_node,
+                    (SELECT COALESCE(SUM(weight), 0) FROM "FinishedGreenBeans") AS value
+                WHERE (SELECT COALESCE(total_unprocessed_cherries, 0) FROM "LossesFromCherries") = 0
 
-							UNION ALL
+                UNION ALL
 
-							-- Flow from Processed Green Beans to Finished Green Beans (by FinishedGreenBeans records)
-							SELECT
-								'Processed Cherries' AS from_node,
-								'Finished Green Beans' AS to_node,
-								weight AS value
-							FROM "FinishedGreenBeans"
+                -- Flow from Processed Green Beans to Finished Green Beans (by FinishedGreenBeans records)
+                SELECT
+                    'Processed Cherries' AS from_node,
+                    'Finished Green Beans' AS to_node,
+                    weight AS value
+                FROM "FinishedGreenBeans"
 
-							UNION ALL
+                UNION ALL
 
-							-- Flow representing processing losses
-							SELECT
-								'Processed Cherries' AS from_node,
-								'Processing Loss & Unfinished Processing' AS to_node,
-								COALESCE(lp.total_losses_processed, 0) AS value
-							FROM "LossesFromProcessed" lp
+                -- Flow representing processing losses
+                SELECT
+                    'Processed Cherries' AS from_node,
+                    'Processing Loss & Unfinished Processing' AS to_node,
+                    COALESCE(lp.total_losses_processed, 0) AS value
+                FROM "LossesFromProcessed" lp
 
-							UNION ALL
+                UNION ALL
 
-							-- Other flows from Finished Green Beans (producer, quality, etc.)
-							SELECT
-								'Finished Green Beans' AS from_node,
-								producer AS to_node,
-								weight AS value
-							FROM "FinishedGreenBeans"
+                -- Other flows from Finished Green Beans (producer, quality, etc.)
+                SELECT
+                    'Finished Green Beans' AS from_node,
+                    producer AS to_node,
+                    weight AS value
+                FROM "FinishedGreenBeans"
 
-							UNION ALL
+                UNION ALL
 
-							SELECT
-								producer AS from_node,
-								quality AS to_node,
-								weight AS value
-							FROM "FinishedGreenBeans"
+                SELECT
+                    producer AS from_node,
+                    quality AS to_node,
+                    weight AS value
+                FROM "FinishedGreenBeans"
 
-							UNION ALL
+                UNION ALL
 
-							SELECT
-								quality AS from_node,
-								(SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS to_node,
-								weight AS value
-							FROM "FinishedGreenBeans" fgb
+                SELECT
+                    quality AS from_node,
+                    (SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS to_node,
+                    weight AS value
+                FROM "FinishedGreenBeans" fgb
 
-							UNION ALL
+                UNION ALL
 
-							SELECT
-								(SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS from_node,
-								(SELECT "processingType" FROM "ProcessingTypes" WHERE "processingType" = fgb."processingType") AS to_node,
-								weight AS value
-							FROM "FinishedGreenBeans" fgb
-						)
+                SELECT
+                    (SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS from_node,
+                    (SELECT "processingType" FROM "ProcessingTypes" WHERE "processingType" = fgb."processingType") AS to_node,
+                    weight AS value
+                FROM "FinishedGreenBeans" fgb
+            )
 
-						SELECT from_node, to_node, SUM(value) AS value
-						FROM CombinedFlows
-						GROUP BY from_node, to_node;
+            SELECT from_node, to_node, SUM(value) AS value
+            FROM CombinedFlows
+            GROUP BY from_node, to_node;
         `;
 
-				const arabicaAchievementQuery = `
+        const arabicaAchievementQuery = `
             WITH metric AS (
-							SELECT id, "referenceNumber", SUM("targetValue") AS "targetValue" 
-							FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber") a
-							WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-							AND type = 'Arabica'
-							GROUP BY id, "referenceNumber", metric
-						), 
+                SELECT id, "referenceNumber", SUM("targetValue") AS "targetValue" 
+                FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber") a
+                WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND type = 'Arabica'
+                GROUP BY id, "referenceNumber", metric
+            ), 
 
-						ttw AS (
-							SELECT "referenceNumber", 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement 
-							FROM "PostprocessingData" 
-							WHERE "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-							GROUP BY "referenceNumber"
-						) 
+            ttw AS (
+                SELECT "referenceNumber", 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement 
+                FROM "PostprocessingData" 
+                WHERE "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                GROUP BY "referenceNumber"
+            ) 
 
-						SELECT 
-							a."referenceNumber", 
-							SUM(a."targetValue"), 
-							SUM(COALESCE(b.achievement, 0)) as achievement,
-							ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT AS "targetPercentage"
-						FROM metric a 
-						LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber")
-						GROUP BY a."referenceNumber"
-						ORDER BY a."referenceNumber" ASC, ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT DESC;
-        `;
+            SELECT 
+                a."referenceNumber", 
+                SUM(a."targetValue"), 
+                SUM(COALESCE(b.achievement, 0)) as achievement,
+                ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT AS "targetPercentage"
+            FROM metric a 
+            LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber")
+            GROUP BY a."referenceNumber"
+            ORDER BY a."referenceNumber" ASC, ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT DESC;
+`;
 
-				const robustaAchievementQuery = `
+        const robustaAchievementQuery = `
             WITH metric AS (
-							SELECT id, "referenceNumber", SUM("targetValue") AS "targetValue" 
-							FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber") a
-							WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-							AND type = 'Arabica'
-							GROUP BY id, "referenceNumber", metric
-						), 
+                SELECT id, "referenceNumber", SUM("targetValue") AS "targetValue" 
+                FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber") a
+                WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND type = 'Arabica'
+                GROUP BY id, "referenceNumber", metric
+            ), 
 
-						ttw AS (
-							SELECT "referenceNumber", 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement 
-							FROM "PostprocessingData" 
-							WHERE "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-							GROUP BY "referenceNumber"
-						) 
+            ttw AS (
+                SELECT "referenceNumber", 'Total Weight Produced' AS metric, COALESCE(SUM(weight), 0) AS achievement 
+                FROM "PostprocessingData" 
+                WHERE "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                GROUP BY "referenceNumber"
+            ) 
 
-						SELECT 
-							a."referenceNumber", 
-							SUM(a."targetValue"), 
-							SUM(COALESCE(b.achievement, 0)) as achievement,
-							ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT AS "targetPercentage"
-						FROM metric a 
-						LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber")
-						GROUP BY a."referenceNumber"
-						ORDER BY a."referenceNumber" ASC, ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT DESC;
+            SELECT 
+                a."referenceNumber", 
+                SUM(a."targetValue"), 
+                SUM(COALESCE(b.achievement, 0)) as achievement,
+                ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT AS "targetPercentage"
+            FROM metric a 
+            LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber")
+            GROUP BY a."referenceNumber"
+            ORDER BY a."referenceNumber" ASC, ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / SUM(a."targetValue"))*100 AS numeric) , 2)::FLOAT DESC;
         `;
 
 
@@ -1367,17 +1367,17 @@ router.get('/dashboard-metrics', async (req, res) => {
             arabicaProductionMoM,
             robustaProductionMoM,
 
-						arabicaCherryQualitybyDate,
-						robustaCherryQualitybyDate,
+            arabicaCherryQualitybyDate,
+            robustaCherryQualitybyDate,
 
-						arabicaFarmersContribution,
-						robustaFarmersContribution,
+            arabicaFarmersContribution,
+            robustaFarmersContribution,
 
-						arabicaSankey,
-						robustaSankey,
+            arabicaSankey,
+            robustaSankey,
 
-						arabicaAchievement,
-						robustaAchievement,
+            arabicaAchievement,
+            robustaAchievement,
  
         });
     } catch (err) {
