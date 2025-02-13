@@ -1120,7 +1120,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                 SELECT id, "referenceNumber", SUM("targetValue") AS "targetValue" 
                 FROM (SELECT a.*, b.type FROM "TargetMetrics" a LEFT JOIN "ReferenceMappings_duplicate" b on a."referenceNumber" = b."referenceNumber") a
                 WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-                AND type = 'Arabica'
+                AND type = 'Robusta'
                 GROUP BY id, "referenceNumber", metric
             ), 
 
