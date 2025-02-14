@@ -1169,7 +1169,6 @@ router.get('/dashboard-metrics', async (req, res) => {
             SELECT
                 DATE(date) date,
                 "referenceNumber",
-                total_target_value,
                 ROUND(CAST(SUM(daily_achievement_percentage) OVER (PARTITION BY "referenceNumber" ORDER BY date) AS numeric) , 2)::FLOAT AS cumulative_achievement_percentage -- Cumulative sum of DAILY percentages
             FROM DailyAchievement
             WHERE "referenceNumber" IS NOT NULL
@@ -1223,7 +1222,6 @@ router.get('/dashboard-metrics', async (req, res) => {
             SELECT
                 DATE(date) date,
                 "referenceNumber",
-                total_target_value,
                 ROUND(CAST(SUM(daily_achievement_percentage) OVER (PARTITION BY "referenceNumber" ORDER BY date) AS numeric) , 2)::FLOAT AS cumulative_achievement_percentage -- Cumulative sum of DAILY percentages
             FROM DailyAchievement
             WHERE "referenceNumber" IS NOT NULL
