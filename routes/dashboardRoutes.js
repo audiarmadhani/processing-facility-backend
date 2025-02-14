@@ -366,12 +366,15 @@ router.get('/dashboard-metrics', async (req, res) => {
                 DATE("storedDate")
             )
 
-            SELECT 
-            TO_CHAR(a."Date", 'Mon-DD') AS "storedDate",
-            COALESCE(category,'') category,
-            SUM(COALESCE(b."weight", 0)) OVER (ORDER BY a."Date") AS weight
-            FROM "DateRange" a
-            LEFT JOIN ppd b ON a."Date" = b."storedDate";
+            SELECT * FROM (
+              SELECT 
+              TO_CHAR(a."Date", 'Mon-DD') AS "storedDate",
+              category,
+              SUM(COALESCE(b."weight", 0)) OVER (ORDER BY a."Date") AS weight
+              FROM "DateRange" a
+              LEFT JOIN ppd b ON a."Date" = b."storedDate"
+            ) a
+            WHERE category IS NOT NULL
         `;
         const robustaTotalWeightbyDateQuery = `
             WITH RECURSIVE "DateRange" AS (
@@ -398,12 +401,15 @@ router.get('/dashboard-metrics', async (req, res) => {
                 DATE("storedDate")
             )
 
-            SELECT 
-            TO_CHAR(a."Date", 'Mon-DD') AS "storedDate",
-            COALESCE(category,'') category,
-            SUM(COALESCE(b."weight", 0)) OVER (ORDER BY a."Date") AS weight
-            FROM "DateRange" a
-            LEFT JOIN ppd b ON a."Date" = b."storedDate";
+            SELECT * FROM (
+              SELECT 
+              TO_CHAR(a."Date", 'Mon-DD') AS "storedDate",
+              category,
+              SUM(COALESCE(b."weight", 0)) OVER (ORDER BY a."Date") AS weight
+              FROM "DateRange" a
+              LEFT JOIN ppd b ON a."Date" = b."storedDate"
+            ) a
+            WHERE category IS NOT NULL
         `;
         const arabicaWeightMoMQuery = `
             WITH RECURSIVE "DateRange" AS (
