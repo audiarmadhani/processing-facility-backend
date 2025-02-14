@@ -1123,85 +1123,111 @@ router.get('/dashboard-metrics', async (req, res) => {
         `;
 
         const arabicaAchievementQuery = `
-            WITH metric AS (
-                SELECT 
-                    id, 
-                    "referenceNumber", 
-                    SUM("targetValue") AS "targetValue"
-                FROM (
-                    SELECT 
-                        a.*, 
-                        b.type 
-                    FROM "TargetMetrics" a 
-                    LEFT JOIN "ReferenceMappings_duplicate" b ON a."referenceNumber" = b."referenceNumber"
-                ) a
-                WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-                AND type = 'Arabica'
-                GROUP BY id, "referenceNumber", metric
-            ), 
-            ttw AS (
-                SELECT 
-                    "referenceNumber", 
-                    'Total Weight Produced' AS metric, 
-                    COALESCE(SUM(weight), 0) AS achievement 
-                FROM "PostprocessingData" 
-                WHERE "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-                GROUP BY "referenceNumber"
+            WITH DateSeries AS (
+                SELECT generate_series(
+                    '${formattedCurrentStartDate}'::date,
+                    '${formattedCurrentEndDate}'::date,
+                    '1 day'::interval
+                ) AS date
             ),
-            date_series AS (
-                SELECT generate_series('${formattedCurrentStartDate}'::date, '${formattedCurrentEndDate}'::date, '1 day'::interval)::date AS dt
+            TargetMetricsAggregated AS (
+                SELECT
+                    tm."referenceNumber",
+                    SUM(tm."targetValue") AS total_target_value
+                FROM "TargetMetrics" tm
+                LEFT JOIN "ReferenceMappings_duplicate" b on tm."referenceNumber" = b."referenceNumber"
+                WHERE tm."referenceNumber" IN (SELECT DISTINCT "referenceNumber" FROM "PostprocessingData")
+                AND tm."startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND b.type = 'Arabica'
+                GROUP BY tm."referenceNumber"
+            ),
+            PostprocessingDataAggregated AS (
+                SELECT
+                    p."referenceNumber",
+                    p."storedDate"::date,
+                    SUM(p.weight) AS daily_weight
+                FROM "PostprocessingData" p
+                WHERE p."storedDate"::date BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND type = 'Arabica'
+                GROUP BY p."referenceNumber", p."storedDate"::date
+            ),
+            DailyAchievement AS (  -- Calculate daily achievement percentage
+                SELECT
+                    ds.date,
+                    tma."referenceNumber",
+                    tma.total_target_value,
+                    COALESCE(pda.daily_weight, 0) AS daily_weight,
+                    CASE
+                        WHEN tma.total_target_value = 0 THEN 0
+                        ELSE (COALESCE(pda.daily_weight, 0) / tma.total_target_value) * 100  -- Daily percentage
+                    END AS daily_achievement_percentage
+                FROM DateSeries ds
+                LEFT JOIN TargetMetricsAggregated tma ON tma."referenceNumber" IN (SELECT DISTINCT "referenceNumber" FROM "PostprocessingData")
+                LEFT JOIN PostprocessingDataAggregated pda ON ds.date = pda."storedDate" AND tma."referenceNumber" = pda."referenceNumber"
+                WHERE ds.date BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
             )
-
-            SELECT 
-                d.dt AS "Date",
-                a."referenceNumber",        
-                ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / NULLIF(SUM(a."targetValue"), 0))*100 AS numeric), 2)::FLOAT AS "targetPercentage"
-            FROM date_series d
-            CROSS JOIN metric a  -- Cross join with the date series
-            LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber")
-            GROUP BY d.dt, a."referenceNumber"
-            ORDER BY d.dt, a."referenceNumber";
+            SELECT
+                DATE(date) date,
+                "referenceNumber",
+                total_target_value,
+                ROUND(CAST(SUM(daily_achievement_percentage) OVER (PARTITION BY "referenceNumber" ORDER BY date) AS numeric) , 2)::FLOAT AS cumulative_achievement_percentage -- Cumulative sum of DAILY percentages
+            FROM DailyAchievement
+            WHERE "referenceNumber" IS NOT NULL
+            ORDER BY date, "referenceNumber";
             `;
 
         const robustaAchievementQuery = `
-            WITH metric AS (
-                SELECT 
-                    id, 
-                    "referenceNumber", 
-                    SUM("targetValue") AS "targetValue"
-                FROM (
-                    SELECT 
-                        a.*, 
-                        b.type 
-                    FROM "TargetMetrics" a 
-                    LEFT JOIN "ReferenceMappings_duplicate" b ON a."referenceNumber" = b."referenceNumber"
-                ) a
-                WHERE "startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-                AND type = 'Robusta'
-                GROUP BY id, "referenceNumber", metric
-            ), 
-            ttw AS (
-                SELECT 
-                    "referenceNumber", 
-                    'Total Weight Produced' AS metric, 
-                    COALESCE(SUM(weight), 0) AS achievement 
-                FROM "PostprocessingData" 
-                WHERE "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-                GROUP BY "referenceNumber"
+            WITH DateSeries AS (
+                SELECT generate_series(
+                    '${formattedCurrentStartDate}'::date,
+                    '${formattedCurrentEndDate}'::date,
+                    '1 day'::interval
+                ) AS date
             ),
-            date_series AS (
-                SELECT generate_series('${formattedCurrentStartDate}'::date, '${formattedCurrentEndDate}'::date, '1 day'::interval)::date AS dt
+            TargetMetricsAggregated AS (
+                SELECT
+                    tm."referenceNumber",
+                    SUM(tm."targetValue") AS total_target_value
+                FROM "TargetMetrics" tm
+                LEFT JOIN "ReferenceMappings_duplicate" b on tm."referenceNumber" = b."referenceNumber"
+                WHERE tm."referenceNumber" IN (SELECT DISTINCT "referenceNumber" FROM "PostprocessingData")
+                AND tm."startDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND b.type = 'Robusta'
+                GROUP BY tm."referenceNumber"
+            ),
+            PostprocessingDataAggregated AS (
+                SELECT
+                    p."referenceNumber",
+                    p."storedDate"::date,
+                    SUM(p.weight) AS daily_weight
+                FROM "PostprocessingData" p
+                WHERE p."storedDate"::date BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND type = 'Robusta'
+                GROUP BY p."referenceNumber", p."storedDate"::date
+            ),
+            DailyAchievement AS (  -- Calculate daily achievement percentage
+                SELECT
+                    ds.date,
+                    tma."referenceNumber",
+                    tma.total_target_value,
+                    COALESCE(pda.daily_weight, 0) AS daily_weight,
+                    CASE
+                        WHEN tma.total_target_value = 0 THEN 0
+                        ELSE (COALESCE(pda.daily_weight, 0) / tma.total_target_value) * 100  -- Daily percentage
+                    END AS daily_achievement_percentage
+                FROM DateSeries ds
+                LEFT JOIN TargetMetricsAggregated tma ON tma."referenceNumber" IN (SELECT DISTINCT "referenceNumber" FROM "PostprocessingData")
+                LEFT JOIN PostprocessingDataAggregated pda ON ds.date = pda."storedDate" AND tma."referenceNumber" = pda."referenceNumber"
+                WHERE ds.date BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
             )
-
-            SELECT 
-                d.dt AS "Date",
-                a."referenceNumber",        
-                ROUND(CAST((SUM(COALESCE(b.achievement, 0)) / NULLIF(SUM(a."targetValue"), 0))*100 AS numeric), 2)::FLOAT AS "targetPercentage"
-            FROM date_series d
-            CROSS JOIN metric a  -- Cross join with the date series
-            LEFT JOIN ttw b ON LOWER(a."referenceNumber") = LOWER(b."referenceNumber")
-            GROUP BY d.dt, a."referenceNumber"
-            ORDER BY d.dt, a."referenceNumber";
+            SELECT
+                DATE(date) date,
+                "referenceNumber",
+                total_target_value,
+                ROUND(CAST(SUM(daily_achievement_percentage) OVER (PARTITION BY "referenceNumber" ORDER BY date) AS numeric) , 2)::FLOAT AS cumulative_achievement_percentage -- Cumulative sum of DAILY percentages
+            FROM DailyAchievement
+            WHERE "referenceNumber" IS NOT NULL
+            ORDER BY date, "referenceNumber";
         `;
 
 
