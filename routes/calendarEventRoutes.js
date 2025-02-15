@@ -53,8 +53,59 @@ router.post('/events', async (req, res) => {
   }
 });
 
+router.post('/price', async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const {
+      type,
+      minPrice,
+      maxPrice,
+      validAt,
+      validUntil,
+      createdBy,
+      createdAt,
+      updatedAt,
+    } = req.body;
 
-// Route for fetching all calendar events
+    // Validate required fields (adjust as needed)
+    if (!type || !minPrice || !maxPrice || !validAt || !validUntil || !createdBy) {
+      return res.status(400).json({ error: 'Missing required fields.' });
+    }
+
+    const [CalendarEvent] = await sequelize.query(
+      `INSERT INTO "PriceMetrics" ("type", "minPrice", "maxPrice", "validAt", "validUntil", "createdBy", "createdAt", "updatedAt")
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING *`,
+      {
+        replacements: [
+          type,
+          minPrice,
+          maxPrice,
+          validAt,
+          validUntil,
+          createdBy,
+          new Date(),
+          new Date(),
+        ],
+        transaction: t,
+      }
+    );
+
+    await t.commit();
+
+    res.status(201).json({
+      message: 'Price metrics created successfully',
+      event: CalendarEvent, // Optionally return the created event
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error('Error creating price metrics:', err);
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
+
+// Route for fetching all events
 router.get('/events', async (req, res) => {
     try {
       const [events] = await sequelize.query('SELECT * FROM "CalendarEvent"');
@@ -64,6 +115,46 @@ router.get('/events', async (req, res) => {
       res.status(500).json({ message: 'Failed to fetch calendar events.' });
     }
   });
+
+// Route for fetching all price metrics
+router.get('/price', async (req, res) => {
+  try {
+    const [events] = await sequelize.query('SELECT * FROM "PriceMetrics"');
+    res.json(events);
+  } catch (err) {
+    console.error('Error fetching price metrics:', err);
+    res.status(500).json({ message: 'Failed to fetch price metrics.' });
+  }
+});
+
+// Route for fetching all price metrics with batch number
+router.get('/price/:batchNumber', async (req, res) => {
+  const { start, end } = req.params;
+
+  try {
+    const query = `
+    SELECT
+      a."batchNumber",
+      a.type,
+      b."minPrice",
+      b."maxPrice",
+      b."validAt",
+      b."validUntil"
+    FROM "ReceivingData" a
+    LEFT JOIN (SELECT * FROM "PriceMetrics" WHERE "validAt" <= NOW() AND "validUntil" >= NOW()) b on a.type = b.type
+    `;
+    const values = [batchNumber]; // Important: end first, then start!
+    const [events] = await sequelize.query(query, {
+      replacements: values,
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    res.json(events);
+  } catch (err) {
+    console.error('Error fetching price metrics by batch number:', err);
+    res.status(500).json({ message: 'Failed to fetch price metrics by batch number.' });
+  }
+});
 
 // Route for fetching calendar events within a specific range
 router.get('/events/:start/:end', async (req, res) => {
@@ -81,6 +172,25 @@ router.get('/events/:start/:end', async (req, res) => {
   } catch (err) {
     console.error('Error fetching calendar events by range:', err);
     res.status(500).json({ message: 'Failed to fetch calendar events.' });
+  }
+});
+
+//Router for fetching price metrics within a specific range
+router.get('/price/:validAt/:validUntil', async (req, res) => {
+  const { start, end } = req.params;
+
+  try {
+    const query = `SELECT * FROM "PriceMetrics" WHERE validAt <= ? AND validUntil >= ?`;
+    const values = [end, start]; // Important: end first, then start!
+    const [events] = await sequelize.query(query, {
+      replacements: values,
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    res.json(events);
+  } catch (err) {
+    console.error('Error fetching price metrics by range:', err);
+    res.status(500).json({ message: 'Failed to fetch price metrics.' });
   }
 });
 
@@ -133,6 +243,48 @@ router.put('/events/:id', async (req, res) => {
   }
 });
 
+// Route for updating a price metrics
+router.put('/events/:id', async (req, res) => {
+  const { id } = req.params;
+  const {
+    type,
+    minPrice,
+    maxPrice,
+    validAt,
+    validUntil,
+    updatedAt,
+  } = req.body;
+
+  try {
+    await sequelize.query(
+      `UPDATE "PriceMetrics" SET 
+        "type" = ?, 
+        "minPrice" = ?, 
+        "maxPrice" = ?, 
+        "validAt" = ?, 
+        "validUntil" = ?, 
+        "updatedAt" = ?
+       WHERE id = ?`,
+      {
+        replacements: [
+					type,
+					minPrice,
+					maxPrice,
+					validAt,
+					validUntil,
+          new Date(), // Updated at
+          id,
+        ],
+      }
+    );
+
+    res.status(200).json({ message: 'Price metrics updated successfully' });
+  } catch (err) {
+    console.error('Error updating price metrics:', err);
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
 // Route for deleting a calendar event
 router.delete('/events/:id', async (req, res) => {
   const { id } = req.params;
@@ -145,6 +297,22 @@ router.delete('/events/:id', async (req, res) => {
     res.status(200).json({ message: 'Calendar event deleted successfully' });
   } catch (err) {
     console.error('Error deleting calendar event:', err);
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
+// Route for deleting a price metrics
+router.delete('/price/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await sequelize.query('DELETE FROM "PriceMetrics" WHERE id = ?', {
+      replacements: [id],
+    });
+
+    res.status(200).json({ message: 'Price metrics deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting price metrics:', err);
     res.status(500).json({ error: 'Server error', details: err.message });
   }
 });

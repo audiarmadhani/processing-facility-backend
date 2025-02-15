@@ -58,9 +58,9 @@ router.post('/receiving', async (req, res) => {
 
     // Save the receiving data
     const [receivingData] = await sequelize.query(
-      'INSERT INTO "ReceivingData" ("batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, price, type, "paymentMethod", "receivingDate", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
+      'INSERT INTO "ReceivingData" ("batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type, "receivingDate", "createdAt", "updatedAt", "createdBy") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *',
       {
-        replacements: [batchNumber, farmerID, farmerName, weight, totalBags, notes, price, type, paymentMethod, currentDate, currentDate, currentDate],
+        replacements: [batchNumber, farmerID, farmerName, weight, totalBags, notes, type, currentDate, currentDate, currentDate, createdBy],
         transaction: t,
       }
     );
