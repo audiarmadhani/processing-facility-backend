@@ -129,7 +129,7 @@ router.get('/price', async (req, res) => {
 
 // Route for fetching all price metrics with batch number
 router.get('/price/:batchNumber', async (req, res) => {
-  const { start, end } = req.params;
+  const { batchNumber } = req.params;
 
   try {
     const query = `
