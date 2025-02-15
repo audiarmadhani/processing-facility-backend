@@ -268,7 +268,16 @@ router.get('/pendingpreprocessing', async (req, res) => {
           WHEN type = 'Robusta' AND "cherryScore" BETWEEN 60 AND 70 THEN 'Group 4'
           WHEN type = 'Robusta' AND "cherryScore" BETWEEN 50 AND 60 THEN 'Group 5'
         ELSE 'Group Z0'
-        END AS "cherryGroup"
+        END AS "cherryGroup",
+        CASE 
+          WHEN type = 'Arabica' AND "cherryScore" BETWEEN 80 AND 100 THEN 'Arabica Quality A'
+          WHEN type = 'Arabica' AND "cherryScore" BETWEEN 50 AND 80 THEN 'Arabica QUality B'
+          WHEN type = 'Arabica' AND "cherryScore" BETWEEN 0 AND 50 THEN 'Arabica QUality C'
+          WHEN type = 'Robusta' AND "cherryScore" BETWEEN 80 AND 100 THEN 'Robusta Group A'
+          WHEN type = 'Robusta' AND "cherryScore" BETWEEN 50 AND 80 THEN 'Robusta Group B'
+          WHEN type = 'Robusta' AND "cherryScore" BETWEEN 0 AND 50 THEN 'Robusta Group C'
+        ELSE 'Unknown'
+        END AS "priceGroup"
       FROM fin a;
     `);
 
