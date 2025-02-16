@@ -37,7 +37,7 @@ router.post('/qc', validateQCData, async (req, res) => {
                 "paymentMethod",
                 "createdAt",
                 "createdBy",
-                "updatedAt"
+                "updatedAt",
                 "updatedBy"
             ) VALUES (
                 :batchNumber,
