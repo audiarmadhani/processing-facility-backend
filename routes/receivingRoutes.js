@@ -6,7 +6,7 @@ const sequelize = require('../config/database');
 router.post('/receiving', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { farmerID, farmerName, weight, totalBags, notes, type, paymentMethod, bagPayload } = req.body;
+    const { farmerID, farmerName, weight, totalBags, notes, type, bagPayload, createdBy, updatedBy } = req.body;
 
     // Retrieve or initialize the latest batch number
     const [latestBatchResults] = await sequelize.query('SELECT * FROM latest_batch LIMIT 1', { transaction: t });
