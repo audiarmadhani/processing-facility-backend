@@ -88,7 +88,7 @@ router.get('/qc', async (req, res) => {
 
         // Fetch the latest records ordered by QC date
         const [latestRows] = await sequelize.query(
-          `SELECT * FROM "QCData_v" WHERE DATE(a."qcdatedata") = DATE(NOW())`
+          `SELECT * FROM "QCData_v" WHERE DATE("qcDate") = DATE(NOW())`
         );
 
         res.json({ latestRows, allRows });
