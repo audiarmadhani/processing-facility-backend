@@ -137,25 +137,25 @@ router.get('/dashboard-metrics', async (req, res) => {
         `;
         const totalArabicaCostQuery = `
         SELECT COALESCE(SUM(price * weight), 0) AS sum 
-        FROM "ReceivingData" 
+        FROM "QCData_v" 
         WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             AND type = 'Arabica'
         `;
         const totalRobustaCostQuery = `
         SELECT COALESCE(SUM(price * weight), 0) AS sum 
-        FROM "ReceivingData" 
+        FROM "QCData_v" 
         WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             AND type = 'Robusta'
         `;
         const avgArabicaCostQuery = `
         SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg 
-        FROM "ReceivingData" 
+        FROM "QCData_v" 
         WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             AND type = 'Arabica'
         `;
         const avgRobustaCostQuery = `
         SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg 
-        FROM "ReceivingData" 
+        FROM "QCData_v" 
         WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             AND type = 'Robusta'
         `;
@@ -197,25 +197,25 @@ router.get('/dashboard-metrics', async (req, res) => {
         `;
         const lastmonthArabicaCostQuery = `
         SELECT COALESCE(SUM(price * weight), 0) AS sum 
-        FROM "ReceivingData" 
+        FROM "QCData_v" 
         WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' 
             AND type = 'Arabica'
         `;
         const lastmonthRobustaCostQuery = `
         SELECT COALESCE(SUM(price * weight), 0) AS sum 
-        FROM "ReceivingData" 
+        FROM "QCData_v" 
         WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' 
             AND type = 'Robusta'
         `;
         const lastmonthAvgArabicaCostQuery = `
         SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg 
-        FROM "ReceivingData" 
+        FROM "QCData_v" 
         WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' 
             AND type = 'Arabica'
         `;
         const lastmonthAvgRobustaCostQuery = `
         SELECT COALESCE(ROUND(AVG(price)::numeric, 1), 0) AS avg 
-        FROM "ReceivingData" 
+        FROM "QCData_v" 
         WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' 
             AND type = 'Robusta'
         `;
@@ -297,7 +297,7 @@ router.get('/dashboard-metrics', async (req, res) => {
             GROUP BY DATE("receivingDate")
         `;
         const totalCostbyDateQuery = `
-            SELECT DATE("receivingDate") as DATE, SUM(price) as PRICE FROM "ReceivingData" GROUP BY DATE("receivingDate")
+            SELECT DATE("receivingDate") as DATE, SUM(price) as PRICE FROM "QCData_v" GROUP BY DATE("receivingDate")
         `;
         const arabicaYieldQuery = `
             WITH pre AS (
@@ -481,14 +481,14 @@ router.get('/dashboard-metrics', async (req, res) => {
             ),
             RDA AS (
                 SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS "TotalPriceThisMonth"
-                FROM "ReceivingData" 
+                FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Arabica'
                 GROUP BY DATE("receivingDate")::TIMESTAMP
             ),
             RDB AS (
                 SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS "TotalPriceLastMonth"
-                FROM "ReceivingData" 
+                FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND type = 'Arabica'
                 GROUP BY DATE("receivingDate")::TIMESTAMP
@@ -511,14 +511,14 @@ router.get('/dashboard-metrics', async (req, res) => {
             ),
             RDA AS (
                 SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS "TotalPriceThisMonth"
-                FROM "ReceivingData" 
+                FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Robusta'
                 GROUP BY DATE("receivingDate")::TIMESTAMP
             ),
             RDB AS (
                 SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS "TotalPriceLastMonth"
-                FROM "ReceivingData" 
+                FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND type = 'Robusta'
                 GROUP BY DATE("receivingDate")::TIMESTAMP
@@ -544,7 +544,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                     DATE("receivingDate") AS "receivingDate", 
                     COALESCE(SUM(price), 0) AS "TotalPriceThisMonth",
                     COUNT(price) AS "CountThisMonth"
-                FROM "ReceivingData" 
+                FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Arabica'
                 GROUP BY DATE("receivingDate")
@@ -554,7 +554,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                     DATE("receivingDate") AS "receivingDate", 
                     COALESCE(SUM(price), 0) AS "TotalPriceLastMonth",
                     COUNT(price) AS "CountLastMonth"
-                FROM "ReceivingData" 
+                FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND TO_CHAR("receivingDate", 'DD') <= TO_CHAR(CURRENT_DATE, 'DD') 
                 AND type = 'Arabica'
@@ -596,7 +596,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                     DATE("receivingDate") AS "receivingDate", 
                     COALESCE(SUM(price), 0) AS "TotalPriceThisMonth",
                     COUNT(price) AS "CountThisMonth"
-                FROM "ReceivingData" 
+                FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Robusta'
                 GROUP BY DATE("receivingDate")
@@ -606,7 +606,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                     DATE("receivingDate") AS "receivingDate", 
                     COALESCE(SUM(price), 0) AS "TotalPriceLastMonth",
                     COUNT(price) AS "CountLastMonth"
-                FROM "ReceivingData" 
+                FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND TO_CHAR("receivingDate", 'DD') <= TO_CHAR(CURRENT_DATE, 'DD') 
                 AND type = 'Robusta'
