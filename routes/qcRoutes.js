@@ -6,7 +6,7 @@ const { validateQCData } = require('../middleware/validationMiddleware'); // Imp
 // Route to create QC data with validation (using raw SQL query)
 router.post('/qc', validateQCData, async (req, res) => {
     try {
-        const { batchNumber, ripeness, color, foreignMatter, overallQuality, qcNotes, unripePercentage, semiripePercentage, ripePercentage, overripePercentage, price, paymentMethod } = req.body;
+        const { batchNumber, ripeness, color, foreignMatter, overallQuality, qcNotes, unripePercentage, semiripePercentage, ripePercentage, overripePercentage, paymentMethod, createdBy, updatedBy } = req.body;
 
         // Check if the batch number exists in ReceivingData
         const [receivingCheck] = await sequelize.query(
@@ -36,7 +36,9 @@ router.post('/qc', validateQCData, async (req, res) => {
                 "overripePercentage",
                 "paymentMethod",
                 "createdAt",
+                "createdBy",
                 "updatedAt"
+                "updatedBy"
             ) VALUES (
                 :batchNumber,
                 :ripeness,
@@ -50,7 +52,9 @@ router.post('/qc', validateQCData, async (req, res) => {
                 :overripePercentage,
                 :paymentMethod,
                 NOW(),
-                NOW()
+                :createdBy,
+                NOW(),
+                :updatedBy
             )
             RETURNING *; -- Important: Return the created row
         `, {
@@ -65,7 +69,9 @@ router.post('/qc', validateQCData, async (req, res) => {
                 semiripePercentage,
                 ripePercentage,
                 overripePercentage,
-                paymentMethod
+                paymentMethod,
+                createdBy,
+                updatedBy,
             },
             type: sequelize.QueryTypes.INSERT // Specify the query type
         });
