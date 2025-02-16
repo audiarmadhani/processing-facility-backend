@@ -156,4 +156,66 @@ router.get('/receiving/:batchNumber', async (req, res) => {
   }
 });
 
+// POST route for assigning RFID (NO AUTHENTICATION, using raw SQL)
+router.post('/assign-rfid', async (req, res) => {
+
+  const { batchNumber, rfid } = req.body;
+
+  // Minimal validation: Check if batchNumber and rfid are provided.
+  if (!batchNumber || !rfid) {
+      return res.status(400).json({ error: 'Batch number and RFID tag are required.' });
+  }
+
+  const trimmedBatchNumber = batchNumber.trim();
+
+  try {
+      // Find the ReceivingData record by batchNumber (using raw SQL)
+      const [receivingRecord] = await sequelize.query(`
+          SELECT * FROM "ReceivingData"
+          WHERE "batchNumber" = :batchNumber;
+      `, {
+          replacements: { batchNumber: trimmedBatchNumber },
+          type: sequelize.QueryTypes.SELECT
+      });
+
+      if (!receivingRecord) {
+          return res.status(404).json({ error: 'Batch number not found.' });
+      }
+
+      // Check if RFID is *already* assigned to *any* record (using raw SQL).
+      const [existingRfid] = await sequelize.query(`
+          SELECT * FROM "ReceivingData"
+          WHERE "rfid" = :rfid;
+      `, {
+          replacements: { rfid: rfid },
+          type: sequelize.QueryTypes.SELECT
+      });
+
+      if (existingRfid) {
+          return res.status(409).json({ error: 'RFID tag is already assigned to another batch.' });
+      }
+
+      // Update the ReceivingData record with the RFID tag (using raw SQL).
+      await sequelize.transaction(async (t) => {
+          await sequelize.query(`
+              UPDATE "ReceivingData"
+              SET "rfid" = :rfid
+              WHERE "batchNumber" = :batchNumber;
+          `, {
+              replacements: { rfid: rfid, batchNumber: trimmedBatchNumber },
+              transaction: t,
+              type: sequelize.QueryTypes.UPDATE
+          });
+      });
+
+
+      // Return success
+      res.status(200).json({ message: 'RFID tag assigned successfully.' });
+
+  } catch (error) {
+      console.error('Error assigning RFID tag:', error);
+      res.status(500).json({ error: 'Failed to assign RFID tag', details: error.message });
+  }
+});
+
 module.exports = router;
