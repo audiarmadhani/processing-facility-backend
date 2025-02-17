@@ -242,7 +242,7 @@ router.post('/scan-rfid', async (req, res) => {
 
 // --- NEW ROUTE: Check if RFID is already assigned ---
 router.get('/check-rfid/:rfid', async (req, res) => {
-  const { rfid } = req.query; // Get RFID from query parameter
+  const { rfid } = req.params; // Get RFID from query parameter
 
   if (!rfid) {
     return res.status(400).json({ error: 'RFID tag is required.' });
