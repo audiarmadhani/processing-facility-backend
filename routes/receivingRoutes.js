@@ -221,32 +221,28 @@ router.get('/get-rfid', async (req, res) => {
   }
 });
 
-router.get('/check-rfid', async (req, res) => {
-  const { rfid } = req.query; // Get RFID from query parameter
-
-  if (!rfid) {
-      return res.status(400).json({ error: 'RFID tag is required.' });
-  }
+// Route to get receiving data by batch number
+router.get('/check-rfid/:rfid', async (req, res) => {
+  const { rfid } = req.params;
 
   try {
-      // Use a raw SQL query to check if the RFID exists in ReceivingData
-      const [results] = await sequelize.query(`
-          SELECT *
+    const [rows] = await sequelize.query(
+      `
+      SELECT *
           FROM "ReceivingData"
-          WHERE "rfid" = :rfid;
-      `, {
-          replacements: { rfid: rfid },
-          type: sequelize.QueryTypes.SELECT
-      });
+          WHERE "rfid" = ?;
+      `,
+      { replacements: [rfid.trim()] }
+    );
 
-      // If any rows are returned, the RFID is already assigned
-      const isAssigned = results.length > 0;
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'No receiving data found for this rfid.' });
+    }
 
-      res.status(200).json({ isAssigned }); // Return { isAssigned: true/false }
-
-  } catch (error) {
-      console.error('Error checking RFID tag:', error);
-      res.status(500).json({ error: 'Failed to check RFID tag', details: error.message });
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching receiving data by rfid:', err);
+    res.status(500).json({ message: 'Failed to fetch receiving data by rfid.' });
   }
 });
 
