@@ -186,8 +186,8 @@ router.post('/assign-rfid', async (req, res) => {
       const [existingRfid] = await sequelize.query(`
           SELECT * FROM "ReceivingData"
           WHERE "rfid" = :rfid;
-      `, {
-          replacements: { rfid: rfid },
+      `,{
+          replacements: {rfid: rfid},
           type: sequelize.QueryTypes.SELECT
       });
 
@@ -196,18 +196,17 @@ router.post('/assign-rfid', async (req, res) => {
       }
 
       // Update the ReceivingData record with the RFID tag (using raw SQL).
-      await sequelize.transaction(async (t) => {
-          await sequelize.query(`
-              UPDATE "ReceivingData"
-              SET "rfid" = :rfid
-              WHERE "batchNumber" = :batchNumber;
-          `, {
-              replacements: { rfid: rfid, batchNumber: trimmedBatchNumber },
-              transaction: t,
-              type: sequelize.QueryTypes.UPDATE
-          });
-      });
-
+      await sequelize.transaction(async (t) => { // Use a transaction
+        await sequelize.query(`
+            UPDATE "ReceivingData"
+            SET "rfid" = :rfid, "updatedAt" = NOW()
+            WHERE "batchNumber" = :batchNumber;
+        `, {
+          replacements: { rfid: rfid, batchNumber: trimmedBatchNumber },
+          transaction: t, // Associate query with transaction
+          type: sequelize.QueryTypes.UPDATE
+        });
+    });
 
       // Return success
       res.status(200).json({ message: 'RFID tag assigned successfully.' });
@@ -215,6 +214,72 @@ router.post('/assign-rfid', async (req, res) => {
   } catch (error) {
       console.error('Error assigning RFID tag:', error);
       res.status(500).json({ error: 'Failed to assign RFID tag', details: error.message });
+  }
+});
+
+// POST route for assigning RFID (NO AUTHENTICATION, using raw SQL)
+router.post('/scan-rfid', async (req, res) => {
+
+  const { rfid } = req.body;
+
+  if (!rfid) {
+    return res.status(400).json({ error: 'RFID tag is required.' });
+  }
+
+  const trimmedRfid = rfid.trim(); // Trim whitespace
+
+  try {
+    // Use a raw SQL query to insert/update the RfidScanned table
+    const [result, metadata] = await sequelize.query(`
+      INSERT INTO "RfidScanned" (rfid, created_at)
+      VALUES (:rfid, NOW())
+      ON CONFLICT (rfid) DO UPDATE
+      SET rfid = :rfid, created_at = NOW()
+      RETURNING *;
+    `, {
+      replacements: { rfid: trimmedRfid },
+      type: sequelize.QueryTypes.INSERT, // Important for RETURNING
+    });
+      // Respond with success
+    res.status(201).json({ message: 'RFID tag scanned', rfid: trimmedRfid });
+
+
+  } catch (error) {
+    console.error('Error storing RFID tag:', error);
+    res.status(500).json({ error: 'Failed to store RFID tag', details: error.message });
+  }
+});
+
+// --- NEW ROUTE: Get the most recently scanned RFID ---
+router.get('/get-rfid', async (req, res) => {
+  try {
+      const [results] = await sequelize.query(`
+          SELECT rfid
+          FROM "RfidScanned"
+          ORDER BY created_at DESC
+          LIMIT 1;
+      `, { type: sequelize.QueryTypes.SELECT });
+
+      if (results.length > 0) {
+          res.status(200).json({ rfid: results[0].rfid });
+      } else {
+          res.status(200).json({ rfid: '' }); // Return empty string if no RFID
+      }
+  } catch (error) {
+      console.error('Error fetching RFID tag:', error);
+      res.status(500).json({ error: 'Failed to fetch RFID tag', details: error.message });
+  }
+});
+
+// --- NEW ROUTE: Clear the scanned RFID ---
+router.delete('/clear-rfid', async (req, res) => {
+  try {
+      // Use raw SQL to delete *all* entries (we only expect one, but this is safer)
+      await sequelize.query('DELETE FROM "RfidScanned";', { type: sequelize.QueryTypes.DELETE });
+      res.status(204).send(); // 204 No Content for successful deletion
+  } catch (error) {
+      console.error('Error clearing RFID data:', error);
+      res.status(500).json({ error: 'Failed to clear RFID data', details: error.message });
   }
 });
 
