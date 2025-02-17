@@ -233,8 +233,6 @@ router.post('/scan-rfid', async (req, res) => {
     const [result, metadata] = await sequelize.query(`
       INSERT INTO "RfidScanned" (rfid, created_at)
       VALUES (:rfid, NOW())
-      ON CONFLICT (rfid) DO UPDATE
-      SET rfid = :rfid, created_at = NOW()
       RETURNING *;
     `, {
       replacements: { rfid: trimmedRfid },
