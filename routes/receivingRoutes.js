@@ -263,7 +263,8 @@ router.get('/check-rfid/:rfid', async (req, res) => {
     const [results] = await sequelize.query(`
         SELECT *
         FROM "ReceivingData"
-        WHERE "rfid" = :rfid;
+        WHERE "rfid" = :rfid
+        AND "currentAssign" = 1
     `, {
       replacements: { rfid: trimmedRfid }, //  <-- Use the trimmed and upper-cased RFID
       type: sequelize.QueryTypes.SELECT
