@@ -260,7 +260,7 @@ router.get('/get-rfid', async (req, res) => {
       `, { type: sequelize.QueryTypes.SELECT });
 
       if (results.length > 0) {
-          res.status(200).json({ rfid: results[0].rfid });
+          res.status(200).json({ rfid: results.rfid });
       } else {
           res.status(200).json({ rfid: '' }); // Return empty string if no RFID
       }
