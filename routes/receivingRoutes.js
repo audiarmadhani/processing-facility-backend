@@ -199,15 +199,17 @@ router.post('/scan-rfid', async (req, res) => {
 // --- NEW ROUTE: Get the most recently scanned RFID ---
 router.get('/get-rfid', async (req, res) => {
   try {
-      // Fetch the most recently scanned RFID tag
-      const [results] = await sequelize.query(`
-          SELECT rfid
+
+      const rfidGetQuery = `
+        SELECT rfid
           FROM "RfidScanned"
           ORDER BY created_at DESC
           LIMIT 1;
-      `, {
-          type: sequelize.QueryTypes.SELECT
-      });
+        `;
+
+      const [rfidGetResult] = await sequelize.query(rfidGetQuery);
+
+      const results = rfidGetResult[0] || 0;
 
       // Check if results is valid *before* accessing .length
       if (results && results.length > 0) {
