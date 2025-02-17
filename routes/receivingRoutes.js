@@ -264,9 +264,9 @@ router.get('/get-rfid', async (req, res) => {
 
     // Robustly check if results is valid *before* accessing .length
     if (results && results.length > 0) {  // Check for both null/undefined AND length
-      res.status(200).json({ rfid: results[0].rfid });
+      res.status(200).json( results[0].rfid );
     } else {
-      res.status(200).json({ rfid: 'unknown' }); // Return empty string if no RFID
+      res.status(200).json( 'unknown' ); // Return empty string if no RFID
     }
   } catch (error) {
     console.error('Error fetching RFID tag:', error);
