@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 
+
 // Route for creating receiving data
 router.post('/receiving', async (req, res) => {
   const t = await sequelize.transaction();
