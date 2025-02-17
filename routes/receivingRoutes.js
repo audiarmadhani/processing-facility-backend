@@ -106,7 +106,7 @@ router.post('/receiving', async (req, res) => {
         message: `Batch ${batchNumber} created successfully`,
         receivingData: receivingData.length > 0 ? receivingData[0] : {},
       });
-      
+
   } catch (err) {
       await t.rollback();
       console.error('Error creating receiving data:', err);
@@ -222,26 +222,34 @@ router.get('/get-rfid', async (req, res) => {
   }
 });
 
-// Route to get receiving data by batch number
-router.get('/check-rfid/:rfid', async (req, res) => {
-  const { rfid } = req.params;
-  if (!rfid) return res.status(400).json({ error: 'RFID is required.' });
+// --- NEW ROUTE: Check if RFID is already assigned ---
+router.get('/check-rfid', async (req, res) => {
+    const { rfid } = req.query; // Get RFID from query parameter
 
-  try {
-      const [rows] = await sequelize.query(
-          `SELECT * FROM "ReceivingData" WHERE "rfid" = ?;`,
-          { replacements: [rfid.trim()] }
-      );
+    if (!rfid) {
+        return res.status(400).json({ error: 'RFID tag is required.' });
+    }
 
-      if (!rows || rows.length === 0) {
-          return res.status(404).json({ message: 'No receiving data found for this RFID.' });
-      }
+    try {
+        // Use a raw SQL query to check if the RFID exists in ReceivingData
+        const [results] = await sequelize.query(`
+            SELECT *
+            FROM "ReceivingData"
+            WHERE "rfid" = :rfid;
+        `, {
+            replacements: { rfid: rfid },
+            type: sequelize.QueryTypes.SELECT
+        });
 
-      res.json(rows);
-  } catch (err) {
-      console.error('Error fetching receiving data by RFID:', err);
-      res.status(500).json({ message: 'Failed to fetch receiving data by RFID.' });
-  }
+        // If any rows are returned, the RFID is already assigned
+        const isAssigned = results.length > 0;
+
+        res.status(200).json({ isAssigned }); // Return { isAssigned: true } or { isAssigned: false }
+
+    } catch (error) {
+        console.error('Error checking RFID tag:', error);
+        res.status(500).json({ error: 'Failed to check RFID tag', details: error.message });
+    }
 });
 
 // --- NEW ROUTE: Clear the scanned RFID ---
