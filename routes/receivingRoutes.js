@@ -118,17 +118,30 @@ router.post('/receiving', async (req, res) => {
     }
 });
 
-// Route for fetching all receiving data (raw SQL)
+// Route for fetching all receiving data (using raw SQL)
 router.get('/receiving', async (req, res) => {
-    try {
-        const [allRows] = await sequelize.query('SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a', { type: sequelize.QueryTypes.SELECT });
-        const [latestRows] = await sequelize.query('SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a ORDER BY DATE("receivingDate") DESC LIMIT 1', { type: sequelize.QueryTypes.SELECT });
-        const [todayData] = await sequelize.query(`SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") ORDER BY "receivingDate"`, { type: sequelize.QueryTypes.SELECT });
-        res.json({ latestRows, allRows, todayData });
-    } catch (err) {
-        console.error('Error fetching receiving data:', err);
-        res.status(500).json({ message: 'Failed to fetch receiving data.' });
-    }
+  try {
+    // Fetch all records
+    const [allRows] = await sequelize.query('SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a', { type: sequelize.QueryTypes.SELECT }); // Add type
+
+    // Fetch the *single* latest record.  We'll wrap it in an array.
+    const [latestRows] = await sequelize.query('SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a ORDER BY "receivingDate" DESC LIMIT 1', { type: sequelize.QueryTypes.SELECT });
+
+    // Fetch today's data
+      const [todayData] = await sequelize.query(`SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") ORDER BY "receivingDate"`, {type: sequelize.QueryTypes.SELECT});
+
+
+    // Return the results.  Ensure latestRows is ALWAYS an array.
+    res.json({
+      latestRows: latestRows.length > 0 ? latestRows: [], // Return empty array if no data
+      allRows: allRows,   // allRows is already an array
+      todayData: todayData
+    });
+
+  } catch (err) {
+    console.error('Error fetching receiving data:', err);
+    res.status(500).json({ message: 'Failed to fetch receiving data.' });
+  }
 });
 
 // Route to get receiving data by batch number (raw SQL)
