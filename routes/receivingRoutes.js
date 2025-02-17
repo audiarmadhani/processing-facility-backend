@@ -260,6 +260,7 @@ router.get('/check-rfid/:rfid', async (req, res) => { //  Use :rfid for route pa
       });
 
       console.log("check rfid query:", results);
+      console.log("check rfid query length:", results.length);
 
       // Robustly check if results is valid *before* accessing .length
       const isAssigned = results && results.length > 0; // Corrected check
