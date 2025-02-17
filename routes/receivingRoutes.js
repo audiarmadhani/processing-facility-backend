@@ -262,7 +262,7 @@ router.get('/get-rfid', async (req, res) => {
 
     const [getRfidResult] = await sequelize.query(getRfidQuery);
 
-    const getRfid = Text(getRfidResult[0]) || 0;
+    const getRfid = getRfidResult[0] || 0;
     
     res.json({
       getRfid
