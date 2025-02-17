@@ -184,14 +184,21 @@ router.get('/get-rfid', async (req, res) => {
       type: sequelize.QueryTypes.SELECT
     });
 
-    console.log("Result from DB get-rfid:", results); // Log the raw result
-    console.log("Result length from DB get-rfid:", results.length); // Log the raw result
+    console.log("Result from DB get-rfid:", results); // Log for debugging
+    console.log("Result from DB get-rfid:", results.rfid); // Log for debugging
 
-    if (results && results.length > 0) {
-      res.status(200).json({ rfid: results[0].rfid });
-    } else {
-      res.status(200).json({ rfid: '' }); // Return empty string if no RFID
+    // Robust check for RFID data:
+    if (Array.isArray(results) && results.length > 0) {
+        // Handle the case where results is an array (as expected)
+        res.status(200).json({ rfid: results[0].rfid });
+    } else if (results && results.rfid) {
+        // Handle the case where results is a single object
+        res.status(200).json({ rfid: results.rfid });
     }
+    else {
+        res.status(200).json({ rfid: '' }); // Return empty string if no RFID
+    }
+
   } catch (error) {
     console.error('Error fetching RFID tag:', error);
     res.status(500).json({ error: 'Failed to fetch RFID tag', details: error.message });
