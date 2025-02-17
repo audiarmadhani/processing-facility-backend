@@ -252,21 +252,25 @@ router.post('/scan-rfid', async (req, res) => {
 // --- NEW ROUTE: Get the most recently scanned RFID ---
 router.get('/get-rfid', async (req, res) => {
   try {
-      const [results] = await sequelize.query(`
-          SELECT rfid
-          FROM "RfidScanned"
-          ORDER BY created_at DESC
-          LIMIT 1;
-      `, { type: sequelize.QueryTypes.SELECT });
+    // Fetch the most recently scanned RFID tag
+    const [results] = await sequelize.query(`
+        SELECT rfid
+        FROM "RfidScanned"
+        ORDER BY created_at DESC
+        LIMIT 1;
+    `, {
+      type: sequelize.QueryTypes.SELECT
+    });
 
-      if (results.length > 0) {
-          res.status(200).json({ rfid: results.rfid });
-      } else {
-          res.status(200).json({ rfid: '' }); // Return empty string if no RFID
-      }
+    // Robustly check if results is valid *before* accessing .length
+    if (results && results.length > 0) {  // Check for both null/undefined AND length
+      res.status(200).json({ rfid: results[0].rfid });
+    } else {
+      res.status(200).json({ rfid: '' }); // Return empty string if no RFID
+    }
   } catch (error) {
-      console.error('Error fetching RFID tag:', error);
-      res.status(500).json({ error: 'Failed to fetch RFID tag', details: error.message });
+    console.error('Error fetching RFID tag:', error);
+    res.status(500).json({ error: 'Failed to fetch RFID tag', details: error.message });
   }
 });
 
