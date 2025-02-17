@@ -19,7 +19,7 @@ router.post('/receiving', async (req, res) => {
       const [latestBatchResults] = await sequelize.query('SELECT * FROM latest_batch LIMIT 1', { transaction: t, type: sequelize.QueryTypes.SELECT });
       let latestBatch;
 
-      if (latestBatchResults.length === 0) {
+      if (!latestBatchResults) {
          // Initialize if no record exists
           await sequelize.query(
               'INSERT INTO latest_batch (latest_batch_number) VALUES (:initialValue)',
@@ -35,7 +35,7 @@ router.post('/receiving', async (req, res) => {
       const day = String(currentDate.getDate()).padStart(2, '0');
       const month = String(currentDate.getMonth() + 1).padStart(2, '0');
       const year = currentDate.getFullYear();
-      const currentBatchDate = `<span class="math-inline">\{year\}\-</span>{month}-${day}`;
+      const currentBatchDate = `${year}-${month}-${day}`;
 
       // Calculate the new batch number
       const parts = latestBatch.latest_batch_number.split('-');
@@ -43,7 +43,7 @@ router.post('/receiving', async (req, res) => {
       const lastSeqNumber = parseInt(parts[3], 10);
 
       let sequenceNumber = (lastBatchDate === currentBatchDate) ? lastSeqNumber + 1 : 1;
-      const batchNumber = `<span class="math-inline">\{currentBatchDate\}\-</span>{String(sequenceNumber).padStart(4, '0')}`;
+      const batchNumber = `${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
 
       // Insert ReceivingData (raw SQL)
       const [receivingData] = await sequelize.query(`
@@ -103,10 +103,10 @@ router.post('/receiving', async (req, res) => {
       await t.commit();
 
       res.status(201).json({
-          message: `Batch ${batchNumber} created successfully`,
-          receivingData: receivingData[0], // Return created record
+        message: `Batch ${batchNumber} created successfully`,
+        receivingData: receivingData.length > 0 ? receivingData[0] : {},
       });
-
+      
   } catch (err) {
       await t.rollback();
       console.error('Error creating receiving data:', err);
@@ -199,24 +199,23 @@ router.post('/scan-rfid', async (req, res) => {
 // --- NEW ROUTE: Get the most recently scanned RFID ---
 router.get('/get-rfid', async (req, res) => {
   try {
+    const rfidGetQuery = `
+      SELECT rfid
+        FROM "RfidScanned"
+        ORDER BY created_at DESC
+        LIMIT 1;
+      `;
 
-      const rfidGetQuery = `
-        SELECT rfid
-          FROM "RfidScanned"
-          ORDER BY created_at DESC
-          LIMIT 1;
-        `;
+    const [rfidGetResult] = await sequelize.query(rfidGetQuery);
 
-      const [rfidGetResult] = await sequelize.query(rfidGetQuery);
+    const results = rfidGetResult[0] || 0;
 
-      const results = rfidGetResult[0] || 0;
-
-      // Check if results is valid *before* accessing .length
-      if (results && results.length > 0) {
-          res.status(200).json({ rfid: results[0].rfid });
-      } else {
-          res.status(200).json({ rfid: '' }); // Return empty string if no RFID
-      }
+    // Check if results is valid *before* accessing .length
+    if (rfidGetResult && rfidGetResult.length > 0) {
+      res.status(200).json({ rfid: rfidGetResult[0].rfid });
+    } else {
+      res.status(200).json({ rfid: '' }); // Return empty if no RFID
+    }
   } catch (error) {
       console.error('Error fetching RFID tag:', error);
       res.status(500).json({ error: 'Failed to fetch RFID tag', details: error.message });
@@ -226,25 +225,22 @@ router.get('/get-rfid', async (req, res) => {
 // Route to get receiving data by batch number
 router.get('/check-rfid/:rfid', async (req, res) => {
   const { rfid } = req.params;
+  if (!rfid) return res.status(400).json({ error: 'RFID is required.' });
 
   try {
-    const [rows] = await sequelize.query(
-      `
-      SELECT *
-          FROM "ReceivingData"
-          WHERE "rfid" = ?;
-      `,
-      { replacements: [rfid.trim()] }
-    );
+      const [rows] = await sequelize.query(
+          `SELECT * FROM "ReceivingData" WHERE "rfid" = ?;`,
+          { replacements: [rfid.trim()] }
+      );
 
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'No receiving data found for this rfid.' });
-    }
+      if (!rows || rows.length === 0) {
+          return res.status(404).json({ message: 'No receiving data found for this RFID.' });
+      }
 
-    res.json(rows);
+      res.json(rows);
   } catch (err) {
-    console.error('Error fetching receiving data by rfid:', err);
-    res.status(500).json({ message: 'Failed to fetch receiving data by rfid.' });
+      console.error('Error fetching receiving data by RFID:', err);
+      res.status(500).json({ message: 'Failed to fetch receiving data by RFID.' });
   }
 });
 
