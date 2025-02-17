@@ -184,7 +184,8 @@ router.get('/get-rfid', async (req, res) => {
       type: sequelize.QueryTypes.SELECT
     });
 
-    // console.log("Result from DB get-rfid:", results); // Log the raw result
+    console.log("Result from DB get-rfid:", results); // Log the raw result
+    console.log("Result length from DB get-rfid:", results.length); // Log the raw result
 
     if (results && results.length > 0) {
       res.status(200).json({ rfid: results[0].rfid });
