@@ -241,35 +241,35 @@ router.post('/scan-rfid', async (req, res) => {
 
 
 // --- NEW ROUTE: Check if RFID is already assigned ---
-router.get('/check-rfid/:rfid', async (req, res) => { //  Use :rfid for route parameter
+router.get('/check-rfid/:rfid', async (req, res) => {
   const { rfid } = req.params; // Get RFID from route parameter
 
   if (!rfid) {
-      return res.status(400).json({ error: 'RFID tag is required.' });
+    return res.status(400).json({ error: 'RFID tag is required.' });
   }
 
+    const trimmedRfid = rfid.trim().toUpperCase(); //  <-- ALWAYS trim and uppercase
+
   try {
-      // Use a raw SQL query to check if the RFID exists in ReceivingData
-      const [results] = await sequelize.query(`
-          SELECT *
-          FROM "ReceivingData"
-          WHERE "rfid" = :rfid;
-      `, {
-          replacements: { rfid: rfid },
-          type: sequelize.QueryTypes.SELECT
-      });
+    // Use a raw SQL query to check if the RFID exists in ReceivingData
+    const [results] = await sequelize.query(`
+        SELECT *
+        FROM "ReceivingData"
+        WHERE "rfid" = :rfid;
+    `, {
+      replacements: { rfid: trimmedRfid }, //  <-- Use the trimmed and upper-cased RFID
+      type: sequelize.QueryTypes.SELECT
+    });
 
-      console.log("check rfid query:", results);
-      console.log("check rfid query length:", results.length);
+        // Correctly check if results is an array and has length, OR if it's an object
+        const isAssigned = Array.isArray(results) ? results.length > 0 : results !== undefined && results !== null;
 
-      // Robustly check if results is valid *before* accessing .length
-      const isAssigned = results && results.length > 0; // Corrected check
 
-      res.status(200).json({ isAssigned }); // Return { isAssigned: true/false }
+    res.status(200).json({ isAssigned }); // Return { isAssigned: true/false }
 
   } catch (error) {
-      console.error('Error checking RFID tag:', error);
-      res.status(500).json({ error: 'Failed to check RFID tag', details: error.message });
+    console.error('Error checking RFID tag:', error);
+    res.status(500).json({ error: 'Failed to check RFID tag', details: error.message });
   }
 });
 
