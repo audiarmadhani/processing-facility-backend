@@ -154,41 +154,46 @@ router.get('/receiving', async (req, res) => {
     }
 });
 
-// Route to get receiving data by batch number (raw SQL)
+// Route to get receiving data by batch number (always returns an array)
 router.get('/receiving/:batchNumber', async (req, res) => {
-    const { batchNumber } = req.params;
-    try {
-        const [rows] = await sequelize.query(
-            `
-          WITH qc AS (
-            SELECT "batchNumber", MIN(DATE("qcDate")) AS "qcDateTrunc"
-            FROM "QCData"
-            GROUP BY "batchNumber"
-          )
+  let { batchNumber } = req.params;
+  batchNumber = batchNumber.trim(); // Trim just once
 
+  try {
+      const [rows] = await sequelize.query(
+          `
+          WITH qc AS (
+              SELECT "batchNumber", MIN(DATE("qcDate")) AS "qcDateTrunc"
+              FROM "QCData"
+              GROUP BY "batchNumber"
+          )
           SELECT 
-            a.*, DATE("receivingDate") as "receivingDateTrunc", 
-            "qcDateTrunc"
+              a.*, DATE("receivingDate") as "receivingDateTrunc", 
+              "qcDateTrunc"
           FROM "ReceivingData" a 
-          LEFT JOIN qc b on a."batchNumber" = b."batchNumber" 
+          LEFT JOIN qc b ON a."batchNumber" = b."batchNumber" 
           WHERE LOWER(a."batchNumber") = LOWER(:batchNumber);
           `,
           {
-            replacements: { batchNumber: batchNumber.trim() },
-            type: sequelize.QueryTypes.SELECT,
-            // Force an array even with a single result:
-            plain: false, //  <-- ADD THIS!
+              replacements: { batchNumber },
+              type: sequelize.QueryTypes.SELECT,
           }
-        );
+      );
 
-        if (rows.length === 0) {
-            return res.status(404).json({ message: 'No receiving data found for this batch number.' });
-        }
-        res.json(rows);
-    } catch (err) {
-        console.error('Error fetching receiving data by batch number:', err);
-        res.status(500).json({ message: 'Failed to fetch receiving data by batch number.' });
-    }
+      // Ensure response is always an array
+      if (!Array.isArray(rows)) {
+          return res.status(200).json(rows ? [rows] : []); // Wrap object in an array
+      }
+
+      if (rows.length === 0) {
+          return res.status(404).json({ message: 'No receiving data found for this batch number.' });
+      }
+
+      res.json(rows);
+  } catch (err) {
+      console.error('Error fetching receiving data by batch number:', err);
+      res.status(500).json({ message: 'Failed to fetch receiving data by batch number.' });
+  }
 });
 
 
