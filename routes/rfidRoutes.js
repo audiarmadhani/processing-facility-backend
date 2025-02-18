@@ -57,7 +57,8 @@ router.delete('/clear-rfid/:scanned_at', async (req, res) => {
 
 // POST route to receive RFID tag scans from ESP32
 router.post('/scan-rfid', async (req, res) => {
-  const { rfid } = req.body;
+	
+  const { rfid, scanned_at } = req.body;
 
   if (!rfid) {
     return res.status(400).json({ error: 'RFID tag is required.' });
@@ -72,7 +73,7 @@ router.post('/scan-rfid', async (req, res) => {
           VALUES (:rfid, NOW(), :scanned_at)
           RETURNING *;
       `, {
-        replacements: { rfid: trimmedRfid, scanned_at },
+        replacements: { rfid: trimmedRfid, scanned_at: scanned_at },
         type: sequelize.QueryTypes.INSERT, // Important for RETURNING
       });
         // Respond with success
