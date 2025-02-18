@@ -33,6 +33,45 @@ router.get('/get-rfid', async (req, res) => {
   }
 });
 
+// --- NEW ROUTE: Check if RFID is already assigned ---
+router.get('/get-rfid/:scanned_at', async (req, res) => {
+  const { scanned_at } = req.params; // Get RFID from route parameter
+
+  if (!scanned_at) {
+    return res.status(400).json({ error: 'Scanned at is required.' });
+  }
+
+  try {
+    // Use a raw SQL query to check if the RFID exists in ReceivingData
+    const [results] = await sequelize.query(`
+        SELECT rfid
+        FROM "RfidScanned"
+				WHERE "scanned_at" = :scanned_at
+        ORDER BY created_at DESC
+        LIMIT 1;
+    `, {
+      replacements: { scanned_at: scanned_at }, //  <-- Use the trimmed and upper-cased RFID
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    // Robust check for RFID data:
+    if (Array.isArray(results) && results.length > 0) {
+			// Handle the case where results is an array (as expected)
+			res.status(200).json({ rfid: results[0].rfid });
+	} else if (results && results.rfid) {
+			// Handle the case where results is a single object
+			res.status(200).json({ rfid: results.rfid });
+	}
+	else {
+			res.status(200).json({ rfid: '' }); // Return empty string if no RFID
+	}
+
+} catch (error) {
+	console.error('Error fetching RFID tag:', error);
+	res.status(500).json({ error: 'Failed to fetch RFID tag', details: error.message });
+}
+});
+
 // --- NEW ROUTE: Clear the scanned RFID ---
 router.delete('/clear-rfid/:scanned_at', async (req, res) => {
 	const { scanned_at } = req.params; // Get RFID from route parameter
@@ -57,7 +96,7 @@ router.delete('/clear-rfid/:scanned_at', async (req, res) => {
 
 // POST route to receive RFID tag scans from ESP32
 router.post('/scan-rfid', async (req, res) => {
-	
+
   const { rfid, scanned_at } = req.body;
 
   if (!rfid) {
