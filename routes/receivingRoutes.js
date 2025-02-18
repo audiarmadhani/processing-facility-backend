@@ -19,42 +19,39 @@ router.post('/receiving', async (req, res) => {
         }
 
 
-       // --- Batch Number Generation ---
-       let batchNumber;
-       const currentDate = new Date();
-       const day = String(currentDate.getDate()).padStart(2, '0');
-       const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-       const year = currentDate.getFullYear();
-       const currentBatchDate = `${year}-${month}-${day}`;
+        // Retrieve or initialize the latest batch number
+        const [latestBatchResults] = await sequelize.query('SELECT latest_batch_number FROM latest_batch LIMIT 1', { transaction: t, type: sequelize.QueryTypes.SELECT });
+        let latestBatch;
 
-       // Use a raw SQL query to get the latest batch number, handling the empty table case
-       const [latestBatchResults] = await sequelize.query(
-           'SELECT latest_batch_number FROM latest_batch LIMIT 1',
-           { transaction: t, type: sequelize.QueryTypes.SELECT }
-       );
+        console.log("latestBatchResults:", latestBatchResults);
 
-       if (latestBatchResults.length > 0) {
-           // Batch number exists, increment it
-           const parts = latestBatchResults[0].latest_batch_number.split('-');
-           console.log("parts:", parts);
-           const lastBatchDate = parts.slice(0, 3).join('-');
-           console.log("lastBatchDate:", lastBatchDate);
-           const lastSeqNumber = parseInt(parts[3], 10);
-           console.log("lastSeqNumber:", lastSeqNumber);
+        if (latestBatchResults.length === 0) {
+           // Initialize if no record exists
+            await sequelize.query(
+                'INSERT INTO latest_batch (latest_batch_number) VALUES (:initialValue)',
+                { replacements: { initialValue: '1970-01-01-0000' }, transaction: t, type: sequelize.QueryTypes.INSERT }
+            );
+            latestBatch = { latest_batch_number: '1970-01-01-0000' };
+        } else {
+            latestBatch = latestBatchResults[0];
+        }
 
-           let sequenceNumber = (lastBatchDate === currentBatchDate) ? lastSeqNumber + 1 : 1;
-           console.log("sequenceNumber:", sequenceNumber);
-           batchNumber = `${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
-           console.log("batchNumber:", batchNumber);
-       } else {
-           // No existing batch number, start a new sequence
-           batchNumber = `${currentBatchDate}-0001`;
-           //And insert it to the database.
-           await sequelize.query(
-               'INSERT INTO latest_batch (latest_batch_number) VALUES (:batchNumber)',
-               { replacements: { batchNumber: batchNumber }, transaction: t, type: sequelize.QueryTypes.INSERT } // Use named replacement
-           );
-       }
+        console.log("latestBatch:", latestBatch);
+
+        // Get current date and format it
+        const currentDate = new Date();
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const year = currentDate.getFullYear();
+        const currentBatchDate = `${year}-${month}-${day}`;
+
+        // Calculate the new batch number
+        const parts = latestBatch.latest_batch_number.split('-');
+        const lastBatchDate = parts.slice(0, 3).join('-');
+        const lastSeqNumber = parseInt(parts[3], 10);
+
+        let sequenceNumber = (lastBatchDate === currentBatchDate) ? lastSeqNumber + 1 : 1;
+        const batchNumber = `${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
 
         // Insert ReceivingData (raw SQL)
         const [receivingData, metadata] = await sequelize.query(`
