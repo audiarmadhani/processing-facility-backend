@@ -205,16 +205,18 @@ router.get('/receivingrfid/:rfid', async (req, res) => {
       const [rows] = await sequelize.query(
           `
           WITH qc AS (
-              SELECT "batchNumber", MIN(DATE("qcDate")) AS "qcDateTrunc"
-              FROM "QCData"
-              GROUP BY "batchNumber"
+            SELECT "batchNumber", MIN(DATE("qcDate")) AS "qcDateTrunc"
+            FROM "QCData"
+            GROUP BY "batchNumber"
           )
+            
           SELECT 
-              a.*, DATE("receivingDate") as "receivingDateTrunc", 
-              "qcDateTrunc"
+            a.*, DATE("receivingDate") as "receivingDateTrunc", 
+            "qcDateTrunc"
           FROM "ReceivingData" a 
           LEFT JOIN qc b ON a."batchNumber" = b."batchNumber" 
-          WHERE UPPER(a."rfid") = UPPER(:rfid);
+          WHERE UPPER(a."rfid") = UPPER(:rfid)
+          AND "currentAssign" = 1;
           `,
           {
               replacements: { rfid },
