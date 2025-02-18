@@ -36,11 +36,16 @@ router.post('/receiving', async (req, res) => {
        if (latestBatchResults.length > 0) {
            // Batch number exists, increment it
            const parts = latestBatchResults[0].latest_batch_number.split('-');
+           console.log("parts:", parts);
            const lastBatchDate = parts.slice(0, 3).join('-');
+           console.log("lastBatchDate:", lastBatchDate);
            const lastSeqNumber = parseInt(parts[3], 10);
+           console.log("lastSeqNumber:", lastSeqNumber);
 
            let sequenceNumber = (lastBatchDate === currentBatchDate) ? lastSeqNumber + 1 : 1;
+           console.log("sequenceNumber:", sequenceNumber);
            batchNumber = `${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
+           console.log("batchNumber:", batchNumber);
        } else {
            // No existing batch number, start a new sequence
            batchNumber = `${currentBatchDate}-0001`;
