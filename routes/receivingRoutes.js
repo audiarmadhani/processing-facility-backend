@@ -18,26 +18,33 @@ router.post('/receiving', async (req, res) => {
           return res.status(400).json({ error: 'RFID tag is required.' });
         }
 
-
-        // Retrieve or initialize the latest batch number
-        const [latestBatchResults] = await sequelize.query('SELECT latest_batch_number FROM latest_batch LIMIT 1', { transaction: t, type: sequelize.QueryTypes.SELECT });
+        // Retrieve or initialize the latest batch number (CORRECTED)
+        const [latestBatchResults] = await sequelize.query(
+          'SELECT latest_batch_number FROM latest_batch LIMIT 1',
+          { transaction: t, type: sequelize.QueryTypes.SELECT }
+        );
         let latestBatch;
+
+        // Correctly handle both an array and a single object return
+        if (Array.isArray(latestBatchResults) && latestBatchResults.length > 0) {
+          // We got an array (even if it's a single-element array)
+          latestBatch = latestBatchResults[0];
+        } else if (latestBatchResults && latestBatchResults.latest_batch_number) {
+          // We got a single object directly
+          latestBatch = latestBatchResults;
+        } else {
+          // No records exist, initialize
+          await sequelize.query(
+              'INSERT INTO latest_batch (latest_batch_number) VALUES (:initialValue)',
+              { replacements: { initialValue: '1970-01-01-0000' }, transaction: t, type: sequelize.QueryTypes.INSERT }
+          );
+          latestBatch = { latest_batch_number: '1970-01-01-0000' };
+        }
 
         console.log("latestBatchResults:", latestBatchResults);
         console.log("latestBatchResults.length:", latestBatchResults.length);
+        console.log("latestBatchResults.length:", latestBatchResults.latest_batch_number);
         console.log("latestBatchResults[0]:", latestBatchResults[0]);
-
-        if (latestBatchResults.length === 0) {
-           // Initialize if no record exists
-            await sequelize.query(
-                'INSERT INTO latest_batch (latest_batch_number) VALUES (:initialValue)',
-                { replacements: { initialValue: '1970-01-01-0000' }, transaction: t, type: sequelize.QueryTypes.INSERT }
-            );
-            latestBatch = { latest_batch_number: '1970-01-01-0000' };
-        } else {
-            latestBatch = latestBatchResults[0];
-        }
-
         console.log("latestBatch:", latestBatch);
 
         // Get current date and format it
