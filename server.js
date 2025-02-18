@@ -24,6 +24,7 @@ const expensesRoutes = require('./routes/expensesRoutes')
 const postprocessingQCRoutes = require('./routes/postprocessingQCRoutes')
 const uploadImageRoutes = require('./routes/uploadImageRoutes')
 const calendarEventRoutes = require('./routes/calendarEventRoutes')
+const rfidRoutes = require('./routes/rfidRoutes')
 
 
 // Load environment variables
@@ -73,6 +74,7 @@ const apiRoutes = [
   postprocessingQCRoutes,
   uploadImageRoutes,
   calendarEventRoutes,
+  rfidRoutes,
 ];
 
 apiRoutes.forEach(route => app.use('/api', route));
