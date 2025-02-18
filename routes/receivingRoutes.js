@@ -181,9 +181,6 @@ router.get('/get-rfid', async (req, res) => {
       type: sequelize.QueryTypes.SELECT
     });
 
-    console.log("Result from DB get-rfid:", results); // Log for debugging
-    console.log("Result from DB get-rfid:", results.rfid); // Log for debugging
-
     // Robust check for RFID data:
     if (Array.isArray(results) && results.length > 0) {
         // Handle the case where results is an array (as expected)
