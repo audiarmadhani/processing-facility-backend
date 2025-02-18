@@ -120,18 +120,23 @@ router.post('/receiving', async (req, res) => {
     }
 });
 
-// Route for fetching all receiving data (raw SQL)
+// Route for fetching all Receiving data
 router.get('/receiving', async (req, res) => {
     try {
-        // Fetch all records
-        const [allRows] = await sequelize.query('SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a', { type: sequelize.QueryTypes.SELECT });
-         // Fetch records from today
-        const [todayData] = await sequelize.query(`SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") ORDER BY "receivingDate"`, {type: sequelize.QueryTypes.SELECT});
+        // Fetch all records for filtering purposes
+        const [allRows] = await sequelize.query(
+          `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a;`
+        );
 
-        res.json({  allRows, todayData }); // allRows and todayData are ALREADY arrays
+        // Fetch the latest records ordered by QC date
+        const [todayData] = await sequelize.query(
+          `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") ORDER BY "receivingDate";`
+        );
+
+        res.json({ todayData, allRows });
     } catch (err) {
-        console.error('Error fetching receiving data:', err);
-        res.status(500).json({ message: 'Failed to fetch receiving data.' });
+        console.error('Error fetching QC data:', err);
+        res.status(500).json({ message: 'Failed to fetch QC data.' });
     }
 });
 
