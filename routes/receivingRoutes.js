@@ -24,6 +24,8 @@ router.post('/receiving', async (req, res) => {
         let latestBatch;
 
         console.log("latestBatchResults:", latestBatchResults);
+        console.log("latestBatchResults.length:", latestBatchResults.length);
+        console.log("latestBatchResults[0]:", latestBatchResults[0]);
 
         if (latestBatchResults.length === 0) {
            // Initialize if no record exists
