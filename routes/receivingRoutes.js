@@ -196,4 +196,46 @@ router.get('/receiving/:batchNumber', async (req, res) => {
   }
 });
 
+// Route to get receiving data by rfid (always returns an array)
+router.get('/receivingrfid/:rfid', async (req, res) => {
+  let { rfid } = req.params;
+  rfid = rfid.trim(); // Trim just once
+
+  try {
+      const [rows] = await sequelize.query(
+          `
+          WITH qc AS (
+              SELECT "batchNumber", MIN(DATE("qcDate")) AS "qcDateTrunc"
+              FROM "QCData"
+              GROUP BY "batchNumber"
+          )
+          SELECT 
+              a.*, DATE("receivingDate") as "receivingDateTrunc", 
+              "qcDateTrunc"
+          FROM "ReceivingData" a 
+          LEFT JOIN qc b ON a."batchNumber" = b."batchNumber" 
+          WHERE UPPER(a."rfid") = UPPER(:rfid);
+          `,
+          {
+              replacements: { rfid },
+              type: sequelize.QueryTypes.SELECT,
+          }
+      );
+
+      // Ensure response is always an array
+      if (!Array.isArray(rows)) {
+          return res.status(200).json(rows ? [rows] : []); // Wrap object in an array
+      }
+
+      if (rows.length === 0) {
+          return res.status(404).json({ message: 'No receiving data found for this batch number.' });
+      }
+
+      res.json(rows);
+  } catch (err) {
+      console.error('Error fetching receiving data by batch number:', err);
+      res.status(500).json({ message: 'Failed to fetch receiving data by batch number.' });
+  }
+});
+
 module.exports = router;
