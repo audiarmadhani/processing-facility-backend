@@ -2,114 +2,122 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 
+// Route for creating receiving data (NO AUTHENTICATION)
 router.post('/receiving', async (req, res) => {
-  const t = await sequelize.transaction();
-  try {
-      const { farmerID, farmerName, weight, totalBags, notes, type, bagPayload, createdBy, updatedBy, rfid } = req.body;
+    const t = await sequelize.transaction();
+    try {
+        const { farmerID, farmerName, weight, totalBags, notes, type, bagPayload, createdBy, updatedBy, rfid } = req.body;
 
-      // Basic validation
-      if (!farmerID || !farmerName || weight === undefined || !totalBags || !type || !createdBy || !updatedBy) {
+        // Basic validation (you should have more robust validation, even without auth)
+        if (!farmerID || !farmerName || weight === undefined || !totalBags || !type || !createdBy || !updatedBy) {
+            await t.rollback();
+            return res.status(400).json({ error: 'Missing required fields.' });
+        }
+        if (!rfid) { //check if rfid is available
           await t.rollback();
-          return res.status(400).json({ error: 'Missing required fields.' });
-      }
-      if (!rfid) { //check if rfid is available
-        await t.rollback();
-        return res.status(400).json({ error: 'RFID tag is required.' });
-      }
-
-      // --- Batch Number Generation ---
-      let batchNumber;
-      const currentDate = new Date();
-      const day = String(currentDate.getDate()).padStart(2, '0');
-      const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-      const year = currentDate.getFullYear();
-      const currentBatchDate = `${year}-${month}-${day}`;
-
-      // Use a raw SQL query to get the latest batch number, handling the empty table case
-      const [latestBatchResults] = await sequelize.query(
-          'SELECT latest_batch_number FROM latest_batch LIMIT 1',
-          { transaction: t, type: sequelize.QueryTypes.SELECT }
-      );
-
-      if (latestBatchResults.length > 0) {
-          // Batch number exists, increment it
-          const parts = latestBatchResults[0].latest_batch_number.split('-');
-          const lastBatchDate = parts.slice(0, 3).join('-');
-          const lastSeqNumber = parseInt(parts[3], 10);
-
-          let sequenceNumber = (lastBatchDate === currentBatchDate) ? lastSeqNumber + 1 : 1;
-          batchNumber = `${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
-      } else {
-          // No existing batch number, start a new sequence
-          batchNumber = `${currentBatchDate}-0001`;
-          //And insert it to the database.
-          await sequelize.query(
-              'INSERT INTO latest_batch (latest_batch_number) VALUES (:batchNumber)',
-              { replacements: { batchNumber: batchNumber }, transaction: t, type: sequelize.QueryTypes.INSERT } // Use named replacement
-          );
-      }
+          return res.status(400).json({ error: 'RFID tag is required.' });
+        }
 
 
-      // Insert ReceivingData (raw SQL)
-      const [receivingData, metadata] = await sequelize.query(`
-          INSERT INTO "ReceivingData" (
-              "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type,
-              "receivingDate", "createdAt", "updatedAt", "createdBy", "updatedBy", "rfid"
-          ) VALUES (
-              :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type,
-              :receivingDate, :createdAt, :updatedAt, :createdBy, :updatedBy, :rfid
-          ) RETURNING *;
-      `, {
-          replacements: {
-              batchNumber,  // Use calculated batchNumber
-              farmerID,
-              farmerName,
-              weight,
-              totalBags,
-              notes,
-              type,
-              receivingDate: currentDate,
-              createdAt: currentDate,
-              updatedAt: currentDate,
-              createdBy,  // From req.body
-              updatedBy,   // From req.body
-              rfid: rfid || null, // Include RFID from the request, allow null
-          },
-          transaction: t,
-          type: sequelize.QueryTypes.INSERT
-      });
+        // Retrieve or initialize the latest batch number
+        const [latestBatchResults] = await sequelize.query('SELECT latest_batch_number FROM latest_batch LIMIT 1', { transaction: t, type: sequelize.QueryTypes.SELECT });
+        let latestBatch;
+
+        if (latestBatchResults.length === 0) {
+           // Initialize if no record exists
+            await sequelize.query(
+                'INSERT INTO latest_batch (latest_batch_number) VALUES (:initialValue)',
+                { replacements: { initialValue: '1970-01-01-0000' }, transaction: t, type: sequelize.QueryTypes.INSERT }
+            );
+            latestBatch = { latest_batch_number: '1970-01-01-0000' };
+        } else {
+            latestBatch = latestBatchResults[0];
+        }
+
+        // Get current date and format it
+        const currentDate = new Date();
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const year = currentDate.getFullYear();
+        const currentBatchDate = `${year}-${month}-${day}`;
+
+        // Calculate the new batch number
+        const parts = latestBatch.latest_batch_number.split('-');
+        const lastBatchDate = parts.slice(0, 3).join('-');
+        const lastSeqNumber = parseInt(parts[3], 10);
+
+        let sequenceNumber = (lastBatchDate === currentBatchDate) ? lastSeqNumber + 1 : 1;
+        const batchNumber = `${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
+
+        // Insert ReceivingData (raw SQL)
+        const [receivingData, metadata] = await sequelize.query(`
+            INSERT INTO "ReceivingData" (
+                "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type,
+                "receivingDate", "createdAt", "updatedAt", "createdBy", "updatedBy", "rfid"
+            ) VALUES (
+                :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type,
+                :receivingDate, :createdAt, :updatedAt, :createdBy, :updatedBy, :rfid
+            ) RETURNING *;
+        `, {
+            replacements: {
+                batchNumber,
+                farmerID,
+                farmerName,
+                weight,
+                totalBags,
+                notes,
+                type,
+                receivingDate: currentDate,
+                createdAt: currentDate,
+                updatedAt: currentDate,
+                createdBy,  // From req.body
+                updatedBy,   // From req.body
+                rfid: rfid || null, // Include RFID from the request, allow null
+            },
+            transaction: t,
+            type: sequelize.QueryTypes.INSERT  // Corrected: INSERT query type
+        });
 
 
-      // Insert BagData (raw SQL)
-      if (Array.isArray(bagPayload) && bagPayload.length > 0) {
-          const bagInsertQuery = `
-              INSERT INTO "BagData" ("batchNumber", "bagNumber", weight, "createdAt", "updatedAt")
-              VALUES ${bagPayload.map(() => '(?, ?, ?, ?, ?)').join(', ')} RETURNING *;
-          `;
-          const bagData = bagPayload.flatMap(bag => [batchNumber, bag.bagNumber, bag.weight, currentDate, currentDate]);
-          await sequelize.query(bagInsertQuery, {
-              replacements: bagData,
-              transaction: t,
-              type: sequelize.QueryTypes.INSERT
-          });
-      }
+        // Insert BagData (raw SQL)
+        if (Array.isArray(bagPayload) && bagPayload.length > 0) {
+            const bagInsertQuery = `
+                INSERT INTO "BagData" ("batchNumber", "bagNumber", weight, "createdAt", "updatedAt")
+                VALUES ${bagPayload.map(() => '(?, ?, ?, ?, ?)').join(', ')} RETURNING *;
+            `;
+            const bagData = bagPayload.flatMap(bag => [batchNumber, bag.bagNumber, bag.weight, currentDate, currentDate]);
+            await sequelize.query(bagInsertQuery, {
+                replacements: bagData,
+                transaction: t,
+                type: sequelize.QueryTypes.INSERT // Corrected query type
+            });
+        }
 
+        // Update latest_batch (raw SQL)
+        await sequelize.query(
+            'UPDATE latest_batch SET latest_batch_number = :batchNumber',
+            {
+                replacements: { batchNumber },
+                transaction: t,
+                type: sequelize.QueryTypes.UPDATE // Corrected query type
+            }
+        );
 
-      // Commit the transaction
-      await t.commit();
-
-      // Respond with success and the *entire* created record
-      res.status(201).json({
+        // Commit the transaction
+        await t.commit();
+        // console.log("Receiving Data:", receivingData);
+        // Respond with success and return all data
+        res.status(201).json({
           message: `Batch ${batchNumber} created successfully`,
           receivingData: receivingData[0], // Return created record.
-      });
+        });
 
 
-  } catch (err) {
-      await t.rollback(); // Rollback on *any* error
-      console.error('Error creating receiving data:', err);
-      res.status(500).json({ error: 'Server error', details: err.message });
-  }
+    } catch (err) {
+        await t.rollback();
+        console.error('Error creating receiving data:', err);
+        res.status(500).json({ error: 'Server error', details: err.message });
+    }
 });
 
 // Route for fetching all Receiving data
