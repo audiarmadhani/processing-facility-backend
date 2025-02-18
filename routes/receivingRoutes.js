@@ -66,10 +66,10 @@ router.post('/receiving', async (req, res) => {
         const [receivingData, metadata] = await sequelize.query(`
             INSERT INTO "ReceivingData" (
                 "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type,
-                "receivingDate", "createdAt", "updatedAt", "createdBy", "updatedBy", "rfid"
+                "receivingDate", "createdAt", "updatedAt", "createdBy", "updatedBy", "rfid", "currentAssign"
             ) VALUES (
                 :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type,
-                :receivingDate, :createdAt, :updatedAt, :createdBy, :updatedBy, :rfid
+                :receivingDate, :createdAt, :updatedAt, :createdBy, :updatedBy, :rfid, :currentAssign
             ) RETURNING *;
         `, {
             replacements: {
@@ -85,7 +85,8 @@ router.post('/receiving', async (req, res) => {
                 updatedAt: currentDate,
                 createdBy,  // From req.body
                 updatedBy,   // From req.body
-                rfid: rfid || null, // Include RFID from the request, allow null
+                rfid: rfid, // Include RFID from the request, allow null
+                currentAssign: 1,
             },
             transaction: t,
             type: sequelize.QueryTypes.INSERT  // Corrected: INSERT query type
