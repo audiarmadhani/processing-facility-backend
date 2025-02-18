@@ -160,23 +160,25 @@ router.get('/receiving/:batchNumber', async (req, res) => {
     try {
         const [rows] = await sequelize.query(
             `
-      WITH qc AS (
-        SELECT "batchNumber", MIN(DATE("qcDate")) AS "qcDateTrunc"
-        FROM "QCData"
-        GROUP BY "batchNumber"
-      )
+          WITH qc AS (
+            SELECT "batchNumber", MIN(DATE("qcDate")) AS "qcDateTrunc"
+            FROM "QCData"
+            GROUP BY "batchNumber"
+          )
 
-      SELECT 
-        a.*, DATE("receivingDate") as "receivingDateTrunc", 
-        "qcDateTrunc"
-      FROM "ReceivingData" a 
-      LEFT JOIN qc b on a."batchNumber" = b."batchNumber" 
-      WHERE LOWER(a."batchNumber") = LOWER(:batchNumber);
-      `,
-            {
-                replacements: { batchNumber: batchNumber.trim() },
-                type: sequelize.QueryTypes.SELECT // Corrected: SELECT query type
-            }
+          SELECT 
+            a.*, DATE("receivingDate") as "receivingDateTrunc", 
+            "qcDateTrunc"
+          FROM "ReceivingData" a 
+          LEFT JOIN qc b on a."batchNumber" = b."batchNumber" 
+          WHERE LOWER(a."batchNumber") = LOWER(:batchNumber);
+          `,
+          {
+            replacements: { batchNumber: batchNumber.trim() },
+            type: sequelize.QueryTypes.SELECT,
+            // Force an array even with a single result:
+            plain: false, //  <-- ADD THIS!
+          }
         );
 
         if (rows.length === 0) {
