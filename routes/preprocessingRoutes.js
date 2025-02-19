@@ -6,10 +6,10 @@ const sequelize = require('../config/database');
 router.post('/preprocessing', async (req, res) => {
   let t;
   try {
-    const { batchNumber, bagsProcessed, processingDate } = req.body;
+    const { batchNumber, bagsProcessed, processingDate, producer, productLine, processingType, quality, createdBy } = req.body;
 
-    if (!batchNumber || bagsProcessed === undefined) {
-      return res.status(400).json({ error: 'Batch number and bags processed are required.' });
+    if (!batchNumber || bagsProcessed === undefined || !producer || !productLine || !processingType || !quality ) {
+      return res.status(400).json({ error: 'Batch number, bags processed, producer, product line, processing type, quality are required.' });
     }
 
     t = await sequelize.transaction();
@@ -20,10 +20,10 @@ router.post('/preprocessing', async (req, res) => {
 
     // Insert data into PreprocessingData table
     const [preprocessingData] = await sequelize.query(
-      `INSERT INTO "PreprocessingData" ("batchNumber", "bagsProcessed", "processingDate", "createdAt", "updatedAt") 
-      VALUES (?, ?, ?, ?, ?) RETURNING *`,
+      `INSERT INTO "PreprocessingData" ("batchNumber", "bagsProcessed", "processingDate", "producer", "productLine", "processingType", "quality", "createdAt", "updatedAt", "createdBy") 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       {
-        replacements: [batchNumber, bagsProcessed, formattedProcessingDate, now, now],
+        replacements: [batchNumber, bagsProcessed, formattedProcessingDate, producer, productLine, processingType, quality, now, now, createdBy],
         transaction: t,
       }
     );
