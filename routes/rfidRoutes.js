@@ -96,33 +96,57 @@ router.delete('/clear-rfid/:scanned_at', async (req, res) => {
 
 // POST route to receive RFID tag scans from ESP32
 router.post('/scan-rfid', async (req, res) => {
-
-  const { rfid, scanned_at } = req.body;
+  const { rfid, scanned_at } = req.body; // scanned_at is the scanner ID (e.g., "Wet Mill Entrance")
 
   if (!rfid) {
     return res.status(400).json({ error: 'RFID tag is required.' });
   }
 
-  const trimmedRfid = rfid.trim();
+  const trimmedRfid = rfid.trim().toUpperCase(); // Trim and uppercase RFID
 
   try {
-    // Insert/Update RfidScanned table (using raw SQL)
-      const [result, metadata] = await sequelize.query(`
-          INSERT INTO "RfidScanned" (rfid, created_at, scanned_at)
-          VALUES (:rfid, NOW(), :scanned_at)
-          RETURNING *;
-      `, {
-        replacements: { rfid: trimmedRfid, scanned_at: scanned_at },
-        type: sequelize.QueryTypes.INSERT, // Important for RETURNING
-      });
-        // Respond with success
-      res.status(201).json({ message: 'RFID tag scanned', rfid: trimmedRfid });
+    // Step 1: Check if RFID is assigned in ReceivingData
+    const [batch] = await sequelize.query(`
+      SELECT "batchNumber"
+      FROM "ReceivingData"
+      WHERE "rfid" = :rfid
+      AND "currentAssign" = 1
+      LIMIT 1;
+    `, {
+      replacements: { rfid: trimmedRfid },
+      type: sequelize.QueryTypes.SELECT,
+    });
 
-
-    } catch (error) {
-        console.error('Error storing RFID tag:', error);
-        res.status(500).json({ error: 'Failed to store RFID tag', details: error.message });
+    if (!batch) {
+      return res.status(404).json({ error: 'RFID not associated with any active batch.' });
     }
+
+    const batchNumber = batch.batchNumber;
+
+    // Step 2: Insert scan record into RfidScanned table
+    const [result] = await sequelize.query(`
+      INSERT INTO "RfidScanned" (rfid, scanned_at, created_at)
+      VALUES (:rfid, :scanned_at, NOW())
+      RETURNING *;
+    `, {
+      replacements: {
+        rfid: trimmedRfid,
+        scanned_at: scanned_at, // Store scanner ID
+      },
+      type: sequelize.QueryTypes.INSERT,
+    });
+
+    // Step 3: Respond with success
+    res.status(201).json({
+      message: 'RFID tag scanned',
+      rfid: trimmedRfid,
+      batchNumber,
+      scanned_at: result[0].scanned_at,
+    });
+  } catch (error) {
+    console.error('Error storing RFID tag:', error);
+    res.status(500).json({ error: 'Failed to store RFID tag', details: error.message });
+  }
 });
 
 
@@ -157,6 +181,23 @@ router.get('/check-rfid/:rfid', async (req, res) => {
   } catch (error) {
     console.error('Error checking RFID tag:', error);
     res.status(500).json({ error: 'Failed to check RFID tag', details: error.message });
+  }
+});
+
+router.get('/rfid-scans', async (req, res) => {
+  try {
+    const scans = await sequelize.query(`
+      SELECT r.rfid, r.scanned_at, r.created_at, rd."batchNumber"
+      FROM "RfidScanned" r
+      LEFT JOIN "ReceivingData" rd ON r.rfid = rd.rfid AND rd."currentAssign" = 1
+      ORDER BY r.created_at DESC;
+    `, {
+      type: sequelize.QueryTypes.SELECT,
+    });
+    res.status(200).json(scans);
+  } catch (error) {
+    console.error('Error fetching RFID scans:', error);
+    res.status(500).json({ error: 'Failed to fetch RFID scans', details: error.message });
   }
 });
 
