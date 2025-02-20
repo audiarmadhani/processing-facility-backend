@@ -5,7 +5,7 @@ const sequelize = require('../config/database');
 router.get('/drying-data', async (req, res) => {
     try {
       const data = await sequelize.query(`
-        SELECT rfid, "batchNumber", drying_area, entered_at, exited_at, created_at
+        SELECT rfid, "batchNumber", "dryingArea", entered_at, exited_at, created_at
         FROM "DryingData"
         ORDER BY created_at DESC;
       `, {

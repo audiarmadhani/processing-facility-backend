@@ -281,7 +281,7 @@ router.post('/scan-rfid', async (req, res) => {
       } else {
         // Check if batch is already in another drying area
         const [otherDryingEntry] = await sequelize.query(`
-          SELECT dryingArea
+          SELECT "dryingArea"
           FROM "DryingData"
           WHERE "rfid" = :rfid
           AND "batchNumber" = :batchNumber
@@ -299,7 +299,7 @@ router.post('/scan-rfid', async (req, res) => {
 
         // New entry for drying area
         const [result] = await sequelize.query(`
-          INSERT INTO "DryingData" (rfid, "batchNumber", dryingArea, entered_at, created_at)
+          INSERT INTO "DryingData" (rfid, "batchNumber", "dryingArea", entered_at, created_at)
           VALUES (:rfid, :batchNumber, :dryingArea, NOW(), NOW())
           RETURNING *;
         `, {
