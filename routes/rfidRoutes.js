@@ -102,10 +102,48 @@ router.post('/scan-rfid', async (req, res) => {
     return res.status(400).json({ error: 'RFID tag is required.' });
   }
 
+  // Define valid scanners
+  const validScanners = [
+    "Receiving",
+    "QC",
+    "Wet Mill Entrance",
+    "Wet Mill Exit",
+    "Drying Area 1",
+    "Drying Area 2",
+    "Drying Area 3",
+    "Drying Area 4",
+    "Drying Area 5",
+    "Dry Mill"
+  ];
+
+  if (!scanned_at || !validScanners.includes(scanned_at)) {
+    return res.status(400).json({ 
+      error: `Invalid scanner identifier. Valid options are: ${validScanners.join(', ')}.` 
+    });
+  }
+
   const trimmedRfid = rfid.trim().toUpperCase();
 
   try {
-    // Step 1: Check if RFID is assigned to a batch in ReceivingData
+    // Step 1: Handle Receiving separately (no batchNumber check)
+    if (scanned_at === 'Receiving') {
+      // Log scan to RfidScanned, no deletion (frontend handles it)
+      await sequelize.query(`
+        INSERT INTO "RfidScanned" (rfid, scanned_at, created_at)
+        VALUES (:rfid, :scanned_at, NOW());
+      `, {
+        replacements: { rfid: trimmedRfid, scanned_at },
+        type: sequelize.QueryTypes.INSERT,
+      });
+
+      res.status(201).json({
+        message: 'RFID tag scanned at Receiving, logged to RfidScanned',
+        rfid: trimmedRfid,
+      });
+      return; // Exit early, no further processing needed
+    }
+
+    // Step 2: Check if RFID is assigned to a batch in ReceivingData for all other scanners
     const [batch] = await sequelize.query(`
       SELECT "batchNumber"
       FROM "ReceivingData"
@@ -123,7 +161,7 @@ router.post('/scan-rfid', async (req, res) => {
 
     const batchNumber = batch.batchNumber;
 
-    // Step 2: Log raw scan in RfidScanned
+    // Step 3: Log raw scan in RfidScanned for all other scanners
     await sequelize.query(`
       INSERT INTO "RfidScanned" (rfid, scanned_at, created_at)
       VALUES (:rfid, :scanned_at, NOW());
@@ -132,8 +170,15 @@ router.post('/scan-rfid', async (req, res) => {
       type: sequelize.QueryTypes.INSERT,
     });
 
-    // Step 3: Handle scanner-specific logic
-    if (scanned_at === 'Wet Mill Entrance') {
+    // Step 4: Handle scanner-specific logic for non-Receiving scanners
+    if (scanned_at === 'QC') {
+      // Log to RfidScanned, no deletion (frontend handles it)
+      res.status(201).json({
+        message: 'RFID tag scanned at QC, logged to RfidScanned',
+        rfid: trimmedRfid,
+        batchNumber,
+      });
+    } else if (scanned_at === 'Wet Mill Entrance') {
       const [existingEntry] = await sequelize.query(`
         SELECT id
         FROM "WetMillData"
@@ -320,6 +365,91 @@ router.post('/scan-rfid', async (req, res) => {
           rfid: trimmedRfid,
           batchNumber,
           dryingArea: scanned_at,
+          entered_at: result[0].entered_at,
+        });
+      }
+    } else if (scanned_at === 'Dry Mill') {
+      // Check if batch has exited drying area
+      const [dryingEntry] = await sequelize.query(`
+        SELECT "exited_at"
+        FROM "DryingData"
+        WHERE "rfid" = :rfid
+        AND "batchNumber" = :batchNumber
+        AND "exited_at" IS NOT NULL
+        ORDER BY "exited_at" DESC
+        LIMIT 1;
+      `, {
+        replacements: { rfid: trimmedRfid, batchNumber },
+        type: sequelize.QueryTypes.SELECT,
+      });
+
+      if (!dryingEntry) {
+        return res.status(400).json({ error: 'Batch must exit drying area before entering dry mill.' });
+      }
+
+      // Check for active dry mill entry
+      const [existingDryMillEntry] = await sequelize.query(`
+        SELECT id, entered_at, exited_at
+        FROM "DryMillData"
+        WHERE "rfid" = :rfid
+        AND "batchNumber" = :batchNumber
+        AND "entered_at" IS NOT NULL
+        AND "exited_at" IS NULL
+        LIMIT 1;
+      `, {
+        replacements: { rfid: trimmedRfid, batchNumber },
+        type: sequelize.QueryTypes.SELECT,
+      });
+
+      if (existingDryMillEntry) {
+        // If already entered, this scan is an exit
+        const [result] = await sequelize.query(`
+          UPDATE "DryMillData"
+          SET exited_at = NOW()
+          WHERE id = :id
+          RETURNING *;
+        `, {
+          replacements: { id: existingDryMillEntry.id },
+          type: sequelize.QueryTypes.UPDATE,
+        });
+
+        await sequelize.query(`
+          DELETE FROM "RfidScanned"
+          WHERE "scanned_at" = :scanned_at;
+        `, {
+          replacements: { scanned_at },
+          type: sequelize.QueryTypes.DELETE,
+        });
+
+        res.status(200).json({
+          message: 'RFID tag scanned at dry mill exit, scanner logs cleared',
+          rfid: trimmedRfid,
+          batchNumber,
+          exited_at: result[0].exited_at,
+        });
+      } else {
+        // New entry for dry mill
+        const [result] = await sequelize.query(`
+          INSERT INTO "DryMillData" (rfid, "batchNumber", entered_at, created_at)
+          VALUES (:rfid, :batchNumber, NOW(), NOW())
+          RETURNING *;
+        `, {
+          replacements: { rfid: trimmedRfid, batchNumber },
+          type: sequelize.QueryTypes.INSERT,
+        });
+
+        await sequelize.query(`
+          DELETE FROM "RfidScanned"
+          WHERE "scanned_at" = :scanned_at;
+        `, {
+          replacements: { scanned_at },
+          type: sequelize.QueryTypes.DELETE,
+        });
+
+        res.status(201).json({
+          message: 'RFID tag scanned at dry mill entrance, scanner logs cleared',
+          rfid: trimmedRfid,
+          batchNumber,
           entered_at: result[0].entered_at,
         });
       }

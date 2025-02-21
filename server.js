@@ -27,6 +27,7 @@ const calendarEventRoutes = require('./routes/calendarEventRoutes')
 const rfidRoutes = require('./routes/rfidRoutes')
 const wetmillRoutes = require('./routes/wetmillRoutes')
 const dryingRoutes = require('./routes/dryingRoutes')
+const drymillRoutes = require('./routes/drymillRoutes')
 
 
 // Load environment variables
@@ -79,6 +80,7 @@ const apiRoutes = [
   rfidRoutes,
   wetmillRoutes,
   dryingRoutes,
+  drymillRoutes,
 ];
 
 apiRoutes.forEach(route => app.use('/api', route));
