@@ -38,6 +38,7 @@ const folderIds = {
   'DO': '15YAWgvww1y3kzczT1rvB5vy8Ub1pUcMP',
   'Surat Jalan': '1CWDcsME8_iEIwcPbpu33CC_j4JhwF-rP',
   'BAST': '1Wyj0IS94IDSLU-_-vzG23F54uXf33KnD',
+  'Order List' : '1Ykw1OnktdPiG50vhF4GFcpou7cF8fyFP',
 };
 
 // Reused upload function (adapted for OMS)
