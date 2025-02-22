@@ -28,7 +28,7 @@ const rfidRoutes = require('./routes/rfidRoutes')
 const wetmillRoutes = require('./routes/wetmillRoutes')
 const dryingRoutes = require('./routes/dryingRoutes')
 const drymillRoutes = require('./routes/drymillRoutes')
-
+const OMSRoutes = require('./routes/OMSRoutes')
 
 // Load environment variables
 dotenv.config();
@@ -81,6 +81,7 @@ const apiRoutes = [
   wetmillRoutes,
   dryingRoutes,
   drymillRoutes,
+  OMSRoutes,
 ];
 
 apiRoutes.forEach(route => app.use('/api', route));

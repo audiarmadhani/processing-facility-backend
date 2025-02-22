@@ -70,4 +70,26 @@ router.get('/drying-measurements/:batchNumber', async (req, res) => {
     }
   });
 
+router.post('/api/greenhouse-data', async (req, res) => {
+    const { device_id, temperature, humidity } = req.body;
+  
+    if (!device_id || temperature === undefined || humidity === undefined) {
+      return res.status(400).json({ error: 'device_id, temperature, and humidity are required' });
+    }
+  
+    try {
+      await sequelize.query(`
+        INSERT INTO "GreenhouseData" (device_id, temperature, humidity, recorded_at)
+        VALUES (:device_id, :temperature, :humidity, NOW())
+      `, {
+        replacements: { device_id, temperature, humidity },
+        type: sequelize.QueryTypes.INSERT,
+      });
+      res.status(201).json({ message: 'Data recorded successfully' });
+    } catch (error) {
+      console.error('Error storing greenhouse data:', error);
+      res.status(500).json({ error: 'Failed to store data', details: error.message });
+    }
+});
+
 module.exports = router;
