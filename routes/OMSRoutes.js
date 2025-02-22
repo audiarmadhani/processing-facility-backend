@@ -78,17 +78,17 @@ router.get('/customers', async (req, res) => {
 
 // Add a new customer
 router.post('/customers', async (req, res) => {
-  const { name, address, phone, email, special_requests, warehouse_open_time, preferred_shipping_method } = req.body;
+  const { name, address, country, state, city, zip_code, phone, email, special_requests } = req.body;
   if (!name || !address || !phone) {
     return res.status(400).json({ error: 'Name, address, and phone are required' });
   }
   try {
     const [customer] = await sequelize.query(`
-      INSERT INTO "Customers" (name, address, phone, email, special_requests, warehouse_open_time, preferred_shipping_method, created_at, updated_at)
-      VALUES (:name, :address, :phone, :email, :special_requests, :warehouse_open_time, :preferred_shipping_method, NOW(), NOW())
+      INSERT INTO "Customers" (name, address, country, state, city, zip_code, phone, email, special_requests, created_at, updated_at)
+      VALUES (:name, :address, :phone, :country, :state, :city, :zip_code, :email, :special_requests, NOW(), NOW())
       RETURNING *;
     `, {
-      replacements: { name, address, phone, email, special_requests, warehouse_open_time, preferred_shipping_method },
+      replacements: { name, address, country, state, city, zip_code, phone, email, special_requests },
       type: sequelize.QueryTypes.INSERT,
     });
     res.status(201).json(customer);
