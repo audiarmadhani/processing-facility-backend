@@ -38,7 +38,7 @@ const folderIds = {
   'DO': '15YAWgvww1y3kzczT1rvB5vy8Ub1pUcMP',
   'Surat Jalan': '1CWDcsME8_iEIwcPbpu33CC_j4JhwF-rP',
   'BAST': '1Wyj0IS94IDSLU-_-vzG23F54uXf33KnD',
-  'Order List' : '1Ykw1OnktdPiG50vhF4GFcpou7cF8fyFP',
+  'Order List': '1Ykw1OnktdPiG50vhF4GFcpou7cF8fyFP',
 };
 
 // Reused upload function (adapted for OMS)
@@ -85,7 +85,7 @@ router.post('/customers', async (req, res) => {
   try {
     const [customer] = await sequelize.query(`
       INSERT INTO "Customers" (name, address, country, state, city, zip_code, phone, email, special_requests, created_at, updated_at)
-      VALUES (:name, :address, :phone, :country, :state, :city, :zip_code, :email, :special_requests, NOW(), NOW())
+      VALUES (:name, :address, :country, :state, :city, :zip_code, :phone, :email, :special_requests, NOW(), NOW())
       RETURNING *;
     `, {
       replacements: { name, address, country, state, city, zip_code, phone, email, special_requests },
@@ -134,7 +134,7 @@ router.post('/drivers', async (req, res) => {
 
 // --- Orders Routes ---
 
-// Get all orders
+// Get all orders with associated items
 router.get('/orders', async (req, res) => {
   try {
     const orders = await sequelize.query(`
@@ -146,31 +146,68 @@ router.get('/orders', async (req, res) => {
     `, {
       type: sequelize.QueryTypes.SELECT,
     });
-    res.json(orders);
+
+    // Fetch order items for each order
+    const ordersWithItems = await Promise.all(orders.map(async order => {
+      const items = await sequelize.query(`
+        SELECT * FROM "OrderItems" WHERE order_id = :order_id
+      `, {
+        replacements: { order_id: order.order_id },
+        type: sequelize.QueryTypes.SELECT,
+      });
+      return { ...order, items };
+    }));
+
+    res.json(ordersWithItems);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch orders', details: error.message });
   }
 });
 
-// Create a new order with SPB upload
+// Create a new order with SPB upload and associated order items
 router.post('/orders', upload.single('spb_file'), async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { customer_id, driver_id, items, shipping_method, status = 'Pending' } = req.body;
-    if (!customer_id || !items || !shipping_method) {
+    const { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage } = req.body;
+    if (!customer_id || !shipping_method) {
       await t.rollback();
-      return res.status(400).json({ error: 'customer_id, items, and shipping_method are required' });
+      return res.status(400).json({ error: 'customer_id and shipping_method are required' });
     }
 
+    // Create the order
     const [order] = await sequelize.query(`
-      INSERT INTO "Orders" (customer_id, driver_id, items, shipping_method, status, created_at, updated_at)
-      VALUES (:customer_id, :driver_id, :items, :shipping_method, :status, NOW(), NOW())
+      INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, created_at, updated_at)
+      VALUES (:customer_id, :driver_id, :shipping_method, :driver_details, :price, :tax_percentage, NOW(), NOW())
       RETURNING *;
     `, {
-      replacements: { customer_id, driver_id, items: JSON.stringify(items), shipping_method, status },
+      replacements: { 
+        customer_id, 
+        driver_id: shipping_method === 'Self' ? driver_id : null, 
+        shipping_method, 
+        driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
+        price: parseFloat(price) || 0, 
+        tax_percentage: parseFloat(tax_percentage) || 0 
+      },
       transaction: t,
       type: sequelize.QueryTypes.INSERT,
     });
+
+    // Create order items
+    const items = req.body.items || [];
+    for (const item of items) {
+      await sequelize.query(`
+        INSERT INTO "OrderItems" (order_id, product, quantity, price, created_at)
+        VALUES (:order_id, :product, :quantity, :price, NOW())
+      `, {
+        replacements: { 
+          order_id: order.order_id, 
+          product: item.product, 
+          quantity: parseFloat(item.quantity) || 0, 
+          price: parseFloat(item.price) || 0 
+        },
+        transaction: t,
+      });
+    }
 
     // Upload SPB file to Google Drive (if provided)
     let spbUrl = null;
@@ -186,25 +223,39 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
     }
 
     await t.commit();
-    res.status(201).json({ order, spb_url: spbUrl });
+    res.status(201).json({ order_id: order.order_id, spb_url: spbUrl, message: 'Order created successfully' });
   } catch (error) {
     await t.rollback();
     res.status(500).json({ error: 'Failed to create order', details: error.message });
   }
 });
 
-// Update order status (e.g., add driver_id, status)
+// Update order status or details
 router.put('/orders/:order_id', async (req, res) => {
   const { order_id } = req.params;
-  const { status, driver_id } = req.body;
+  const { status, driver_id, shipping_method, driver_details, price, tax_percentage } = req.body;
   try {
     const [updated] = await sequelize.query(`
       UPDATE "Orders"
-      SET status = :status, driver_id = :driver_id, updated_at = NOW()
+      SET status = :status, 
+          driver_id = :driver_id, 
+          shipping_method = :shipping_method, 
+          driver_details = :driver_details, 
+          price = :price, 
+          tax_percentage = :tax_percentage, 
+          updated_at = NOW()
       WHERE order_id = :order_id
       RETURNING *;
     `, {
-      replacements: { order_id, status, driver_id },
+      replacements: { 
+        order_id, 
+        status, 
+        driver_id: shipping_method === 'Self' ? driver_id : null, 
+        shipping_method, 
+        driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
+        price: parseFloat(price) || 0, 
+        tax_percentage: parseFloat(tax_percentage) || 0 
+      },
       type: sequelize.QueryTypes.UPDATE,
     });
     if (!updated) return res.status(404).json({ error: 'Order not found' });
@@ -214,9 +265,27 @@ router.put('/orders/:order_id', async (req, res) => {
   }
 });
 
+// --- OrderItems Routes ---
+
+// Get all items for an order
+router.get('/orders/:order_id/items', async (req, res) => {
+  const { order_id } = req.params;
+  try {
+    const items = await sequelize.query(`
+      SELECT * FROM "OrderItems" WHERE order_id = :order_id ORDER BY created_at DESC
+    `, {
+      replacements: { order_id },
+      type: sequelize.QueryTypes.SELECT,
+    });
+    res.json(items);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch order items', details: error.message });
+  }
+});
+
 // --- Documents Routes ---
 
-// Upload document (SPK, SPM, DO, Surat Jalan, BAST)
+// Upload document (SPK, SPM, DO, Surat Jalan, BAST, Order List)
 router.post('/documents/upload', upload.single('file'), async (req, res) => {
   const t = await sequelize.transaction();
   try {
