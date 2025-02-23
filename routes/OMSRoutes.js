@@ -150,7 +150,7 @@ router.get('/orders', async (req, res) => {
     // Fetch order items for each order
     const ordersWithItems = await Promise.all(orders.map(async order => {
       const items = await sequelize.query(`
-        SELECT * FROM "OrderItems" WHERE order_id = :order_id
+        SELECT * FROM "OrderItems" WHERE order_id = :order_id ORDER BY created_at DESC
       `, {
         replacements: { order_id: order.order_id },
         type: sequelize.QueryTypes.SELECT,
@@ -174,6 +174,19 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
       return res.status(400).json({ error: 'customer_id and shipping_method are required' });
     }
 
+    // Validate and parse numeric fields
+    const parsedPrice = parseFloat(price) || 0;
+    const parsedTaxPercentage = parseFloat(tax_percentage) || 0;
+
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid price value: must be a non-negative number' });
+    }
+    if (isNaN(parsedTaxPercentage) || parsedTaxPercentage < 0 || parsedTaxPercentage > 100) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid tax percentage: must be a number between 0 and 100' });
+    }
+
     // Create the order
     const [order] = await sequelize.query(`
       INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, created_at, updated_at, status)
@@ -185,8 +198,8 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         driver_id: shipping_method === 'Self' ? driver_id : null, 
         shipping_method, 
         driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
-        price: parseFloat(price) || 0, 
-        tax_percentage: parseFloat(tax_percentage) || 0,
+        price: parsedPrice, 
+        tax_percentage: parsedTaxPercentage,
         status: 'Pending',
       },
       transaction: t,
@@ -195,7 +208,20 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
 
     // Create order items
     const items = req.body.items || [];
+    if (!items.length) {
+      await t.rollback();
+      return res.status(400).json({ error: 'At least one item is required for the order' });
+    }
+
     for (const item of items) {
+      const itemPrice = parseFloat(item.price) || 0;
+      const itemQuantity = parseFloat(item.quantity) || 0;
+
+      if (isNaN(itemPrice) || itemPrice < 0 || isNaN(itemQuantity) || itemQuantity < 0) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Invalid item price or quantity: must be non-negative numbers' });
+      }
+
       await sequelize.query(`
         INSERT INTO "OrderItems" (order_id, product, quantity, price, created_at)
         VALUES (:order_id, :product, :quantity, :price, NOW())
@@ -203,8 +229,8 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         replacements: { 
           order_id: order.order_id, 
           product: item.product, 
-          quantity: parseFloat(item.quantity) || 0, 
-          price: parseFloat(item.price) || 0 
+          quantity: itemQuantity, 
+          price: itemPrice 
         },
         transaction: t,
       });
@@ -269,7 +295,7 @@ router.put('/orders/:order_id', async (req, res) => {
 // --- OrderItems Routes ---
 
 // Get all items for an order
-router.get('/orders/:order_id/items', async (req, res) => {
+router.get('/order-items/:order_id', async (req, res) => {
   const { order_id } = req.params;
   try {
     const items = await sequelize.query(`
@@ -281,6 +307,110 @@ router.get('/orders/:order_id/items', async (req, res) => {
     res.json(items);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch order items', details: error.message });
+  }
+});
+
+// Create a new order item
+router.post('/order-items', async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { order_id, product, quantity, price } = req.body;
+    if (!order_id || !product || !quantity || !price) {
+      await t.rollback();
+      return res.status(400).json({ error: 'order_id, product, quantity, and price are required' });
+    }
+
+    // Parse and validate numeric fields (handling strings from frontend)
+    const parsedQuantity = parseFloat(quantity) || 0;
+    const parsedPrice = parseFloat(price) || 0;
+
+    if (isNaN(parsedQuantity) || parsedQuantity < 0 || isNaN(parsedPrice) || parsedPrice < 0) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid quantity or price: must be non-negative numbers' });
+    }
+
+    // Check if the order exists
+    const [order] = await sequelize.query(`
+      SELECT * FROM "Orders" WHERE order_id = :order_id
+    `, {
+      replacements: { order_id },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    if (!order) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const [item] = await sequelize.query(`
+      INSERT INTO "OrderItems" (order_id, product, quantity, price, created_at)
+      VALUES (:order_id, :product, :quantity, :price, NOW())
+      RETURNING *;
+    `, {
+      replacements: { order_id, product, quantity: parsedQuantity, price: parsedPrice },
+      transaction: t,
+      type: sequelize.QueryTypes.INSERT,
+    });
+
+    await t.commit();
+    res.status(201).json(item);
+  } catch (error) {
+    await t.rollback();
+    res.status(500).json({ error: 'Failed to create order item', details: error.message });
+  }
+});
+
+// Update an existing order item
+router.put('/order-items/:item_id', async (req, res) => {
+  const { item_id } = req.params;
+  const { product, quantity, price } = req.body;
+  try {
+    // Parse and validate numeric fields (handling strings from frontend)
+    const parsedQuantity = parseFloat(quantity) || 0;
+    const parsedPrice = parseFloat(price) || 0;
+
+    if (isNaN(parsedQuantity) || parsedQuantity < 0 || isNaN(parsedPrice) || parsedPrice < 0) {
+      return res.status(400).json({ error: 'Invalid quantity or price: must be non-negative numbers' });
+    }
+
+    const [updated] = await sequelize.query(`
+      UPDATE "OrderItems"
+      SET product = :product, 
+          quantity = :quantity, 
+          price = :price, 
+          updated_at = NOW()
+      WHERE item_id = :item_id
+      RETURNING *;
+    `, {
+      replacements: { item_id, product, quantity: parsedQuantity, price: parsedPrice },
+      type: sequelize.QueryTypes.UPDATE,
+    });
+
+    if (!updated) return res.status(404).json({ error: 'Order item not found' });
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update order item', details: error.message });
+  }
+});
+
+// Delete an order item
+router.delete('/order-items/:item_id', async (req, res) => {
+  const { item_id } = req.params;
+  try {
+    const [deleted] = await sequelize.query(`
+      DELETE FROM "OrderItems"
+      WHERE item_id = :item_id
+      RETURNING *;
+    `, {
+      replacements: { item_id },
+      type: sequelize.QueryTypes.DELETE,
+    });
+
+    if (!deleted) return res.status(404).json({ error: 'Order item not found' });
+    res.json({ message: 'Order item deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete order item', details: error.message });
   }
 });
 
