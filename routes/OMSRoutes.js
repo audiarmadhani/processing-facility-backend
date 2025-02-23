@@ -176,8 +176,8 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
 
     // Create the order
     const [order] = await sequelize.query(`
-      INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, created_at, updated_at)
-      VALUES (:customer_id, :driver_id, :shipping_method, :driver_details, :price, :tax_percentage, NOW(), NOW())
+      INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, created_at, updated_at, status)
+      VALUES (:customer_id, :driver_id, :shipping_method, :driver_details, :price, :tax_percentage, NOW(), NOW(), :status)
       RETURNING *;
     `, {
       replacements: { 
@@ -187,6 +187,7 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
         price: parseFloat(price) || 0, 
         tax_percentage: parseFloat(tax_percentage) || 0 
+        status: 'Pending'
       },
       transaction: t,
       type: sequelize.QueryTypes.INSERT,
