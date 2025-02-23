@@ -138,7 +138,7 @@ router.post('/drivers', async (req, res) => {
 router.get('/orders', async (req, res) => {
   try {
     const orders = await sequelize.query(`
-      SELECT o.*, c.name AS customer_name, c.address AS customer_address, d.name AS driver_name
+      SELECT o.order_id, o.customer_id, o.driver_id, shipping_method, status, o.created_at::DATE, o.updated_at::DATE, driver_details, price::FLOAT, tax_percentage::FLOAT, c.name AS customer_name, c.address AS customer_address, d.name AS driver_name
       FROM "Orders" o
       LEFT JOIN "Customers" c ON o.customer_id = c.customer_id
       LEFT JOIN "Drivers" d ON o.driver_id = d.driver_id
