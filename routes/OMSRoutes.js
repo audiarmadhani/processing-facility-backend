@@ -235,8 +235,13 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
       type: sequelize.QueryTypes.INSERT,
     });
 
-    // Extract order_id from the created order
-    const orderId = order.order_id; // Capture the order_id from the returned order object
+    const [orders] = await sequelize.query(`
+        SELECT last_value FROM "Orders_order_id_seq"; // Assuming order_id is a sequence
+      `, {
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      });
+      const orderId = orders.last_value;
 
     // Create order items
     if (!items.length) {
