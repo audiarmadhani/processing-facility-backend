@@ -183,7 +183,21 @@ router.get('/orders', async (req, res) => {
 router.post('/orders', upload.single('spb_file'), async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage } = req.body;
+    // Parse the request body to handle FormData correctly
+    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items } = req.body;
+
+    // Handle items as a JSON string (sent from FormData)
+    if (items && typeof items === 'string') {
+      try {
+        items = JSON.parse(items); // Parse the JSON string into an array
+      } catch (error) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Invalid items format: must be a valid JSON array', details: error.message });
+      }
+    } else if (!items || !Array.isArray(items)) {
+      items = []; // Default to empty array if not provided or invalid
+    }
+
     if (!customer_id || !shipping_method) {
       await t.rollback();
       return res.status(400).json({ error: 'customer_id and shipping_method are required' });
@@ -222,7 +236,6 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
     });
 
     // Create order items
-    const items = req.body.items || [];
     if (!items.length) {
       await t.rollback();
       return res.status(400).json({ error: 'At least one item is required for the order' });
