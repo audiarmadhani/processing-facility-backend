@@ -235,6 +235,9 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
       type: sequelize.QueryTypes.INSERT,
     });
 
+    // Extract order_id from the created order
+    const orderId = order.order_id; // Capture the order_id from the returned order object
+
     // Create order items
     if (!items.length) {
       await t.rollback();
@@ -255,7 +258,7 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         VALUES (:order_id, :product, :quantity, :price, NOW())
       `, {
         replacements: { 
-          order_id: order.order_id, 
+          order_id: orderId, // Use the captured order_id
           product: item.product, 
           quantity: itemQuantity, 
           price: itemPrice 
@@ -272,13 +275,13 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         INSERT INTO "Documents" (order_id, type, drive_url, created_at)
         VALUES (:order_id, 'SPB', :drive_url, NOW());
       `, {
-        replacements: { order_id: order.order_id, drive_url: spbUrl },
+        replacements: { order_id: orderId, drive_url: spbUrl }, // Use the captured order_id
         transaction: t,
       });
     }
 
     await t.commit();
-    res.status(201).json({ order_id: order.order_id, spb_url: spbUrl, message: 'Order created successfully' });
+    res.status(201).json({ order_id: orderId, spb_url: spbUrl, message: 'Order created successfully' });
   } catch (error) {
     await t.rollback();
     res.status(500).json({ error: 'Failed to create order', details: error.message });
