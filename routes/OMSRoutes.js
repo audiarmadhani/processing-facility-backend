@@ -134,6 +134,51 @@ router.post('/drivers', async (req, res) => {
 
 // --- Orders Routes ---
 
+// Get all orders with associated items
+router.get('/orders', async (req, res) => {
+  try {
+    const orders = await sequelize.query(`
+      SELECT 
+        o.order_id, 
+        o.customer_id, 
+        o.driver_id, 
+        shipping_method, 
+        status, 
+        o.created_at::DATE, 
+        o.updated_at::DATE, 
+        driver_details, 
+        COALESCE(price::FLOAT, 0) price, 
+        COALESCE(tax_percentage::FLOAT, 0) tax_percentage, 
+        COALESCE(ROUND(CAST(price*tax_percentage AS numeric), 2), 0)::FLOAT AS tax, 
+        COALESCE(ROUND(CAST(price*(100+tax_percentage) AS numeric), 2)::FLOAT, 0) grand_total, 
+        c.name AS customer_name, 
+        c.address AS customer_address, 
+        d.name AS driver_name
+      FROM "Orders" o
+      LEFT JOIN "Customers" c ON o.customer_id = c.customer_id
+      LEFT JOIN "Drivers" d ON o.driver_id = d.driver_id
+      ORDER BY o.created_at DESC
+    `, {
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    // Fetch order items for each order
+    const ordersWithItems = await Promise.all(orders.map(async order => {
+      const items = await sequelize.query(`
+        SELECT * FROM "OrderItems" WHERE order_id = :order_id ORDER BY created_at DESC
+      `, {
+        replacements: { order_id: order.order_id },
+        type: sequelize.QueryTypes.SELECT,
+      });
+      return { ...order, items };
+    }));
+
+    res.json(ordersWithItems);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch orders', details: error.message });
+  }
+});
+
 // Add to routes.js (if not already present)
 router.get('/orders/:order_id', async (req, res) => {
     const { order_id } = req.params;
