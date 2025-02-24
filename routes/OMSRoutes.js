@@ -236,7 +236,7 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
     });
 
     const [orders] = await sequelize.query(`
-        SELECT last_value FROM "Orders_order_id_seq"; // Assuming order_id is a sequence
+        SELECT last_value FROM "Orders_order_id_seq";
       `, {
         type: sequelize.QueryTypes.SELECT,
         transaction: t,
