@@ -142,10 +142,6 @@ router.get('/orders', async (req, res) => {
       FROM "Orders" o
       LEFT JOIN "Customers" c ON o.customer_id = c.customer_id
       LEFT JOIN "Drivers" d ON o.driver_id = d.driver_id
-      ORDER BY o.created_at DESCSELECT o.order_id, o.customer_id, o.driver_id, shipping_method, status, o.created_at::DATE, o.updated_at::DATE, driver_details, price::FLOAT, tax_percentage::FLOAT, ROUND(CAST(price*tax_percentage AS numeric), 2)::FLOAT AS tax, ROUND(CAST(price*(100+tax_percentage) AS numeric), 2)::FLOAT grand_total, c.name AS customer_name, c.address AS customer_address, d.name AS driver_name
-      FROM "Orders" o
-      LEFT JOIN "Customers" c ON o.customer_id = c.customer_id
-      LEFT JOIN "Drivers" d ON o.driver_id = d.driver_id
       ORDER BY o.created_at DESC
     `, {
       type: sequelize.QueryTypes.SELECT,
