@@ -874,7 +874,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                     SUM(weight) AS total_cherries_weight
                 FROM "ReceivingData"
                 WHERE type = 'Arabica'
-                    AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
             ),
             "ProcessedGreenBeans" AS (
                 SELECT
@@ -883,7 +883,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                 FROM "PreprocessingData" a
                 LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber"
                 WHERE b.type = 'Arabica'
-                    AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 GROUP BY b."batchNumber"
             ),
             "FinishedGreenBeans" AS (
@@ -896,50 +896,65 @@ router.get('/dashboard-metrics', async (req, res) => {
                     "batchNumber" -- for later joining
                 FROM "PostprocessingData"
                 WHERE type = 'Arabica'
-                    AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+            ),
+            "TotalFinishedGreenBeans" AS (
+                SELECT
+                    COALESCE(SUM(weight), 0) AS total_finished_weight
+                FROM "FinishedGreenBeans"
             ),
             "LossesFromCherries" AS (
                 -- This computes the unprocessed cherries as the difference
                 SELECT
-                    c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) AS total_unprocessed_cherries
+                    c.total_cherries_weight - COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) AS total_unprocessed_cherries
                 FROM "Cherries" c
                 LEFT JOIN "ProcessedGreenBeans" pgb ON 1 = 1
+                GROUP BY c.total_cherries_weight -- Ensure a single row
+            ),
+            "TotalProcessedGreenBeans" AS (
+                SELECT
+                    COALESCE(SUM(total_processed_green_beans_weight), 0) AS total_processed_weight
+                FROM "ProcessedGreenBeans"
             ),
             "LossesFromProcessed" AS (
                 SELECT
-                    COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) - COALESCE(SUM(fgb.weight), 0) AS total_losses_processed,
-                    pgb."batchNumber"
-                FROM "ProcessedGreenBeans" pgb
-                LEFT JOIN "FinishedGreenBeans" fgb ON pgb."batchNumber" = fgb."batchNumber"
-                GROUP BY pgb."batchNumber"
+                    -- Calculate loss as the difference between total processed green beans and finished green beans
+                    (SELECT total_processed_weight FROM "TotalProcessedGreenBeans") - 
+                    COALESCE((SELECT total_finished_weight FROM "TotalFinishedGreenBeans"), 0) AS total_losses_processed
+                GROUP BY 1 -- Ensure a single row
             ),
+
             CombinedFlows AS (
                 -- Flow from Cherries to Processed Green Beans (from Preprocessing)
                 SELECT
                     'Cherries' AS from_node,
                     'Processed Cherries' AS to_node,
-                    COALESCE(pgb.total_processed_green_beans_weight, 0) AS value
+                    COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) AS value
                 FROM "ProcessedGreenBeans" pgb
+                GROUP BY 1, 2
 
                 UNION ALL
 
-                -- Flow from Cherries to Unprocessed Cherries (losses from cherries)
                 SELECT
                     'Cherries' AS from_node,
                     'Unprocessed Cherries' AS to_node,
                     COALESCE(lc.total_unprocessed_cherries, 0) AS value
                 FROM "LossesFromCherries" lc
+                GROUP BY 1, 2, lc.total_unprocessed_cherries
 
                 UNION ALL
 
-                -- **Conditional extra flow:** If the unprocessed cherries flow is 0,
+                -- Conditional extra flow: If the unprocessed cherries flow is 0,
                 -- add an extra flow from Cherries to Processed Green Beans with a value equal
                 -- to the total Finished Green Beans weight.
                 SELECT
                     'Cherries' AS from_node,
                     'Processed Cherries' AS to_node,
-                    (SELECT COALESCE(SUM(weight), 0) FROM "FinishedGreenBeans") AS value
-                WHERE (SELECT COALESCE(total_unprocessed_cherries, 0) FROM "LossesFromCherries") = 0
+                    tfgb.total_finished_weight AS value
+                FROM "TotalFinishedGreenBeans" tfgb
+                CROSS JOIN "LossesFromCherries" lc
+                WHERE COALESCE(lc.total_unprocessed_cherries, 0) = 0
+                GROUP BY 1, 2, tfgb.total_finished_weight
 
                 UNION ALL
 
@@ -947,12 +962,13 @@ router.get('/dashboard-metrics', async (req, res) => {
                 SELECT
                     'Processed Cherries' AS from_node,
                     'Finished Green Beans' AS to_node,
-                    weight AS value
-                FROM "FinishedGreenBeans"
+                    SUM(fgb.weight) AS value
+                FROM "FinishedGreenBeans" fgb
+                GROUP BY 1, 2
 
                 UNION ALL
 
-                -- Flow representing processing losses
+                -- Flow representing processing losses (adjusted to account for finished green beans)
                 SELECT
                     'Processed Cherries' AS from_node,
                     'Processing Loss & Unfinished Processing' AS to_node,
@@ -961,36 +977,46 @@ router.get('/dashboard-metrics', async (req, res) => {
 
                 UNION ALL
 
-                -- Other flows from Finished Green Beans (producer, quality, etc.)
+                -- Flow from Finished Green Beans to Producer
                 SELECT
                     'Finished Green Beans' AS from_node,
-                    producer AS to_node,
-                    weight AS value
-                FROM "FinishedGreenBeans"
-
-                UNION ALL
-
-                SELECT
-                    producer AS from_node,
-                    quality AS to_node,
-                    weight AS value
-                FROM "FinishedGreenBeans"
-
-                UNION ALL
-
-                SELECT
-                    quality AS from_node,
-                    (SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS to_node,
-                    weight AS value
+                    fgb.producer AS to_node,
+                    SUM(fgb.weight) AS value
                 FROM "FinishedGreenBeans" fgb
+                GROUP BY 1, 2, fgb.producer
 
                 UNION ALL
 
+                -- Flow from Producer to Quality
                 SELECT
-                    (SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS from_node,
-                    (SELECT "processingType" FROM "ProcessingTypes" WHERE "processingType" = fgb."processingType") AS to_node,
-                    weight AS value
+                    fgb.producer AS from_node,
+                    fgb.quality AS to_node,
+                    SUM(fgb.weight) AS value
                 FROM "FinishedGreenBeans" fgb
+                GROUP BY 1, 2, fgb.quality
+
+                UNION ALL
+
+                -- Flow from Quality to ProductLine (using LEFT JOIN to handle potential duplicates)
+                SELECT
+                    fgb.quality AS from_node,
+                    pl."productLine" AS to_node,
+                    SUM(fgb.weight) AS value
+                FROM "FinishedGreenBeans" fgb
+                LEFT JOIN "ProductLines" pl ON fgb."productLine" = pl."productLine"
+                GROUP BY 1, 2, pl."productLine"
+
+                UNION ALL
+
+                -- Flow from ProductLine to ProcessingType (using LEFT JOIN to handle potential duplicates)
+                SELECT
+                    pl."productLine" AS from_node,
+                    pt."processingType" AS to_node,
+                    SUM(fgb.weight) AS value
+                FROM "FinishedGreenBeans" fgb
+                LEFT JOIN "ProductLines" pl ON fgb."productLine" = pl."productLine"
+                LEFT JOIN "ProcessingTypes" pt ON fgb."processingType" = pt."processingType"
+                GROUP BY 1, 2, pt."processingType"
             )
 
             SELECT from_node, to_node, SUM(value) AS value
@@ -1004,7 +1030,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                     SUM(weight) AS total_cherries_weight
                 FROM "ReceivingData"
                 WHERE type = 'Robusta'
-                    AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
             ),
             "ProcessedGreenBeans" AS (
                 SELECT
@@ -1013,7 +1039,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                 FROM "PreprocessingData" a
                 LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber"
                 WHERE b.type = 'Robusta'
-                    AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 GROUP BY b."batchNumber"
             ),
             "FinishedGreenBeans" AS (
@@ -1026,50 +1052,65 @@ router.get('/dashboard-metrics', async (req, res) => {
                     "batchNumber" -- for later joining
                 FROM "PostprocessingData"
                 WHERE type = 'Robusta'
-                    AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+                AND "storedDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+            ),
+            "TotalFinishedGreenBeans" AS (
+                SELECT
+                    COALESCE(SUM(weight), 0) AS total_finished_weight
+                FROM "FinishedGreenBeans"
             ),
             "LossesFromCherries" AS (
                 -- This computes the unprocessed cherries as the difference
                 SELECT
-                    c.total_cherries_weight - COALESCE(pgb.total_processed_green_beans_weight, 0) AS total_unprocessed_cherries
+                    c.total_cherries_weight - COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) AS total_unprocessed_cherries
                 FROM "Cherries" c
                 LEFT JOIN "ProcessedGreenBeans" pgb ON 1 = 1
+                GROUP BY c.total_cherries_weight -- Ensure a single row
+            ),
+            "TotalProcessedGreenBeans" AS (
+                SELECT
+                    COALESCE(SUM(total_processed_green_beans_weight), 0) AS total_processed_weight
+                FROM "ProcessedGreenBeans"
             ),
             "LossesFromProcessed" AS (
                 SELECT
-                    COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) - COALESCE(SUM(fgb.weight), 0) AS total_losses_processed,
-                    pgb."batchNumber"
-                FROM "ProcessedGreenBeans" pgb
-                LEFT JOIN "FinishedGreenBeans" fgb ON pgb."batchNumber" = fgb."batchNumber"
-                GROUP BY pgb."batchNumber"
+                    -- Calculate loss as the difference between total processed green beans and finished green beans
+                    (SELECT total_processed_weight FROM "TotalProcessedGreenBeans") - 
+                    COALESCE((SELECT total_finished_weight FROM "TotalFinishedGreenBeans"), 0) AS total_losses_processed
+                GROUP BY 1 -- Ensure a single row
             ),
+
             CombinedFlows AS (
                 -- Flow from Cherries to Processed Green Beans (from Preprocessing)
                 SELECT
                     'Cherries' AS from_node,
                     'Processed Cherries' AS to_node,
-                    COALESCE(pgb.total_processed_green_beans_weight, 0) AS value
+                    COALESCE(SUM(pgb.total_processed_green_beans_weight), 0) AS value
                 FROM "ProcessedGreenBeans" pgb
+                GROUP BY 1, 2
 
                 UNION ALL
 
-                -- Flow from Cherries to Unprocessed Cherries (losses from cherries)
                 SELECT
                     'Cherries' AS from_node,
                     'Unprocessed Cherries' AS to_node,
                     COALESCE(lc.total_unprocessed_cherries, 0) AS value
                 FROM "LossesFromCherries" lc
+                GROUP BY 1, 2, lc.total_unprocessed_cherries
 
                 UNION ALL
 
-                -- **Conditional extra flow:** If the unprocessed cherries flow is 0,
+                -- Conditional extra flow: If the unprocessed cherries flow is 0,
                 -- add an extra flow from Cherries to Processed Green Beans with a value equal
                 -- to the total Finished Green Beans weight.
                 SELECT
                     'Cherries' AS from_node,
                     'Processed Cherries' AS to_node,
-                    (SELECT COALESCE(SUM(weight), 0) FROM "FinishedGreenBeans") AS value
-                WHERE (SELECT COALESCE(total_unprocessed_cherries, 0) FROM "LossesFromCherries") = 0
+                    tfgb.total_finished_weight AS value
+                FROM "TotalFinishedGreenBeans" tfgb
+                CROSS JOIN "LossesFromCherries" lc
+                WHERE COALESCE(lc.total_unprocessed_cherries, 0) = 0
+                GROUP BY 1, 2, tfgb.total_finished_weight
 
                 UNION ALL
 
@@ -1077,12 +1118,13 @@ router.get('/dashboard-metrics', async (req, res) => {
                 SELECT
                     'Processed Cherries' AS from_node,
                     'Finished Green Beans' AS to_node,
-                    weight AS value
-                FROM "FinishedGreenBeans"
+                    SUM(fgb.weight) AS value
+                FROM "FinishedGreenBeans" fgb
+                GROUP BY 1, 2
 
                 UNION ALL
 
-                -- Flow representing processing losses
+                -- Flow representing processing losses (adjusted to account for finished green beans)
                 SELECT
                     'Processed Cherries' AS from_node,
                     'Processing Loss & Unfinished Processing' AS to_node,
@@ -1091,36 +1133,46 @@ router.get('/dashboard-metrics', async (req, res) => {
 
                 UNION ALL
 
-                -- Other flows from Finished Green Beans (producer, quality, etc.)
+                -- Flow from Finished Green Beans to Producer
                 SELECT
                     'Finished Green Beans' AS from_node,
-                    producer AS to_node,
-                    weight AS value
-                FROM "FinishedGreenBeans"
-
-                UNION ALL
-
-                SELECT
-                    producer AS from_node,
-                    quality AS to_node,
-                    weight AS value
-                FROM "FinishedGreenBeans"
-
-                UNION ALL
-
-                SELECT
-                    quality AS from_node,
-                    (SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS to_node,
-                    weight AS value
+                    fgb.producer AS to_node,
+                    SUM(fgb.weight) AS value
                 FROM "FinishedGreenBeans" fgb
+                GROUP BY 1, 2, fgb.producer
 
                 UNION ALL
 
+                -- Flow from Producer to Quality
                 SELECT
-                    (SELECT "productLine" FROM "ProductLines" WHERE "productLine" = fgb."productLine") AS from_node,
-                    (SELECT "processingType" FROM "ProcessingTypes" WHERE "processingType" = fgb."processingType") AS to_node,
-                    weight AS value
+                    fgb.producer AS from_node,
+                    fgb.quality AS to_node,
+                    SUM(fgb.weight) AS value
                 FROM "FinishedGreenBeans" fgb
+                GROUP BY 1, 2, fgb.quality
+
+                UNION ALL
+
+                -- Flow from Quality to ProductLine (using LEFT JOIN to handle potential duplicates)
+                SELECT
+                    fgb.quality AS from_node,
+                    pl."productLine" AS to_node,
+                    SUM(fgb.weight) AS value
+                FROM "FinishedGreenBeans" fgb
+                LEFT JOIN "ProductLines" pl ON fgb."productLine" = pl."productLine"
+                GROUP BY 1, 2, pl."productLine"
+
+                UNION ALL
+
+                -- Flow from ProductLine to ProcessingType (using LEFT JOIN to handle potential duplicates)
+                SELECT
+                    pl."productLine" AS from_node,
+                    pt."processingType" AS to_node,
+                    SUM(fgb.weight) AS value
+                FROM "FinishedGreenBeans" fgb
+                LEFT JOIN "ProductLines" pl ON fgb."productLine" = pl."productLine"
+                LEFT JOIN "ProcessingTypes" pt ON fgb."processingType" = pt."processingType"
+                GROUP BY 1, 2, pt."processingType"
             )
 
             SELECT from_node, to_node, SUM(value) AS value
