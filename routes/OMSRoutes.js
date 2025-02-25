@@ -508,31 +508,38 @@ router.delete('/order-items/:item_id', async (req, res) => {
 
 // Upload document (SPK, SPM, DO, Surat Jalan, BAST, Order List)
 router.post('/documents/upload', upload.single('file'), async (req, res) => {
-  const t = await sequelize.transaction();
-  try {
-    const { order_id, type, details } = req.body;
-    if (!order_id || !type || !req.file) {
+    const t = await sequelize.transaction();
+    try {
+      const { order_id, type, details } = req.body;
+      if (!order_id || !type || !req.file) {
+        await t.rollback();
+        return res.status(400).json({ error: 'order_id, type, and file are required' });
+      }
+  
+      // Parse and validate order_id as an integer
+      const parsedOrderId = parseInt(order_id, 10);
+      if (isNaN(parsedOrderId)) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Invalid order_id: must be a valid integer', details: `Received: ${order_id}` });
+      }
+  
+      const driveUrl = await uploadFileToDrive(req.file, folderIds[type]);
+      const [doc] = await sequelize.query(`
+        INSERT INTO "Documents" (order_id, type, details, drive_url, created_at)
+        VALUES (:order_id, :type, :details, :drive_url, NOW())
+        RETURNING *;
+      `, {
+        replacements: { order_id: parsedOrderId, type, details: JSON.stringify(details || {}), drive_url: driveUrl },
+        transaction: t,
+        type: sequelize.QueryTypes.INSERT,
+      });
+  
+      await t.commit();
+      res.status(201).json(doc);
+    } catch (error) {
       await t.rollback();
-      return res.status(400).json({ error: 'order_id, type, and file are required' });
+      res.status(500).json({ error: 'Failed to upload document', details: error.message });
     }
-
-    const driveUrl = await uploadFileToDrive(req.file, folderIds[type]);
-    const [doc] = await sequelize.query(`
-      INSERT INTO "Documents" (order_id, type, details, drive_url, created_at)
-      VALUES (:order_id, :type, :details, :drive_url, NOW())
-      RETURNING *;
-    `, {
-      replacements: { order_id, type, details: JSON.stringify(details || {}), drive_url: driveUrl },
-      transaction: t,
-      type: sequelize.QueryTypes.INSERT,
-    });
-
-    await t.commit();
-    res.status(201).json(doc);
-  } catch (error) {
-    await t.rollback();
-    res.status(500).json({ error: 'Failed to upload document', details: error.message });
-  }
 });
 
 // Get documents for an order
