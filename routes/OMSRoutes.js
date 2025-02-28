@@ -434,29 +434,29 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null,
       price: parsedPrice,
       tax_percentage: parsedTaxPercentage,
-      updated_at: sequelize.literal('NOW()'), // Update updated_at
+      updated_at: new Date(), // Update updated_at with current timestamp
     };
 
     // Determine the new status and update the corresponding timestamp
     let timestampUpdate = {};
     switch (status) {
       case 'Processing':
-        timestampUpdate.process_at = sequelize.literal('NOW()');
+        timestampUpdate.process_at = new Date();
         break;
       case 'Rejected':
-        timestampUpdate.reject_at = sequelize.literal('NOW()');
+        timestampUpdate.reject_at = new Date();
         break;
       case 'Ready for Shipment':
-        timestampUpdate.ready_at = sequelize.literal('NOW()');
+        timestampUpdate.ready_at = new Date();
         break;
       case 'In Transit':
-        timestampUpdate.ship_at = sequelize.literal('NOW()');
+        timestampUpdate.ship_at = new Date();
         break;
       case 'Delivered':
-        timestampUpdate.arrive_at = sequelize.literal('NOW()');
+        timestampUpdate.arrive_at = new Date();
         break;
       case 'Paid':
-        timestampUpdate.paid_at = sequelize.literal('NOW()');
+        timestampUpdate.paid_at = new Date();
         break;
       default:
         break;
@@ -481,7 +481,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
           ship_at = :ship_at, 
           arrive_at = :arrive_at, 
           paid_at = :paid_at, 
-          updated_at = :updated_at
+          updated_at = NOW()
       WHERE order_id = :order_id
       RETURNING *;
     `, {
