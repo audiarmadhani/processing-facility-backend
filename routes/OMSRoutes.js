@@ -392,7 +392,80 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       return res.status(400).json({ error: 'Invalid tax percentage: must be a number between 0 and 100' });
     }
 
-    // Update the order
+    // Fetch the current order to check its existing status for validation
+    const existingOrder = await sequelize.query(`
+      SELECT status, process_at, reject_at, ready_at, ship_at, arrive_at, paid_at 
+      FROM "Orders" 
+      WHERE order_id = :order_id
+    `, {
+      replacements: { order_id },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    if (!existingOrder.length) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const currentStatus = existingOrder[0].status;
+
+    // Define valid status transitions
+    const validStatusTransitions = {
+      Pending: ['Processing', 'Rejected'],
+      Processing: ['Ready for Shipment', 'Rejected'],
+      'Ready for Shipment': ['In Transit', 'Rejected'],
+      'In Transit': ['Delivered', 'Rejected'],
+      Delivered: ['Paid'],
+      Rejected: [], // No further transitions allowed
+      Paid: [], // No further transitions allowed
+    };
+
+    if (!validStatusTransitions[currentStatus]?.includes(status)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid status transition' });
+    }
+
+    // Prepare the update data
+    let updateData = {
+      customer_id,
+      driver_id: shipping_method === 'Self' ? driver_id : null, // Only for Self-Arranged
+      shipping_method,
+      driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null,
+      price: parsedPrice,
+      tax_percentage: parsedTaxPercentage,
+      updated_at: sequelize.literal('NOW()'), // Update updated_at
+    };
+
+    // Determine the new status and update the corresponding timestamp
+    let timestampUpdate = {};
+    switch (status) {
+      case 'Processing':
+        timestampUpdate.process_at = sequelize.literal('NOW()');
+        break;
+      case 'Rejected':
+        timestampUpdate.reject_at = sequelize.literal('NOW()');
+        break;
+      case 'Ready for Shipment':
+        timestampUpdate.ready_at = sequelize.literal('NOW()');
+        break;
+      case 'In Transit':
+        timestampUpdate.ship_at = sequelize.literal('NOW()');
+        break;
+      case 'Delivered':
+        timestampUpdate.arrive_at = sequelize.literal('NOW()');
+        break;
+      case 'Paid':
+        timestampUpdate.paid_at = sequelize.literal('NOW()');
+        break;
+      default:
+        break;
+    }
+
+    // Merge timestamp updates with other updates
+    updateData = { ...updateData, ...timestampUpdate, status: status || currentStatus };
+
+    // Update the order in the database
     const [updatedOrder] = await sequelize.query(`
       UPDATE "Orders"
       SET customer_id = :customer_id, 
@@ -402,19 +475,32 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
           price = :price, 
           tax_percentage = :tax_percentage, 
           status = :status, 
-          updated_at = NOW()
+          process_at = :process_at, 
+          reject_at = :reject_at, 
+          ready_at = :ready_at, 
+          ship_at = :ship_at, 
+          arrive_at = :arrive_at, 
+          paid_at = :paid_at, 
+          updated_at = :updated_at
       WHERE order_id = :order_id
       RETURNING *;
     `, {
       replacements: { 
         order_id, 
         customer_id, 
-        driver_id: shipping_method === 'Self' ? driver_id : null, 
+        driver_id: updateData.driver_id, 
         shipping_method, 
-        driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
+        driver_details: updateData.driver_details, 
         price: parsedPrice, 
         tax_percentage: parsedTaxPercentage,
-        status: status || 'Pending', // Default to 'Pending' if not provided
+        status: updateData.status,
+        process_at: updateData.process_at || null,
+        reject_at: updateData.reject_at || null,
+        ready_at: updateData.ready_at || null,
+        ship_at: updateData.ship_at || null,
+        arrive_at: updateData.arrive_at || null,
+        paid_at: updateData.paid_at || null,
+        updated_at: updateData.updated_at,
       },
       transaction: t,
       type: sequelize.QueryTypes.UPDATE,
