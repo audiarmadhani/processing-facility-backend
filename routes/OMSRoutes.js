@@ -162,7 +162,13 @@ router.get('/orders', async (req, res) => {
         d.name AS driver_name, 
         d.vehicle_number AS driver_vehicle_number, 
         d.vehicle_type AS driver_vehicle_type, 
-        d.max_capacity AS driver_max_capacity
+        d.max_capacity AS driver_max_capacity,
+        o.process_at,
+        o.reject_at,
+        o.ready_at,
+        o.ship_at,
+        o.arrive_at,
+        o.paid_at
       FROM "Orders" o
       LEFT JOIN "Customers" c ON o.customer_id = c.customer_id
       LEFT JOIN "Drivers" d ON o.driver_id = d.driver_id
@@ -217,7 +223,13 @@ router.get('/orders/:order_id', async (req, res) => {
         d.name AS driver_name, 
         d.vehicle_number AS driver_vehicle_number, 
         d.vehicle_type AS driver_vehicle_type, 
-        d.max_capacity AS driver_max_capacity
+        d.max_capacity AS driver_max_capacity,
+        o.process_at,
+        o.reject_at,
+        o.ready_at,
+        o.ship_at,
+        o.arrive_at,
+        o.paid_at
       FROM "Orders" o
       LEFT JOIN "Customers" c ON o.customer_id = c.customer_id
       LEFT JOIN "Drivers" d ON o.driver_id = d.driver_id
