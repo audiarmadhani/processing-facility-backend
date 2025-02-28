@@ -406,9 +406,9 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       return res.status(400).json({ error: 'Invalid tax percentage: must be a number between 0 and 100' });
     }
 
-    // Fetch the current order to check its existing status for validation
+    // Fetch the current order to check its existing status and timestamps for preservation
     const existingOrder = await sequelize.query(`
-      SELECT status, process_at, reject_at, ready_at, ship_at, arrive_at, paid_at 
+      SELECT status, process_at, reject_at, ready_at, ship_at, arrive_at, paid_at, payment_status, grand_total 
       FROM "Orders" 
       WHERE order_id = :order_id
     `, {
@@ -423,21 +423,75 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
     }
 
     const currentStatus = existingOrder[0].status;
-
-    // Define valid status transitions
-    const validStatusTransitions = {
-      Pending: ['Processing', 'Rejected'],
-      Processing: ['Ready for Shipment', 'Rejected'],
-      'Ready for Shipment': ['In Transit', 'Rejected'],
-      'In Transit': ['Delivered', 'Rejected'],
-      Delivered: ['Paid'],
-      Rejected: [], // No further transitions allowed
-      Paid: [], // No further transitions allowed
+    const currentPaymentStatus = existingOrder[0].payment_status || 'Pending'; // Default to 'Pending' if not set
+    const grandTotal = existingOrder[0].grand_total || 0;
+    const currentTimestamps = {
+      process_at: existingOrder[0].process_at,
+      reject_at: existingOrder[0].reject_at,
+      ready_at: existingOrder[0].ready_at,
+      ship_at: existingOrder[0].ship_at,
+      arrive_at: existingOrder[0].arrive_at,
+      paid_at: existingOrder[0].paid_at,
     };
 
-    if (!validStatusTransitions[currentStatus]?.includes(status)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid status transition' });
+    // Calculate total payments for the order to determine payment_status
+    const [payments] = await sequelize.query(`
+      SELECT COALESCE(SUM(amount), 0) AS total_paid 
+      FROM "Payments" 
+      WHERE order_id = :order_id
+    `, {
+      replacements: { order_id },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    const totalPaid = parseFloat(payments.total_paid) || 0;
+    let paymentStatusUpdate = currentPaymentStatus;
+    if (totalPaid > 0 && totalPaid < grandTotal) {
+      paymentStatusUpdate = 'Partial Payment';
+    } else if (totalPaid >= grandTotal) {
+      paymentStatusUpdate = 'Full Payment';
+    } else {
+      paymentStatusUpdate = 'Pending';
+    }
+
+    // Handle status (shipment status) transitions
+    let timestampUpdate = {};
+    if (status) { // Only process status if provided (for shipment-related changes)
+      if (!validStatusTransitions[currentStatus]?.includes(status)) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Invalid shipment status transition' });
+      }
+
+      switch (status) {
+        case 'Processing':
+          timestampUpdate.process_at = new Date();
+          break;
+        case 'Rejected':
+          timestampUpdate.reject_at = new Date();
+          break;
+        case 'Ready for Shipment':
+          timestampUpdate.ready_at = new Date();
+          break;
+        case 'In Transit':
+          timestampUpdate.ship_at = new Date();
+          break;
+        case 'Delivered':
+          timestampUpdate.arrive_at = new Date();
+          break;
+        default:
+          break;
+      }
+    }
+
+    // Handle payment_status separately (allow updates via payment actions)
+    if (req.body.payment_status === 'Paid' || paymentStatusUpdate !== currentPaymentStatus) { // Update if explicitly set or calculated differently
+      if (paymentStatusUpdate === 'Full Payment') {
+        timestampUpdate.paid_at = new Date(); // Update paid_at only when reaching Full Payment
+      }
+      paymentStatusUpdate = paymentStatusUpdate; // Use calculated payment_status
+    } else {
+      paymentStatusUpdate = currentPaymentStatus; // Preserve existing payment_status if no change
     }
 
     // Prepare the update data
@@ -451,35 +505,20 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       updated_at: new Date(), // Update updated_at with current timestamp
     };
 
-    // Determine the new status and update the corresponding timestamp
-    let timestampUpdate = {};
-    switch (status) {
-      case 'Processing':
-        timestampUpdate.process_at = new Date();
-        break;
-      case 'Rejected':
-        timestampUpdate.reject_at = new Date();
-        break;
-      case 'Ready for Shipment':
-        timestampUpdate.ready_at = new Date();
-        break;
-      case 'In Transit':
-        timestampUpdate.ship_at = new Date();
-        break;
-      case 'Delivered':
-        timestampUpdate.arrive_at = new Date();
-        break;
-      case 'Paid':
-        timestampUpdate.paid_at = new Date();
-        break;
-      default:
-        break;
-    }
+    // Merge updates, preserving existing timestamps and payment_status
+    updateData = {
+      ...updateData,
+      ...timestampUpdate,
+      status: status || currentStatus, // Only update status if provided (shipment status)
+      payment_status: paymentStatusUpdate, // Use calculated or updated payment_status
+      process_at: timestampUpdate.process_at || currentTimestamps.process_at,
+      reject_at: timestampUpdate.reject_at || currentTimestamps.reject_at,
+      ready_at: timestampUpdate.ready_at || currentTimestamps.ready_at,
+      ship_at: timestampUpdate.ship_at || currentTimestamps.ship_at,
+      arrive_at: timestampUpdate.arrive_at || currentTimestamps.arrive_at,
+      paid_at: timestampUpdate.paid_at || currentTimestamps.paid_at,
+    };
 
-    // Merge timestamp updates with other updates
-    updateData = { ...updateData, ...timestampUpdate, status: status || currentStatus };
-
-    // Update the order in the database
     const [updatedOrder] = await sequelize.query(`
       UPDATE "Orders"
       SET customer_id = :customer_id, 
@@ -489,6 +528,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
           price = :price, 
           tax_percentage = :tax_percentage, 
           status = :status, 
+          payment_status = :payment_status, 
           process_at = :process_at, 
           reject_at = :reject_at, 
           ready_at = :ready_at, 
@@ -508,6 +548,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
         price: parsedPrice, 
         tax_percentage: parsedTaxPercentage,
         status: updateData.status,
+        payment_status: updateData.payment_status,
         process_at: updateData.process_at || null,
         reject_at: updateData.reject_at || null,
         ready_at: updateData.ready_at || null,
@@ -771,7 +812,9 @@ router.post('/payments', async (req, res) => {
     return res.status(400).json({ error: 'Invalid amount: must be a positive number' });
   }
 
+  const t = await sequelize.transaction();
   try {
+    // Create the new payment
     const [payment] = await sequelize.query(`
       INSERT INTO "Payments" (order_id, amount, payment_date, payment_status, notes, created_at, updated_at)
       VALUES (:order_id, :amount, :payment_date, :payment_status, :notes, NOW(), NOW())
@@ -785,10 +828,68 @@ router.post('/payments', async (req, res) => {
         notes 
       },
       type: sequelize.QueryTypes.INSERT,
+      transaction: t,
     });
 
+    // Fetch the order to get grand_total and current payment_status
+    const [order] = await sequelize.query(`
+      SELECT grand_total, payment_status 
+      FROM "Orders" 
+      WHERE order_id = :order_id
+    `, {
+      replacements: { order_id },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    if (!order) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const grandTotal = order.grand_total || 0;
+
+    // Calculate total payments for the order
+    const [payments] = await sequelize.query(`
+      SELECT COALESCE(SUM(amount), 0) AS total_paid 
+      FROM "Payments" 
+      WHERE order_id = :order_id
+    `, {
+      replacements: { order_id },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    const totalPaid = parseFloat(payments.total_paid) || 0;
+    let newPaymentStatus = order.payment_status || 'Pending';
+
+    if (totalPaid > 0 && totalPaid < grandTotal) {
+      newPaymentStatus = 'Partial Payment';
+    } else if (totalPaid >= grandTotal) {
+      newPaymentStatus = 'Full Payment';
+    } else {
+      newPaymentStatus = 'Pending';
+    }
+
+    // Update the order's payment_status if it has changed
+    if (newPaymentStatus !== order.payment_status) {
+      await sequelize.query(`
+        UPDATE "Orders" 
+        SET payment_status = :payment_status, 
+            paid_at = CASE WHEN :payment_status = 'Full Payment' THEN NOW() ELSE paid_at END, 
+            updated_at = NOW()
+        WHERE order_id = :order_id
+      `, {
+        replacements: { order_id, payment_status: newPaymentStatus },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t,
+      });
+    }
+
+    await t.commit();
     res.status(201).json(payment);
   } catch (error) {
+    await t.rollback();
     res.status(500).json({ error: 'Failed to record payment', details: error.message });
   }
 });
