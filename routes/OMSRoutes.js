@@ -833,7 +833,7 @@ router.post('/payments', async (req, res) => {
 
     // Fetch the order to get grand_total and current payment_status
     const [order] = await sequelize.query(`
-      SELECT grand_total, payment_status 
+      SELECT COALESCE(ROUND(CAST(price * (1 + tax_percentage / 100) AS numeric), 2), 0)::FLOAT AS grand_total, payment_status 
       FROM "Orders" 
       WHERE order_id = :order_id
     `, {
