@@ -166,7 +166,7 @@ router.get('/orders/:order_id', async (req, res) => {
   try {
     const order = await sequelize.query(`
       SELECT * FROM "Orders_v"
-      WHERE o.order_id = :order_id
+      WHERE order_id = :order_id
     `, {
       replacements: { order_id },
       type: sequelize.QueryTypes.SELECT,
