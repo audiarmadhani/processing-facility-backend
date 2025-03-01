@@ -386,14 +386,9 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       paymentStatusUpdate = 'Pending';
     }
 
-    // Handle status (shipment status) transitions
+    // Handle status (shipment status) without transition validation
     let timestampUpdate = {};
     if (status) { // Only process status if provided (for shipment-related changes)
-      if (!validStatusTransitions[currentStatus]?.includes(status)) {
-        await t.rollback();
-        return res.status(400).json({ error: 'Invalid shipment status transition' });
-      }
-
       switch (status) {
         case 'Processing':
           timestampUpdate.process_at = new Date();
