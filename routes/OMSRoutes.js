@@ -138,42 +138,7 @@ router.post('/drivers', async (req, res) => {
 router.get('/orders', async (req, res) => {
   try {
     const orders = await sequelize.query(`
-      SELECT 
-        o.order_id, 
-        o.customer_id, 
-        o.driver_id, 
-        o.shipping_method, 
-        o.status, 
-        o.created_at::DATE, 
-        o.updated_at::DATE, 
-        o.driver_details, 
-        COALESCE(o.price::FLOAT, 0) price, 
-        COALESCE(o.tax_percentage::FLOAT, 0) tax_percentage, 
-        COALESCE(ROUND(CAST(o.price * o.tax_percentage / 100 AS numeric), 2), 0)::FLOAT AS tax, 
-        COALESCE(ROUND(CAST(o.price * (1 + o.tax_percentage / 100) AS numeric), 2), 0)::FLOAT AS grand_total, 
-        c.name AS customer_name, 
-        c.address AS customer_address, 
-        c.phone AS customer_phone, 
-        c.email AS customer_email, 
-        c.country AS customer_country, 
-        c.state AS customer_state, 
-        c.city AS customer_city, 
-        c.zip_code AS customer_zip_code, 
-        d.name AS driver_name, 
-        d.vehicle_number AS driver_vehicle_number, 
-        d.vehicle_type AS driver_vehicle_type, 
-        d.max_capacity AS driver_max_capacity,
-        o.process_at,
-        o.reject_at,
-        o.ready_at,
-        o.ship_at,
-        o.arrive_at,
-        o.paid_at,
-        o.payment_status
-      FROM "Orders" o
-      LEFT JOIN "Customers" c ON o.customer_id = c.customer_id
-      LEFT JOIN "Drivers" d ON o.driver_id = d.driver_id
-      ORDER BY o.created_at DESC
+      SELECT * FROM "Orders_v"
     `, {
       type: sequelize.QueryTypes.SELECT,
     });
@@ -200,41 +165,7 @@ router.get('/orders/:order_id', async (req, res) => {
   const { order_id } = req.params;
   try {
     const order = await sequelize.query(`
-      SELECT 
-        o.order_id, 
-        o.customer_id, 
-        o.driver_id, 
-        o.shipping_method, 
-        o.status, 
-        o.created_at::DATE, 
-        o.updated_at::DATE, 
-        o.driver_details, 
-        COALESCE(o.price::FLOAT, 0) price, 
-        COALESCE(o.tax_percentage::FLOAT, 0) tax_percentage, 
-        COALESCE(ROUND(CAST(o.price * o.tax_percentage / 100 AS numeric), 2), 0)::FLOAT AS tax, 
-        COALESCE(ROUND(CAST(o.price * (1 + o.tax_percentage / 100) AS numeric), 2), 0)::FLOAT AS grand_total, 
-        c.name AS customer_name, 
-        c.address AS customer_address, 
-        c.phone AS customer_phone, 
-        c.email AS customer_email, 
-        c.country AS customer_country, 
-        c.state AS customer_state, 
-        c.city AS customer_city, 
-        c.zip_code AS customer_zip_code, 
-        d.name AS driver_name, 
-        d.vehicle_number AS driver_vehicle_number, 
-        d.vehicle_type AS driver_vehicle_type, 
-        d.max_capacity AS driver_max_capacity,
-        o.process_at,
-        o.reject_at,
-        o.ready_at,
-        o.ship_at,
-        o.arrive_at,
-        o.paid_at,
-        o.payment_status
-      FROM "Orders" o
-      LEFT JOIN "Customers" c ON o.customer_id = c.customer_id
-      LEFT JOIN "Drivers" d ON o.driver_id = d.driver_id
+      SELECT * FROM "Orders_v"
       WHERE o.order_id = :order_id
     `, {
       replacements: { order_id },
