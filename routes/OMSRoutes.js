@@ -339,7 +339,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
 
     // Fetch the current order to check its existing status and timestamps for preservation
     const existingOrder = await sequelize.query(`
-      SELECT status, process_at, reject_at, ready_at, ship_at, arrive_at, paid_at, payment_status, grand_total 
+      SELECT status, process_at, reject_at, ready_at, ship_at, arrive_at, paid_at, payment_status, COALESCE(ROUND(CAST(price * (1 + tax_percentage / 100) AS numeric), 2), 0)::FLOAT AS grand_total 
       FROM "Orders" 
       WHERE order_id = :order_id
     `, {
