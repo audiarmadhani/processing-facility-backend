@@ -195,6 +195,7 @@ router.post('/dry-mill/scan', async (req, res) => {
   }
 });
 
+// GET route for dry mill data, using direct sequelize queries with enhanced error handling
 router.get('/dry-mill-data', async (req, res) => {
   try {
     // Fetch QCData_v for base batch data via direct sequelize query
@@ -208,9 +209,11 @@ router.get('/dry-mill-data', async (req, res) => {
     // Debug: Log the raw qcData to inspect its structure
     console.log('Raw QCData_v:', qcData);
 
-    // Ensure qcData is an array, handle if it's not
-    if (!Array.isArray(qcData)) {
-      throw new Error('QCData_v query did not return an array of data. Received:', JSON.stringify(qcData));
+    // Ensure qcData is an array, handle if it's not (e.g., single object or null)
+    const qcArray = Array.isArray(qcData) ? qcData : qcData ? [qcData] : [];
+
+    if (qcArray.length === 0) {
+      throw new Error('No data returned from QCData_v for Processing or Dried batches');
     }
 
     // Fetch DryMillData for Dry Mill status
@@ -234,13 +237,12 @@ router.get('/dry-mill-data', async (req, res) => {
       ORDER BY "batchNumber";
     `, { type: sequelize.QueryTypes.SELECT });
 
-    // Debug: Log the data to ensure it’s correct
-    console.log('QCData_v:', qcData);
+    // Debug: Log all data sources
     console.log('DryMillData:', dryMillDataRaw);
     console.log('DryMillGrades:', dryMillGrades);
     console.log('ReceivingData:', receivingData);
 
-    const data = qcData.map(batch => {
+    const data = qcArray.map(batch => {
       const batchDryMillData = dryMillDataRaw.filter(data => data.batchNumber === batch.batchNumber) || [];
       const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
       const status = latestEntry?.exited_at ? 'Processed' : 'In Dry Mill';
