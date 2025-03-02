@@ -198,7 +198,7 @@ router.post('/dry-mill/scan', async (req, res) => {
 // GET route for dry mill data, using direct sequelize queries with error handling
 router.get('/dry-mill-data', async (req, res) => {
   try {
-    // Fetch QCData_v for base batch data
+    // Fetch QCData_v for base batch data via direct sequelize query
     const [qcData] = await sequelize.query(`
       SELECT "batchNumber", weight AS "cherry_weight", producer, "productLine", "processingType", quality AS "targetQuality", "batchStatus"
       FROM "QCData_v"
@@ -232,18 +232,17 @@ router.get('/dry-mill-data', async (req, res) => {
       ORDER BY "batchNumber";
     `, { type: sequelize.QueryTypes.SELECT });
 
+    // Debug: Log the data to ensure it’s correct
+    console.log('QCData_v:', qcData);
+    console.log('DryMillData:', dryMillDataRaw);
+    console.log('DryMillGrades:', dryMillGrades);
+    console.log('ReceivingData:', receivingData);
+
     const data = qcData.map(batch => {
-      const batchDryMillData = dryMillDataRaw.filter(data => data.batchNumber === batch.batchNumber);
+      const batchDryMillData = dryMillDataRaw.filter(data => data.batchNumber === batch.batchNumber) || [];
       const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
       const status = latestEntry?.exited_at ? 'Processed' : 'In Dry Mill';
-      const splits = dryMillGrades.filter(grade => grade.batchNumber === batch.batchNumber).map(split => ({
-        subBatchId: split.subBatchId,
-        grade: split.grade,
-        weight: split.weight,
-        split_at: split.split_at,
-        bagged_at: split.bagged_at,
-        is_stored: split.is_stored,
-      }));
+      const splits = dryMillGrades.filter(grade => grade.batchNumber === batch.batchNumber) || [];
       const receiving = receivingData.find(r => r.batchNumber === batch.batchNumber) || {};
       const isStored = splits.every(split => split.is_stored) || !splits.length;
 
