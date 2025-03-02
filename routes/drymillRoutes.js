@@ -195,7 +195,6 @@ router.post('/dry-mill/scan', async (req, res) => {
   }
 });
 
-// GET route for dry mill data, using direct sequelize queries with error handling
 router.get('/dry-mill-data', async (req, res) => {
   try {
     // Fetch QCData_v for base batch data via direct sequelize query
@@ -206,9 +205,12 @@ router.get('/dry-mill-data', async (req, res) => {
       ORDER BY "batchNumber" DESC;
     `, { type: sequelize.QueryTypes.SELECT });
 
+    // Debug: Log the raw qcData to inspect its structure
+    console.log('Raw QCData_v:', qcData);
+
     // Ensure qcData is an array, handle if it's not
     if (!Array.isArray(qcData)) {
-      throw new Error('QCData_v query did not return an array of data');
+      throw new Error('QCData_v query did not return an array of data. Received:', JSON.stringify(qcData));
     }
 
     // Fetch DryMillData for Dry Mill status
