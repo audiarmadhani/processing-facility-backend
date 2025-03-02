@@ -217,11 +217,14 @@ router.get('/dry-mill-data', async (req, res) => {
     }
 
     // Fetch DryMillData for Dry Mill status
-    const [dryMillDataRaw] = await sequelize.query(`
+    const [dryMillData] = await sequelize.query(`
       SELECT dm.rfid, dm."batchNumber", dm.entered_at, dm.exited_at, dm.created_at
       FROM "DryMillData" dm
       ORDER BY dm.created_at DESC;
     `, { type: sequelize.QueryTypes.SELECT });
+
+    // Ensure dryMillData is an array, handle if it's not (e.g., single object or null)
+    const dryMillDataArray = Array.isArray(dryMillData) ? dryMillData : dryMillData ? [dryMillData] : [];
 
     // Fetch DryMillGrades for splits
     const [dryMillGrades] = await sequelize.query(`
@@ -230,6 +233,9 @@ router.get('/dry-mill-data', async (req, res) => {
       ORDER BY dg."batchNumber", dg."subBatchId";
     `, { type: sequelize.QueryTypes.SELECT });
 
+    // Ensure dryMillGrades is an array, handle if it's not (e.g., single object or null)
+    const dryMillGradesArray = Array.isArray(dryMillGrades) ? dryMillGrades : dryMillGrades ? [dryMillGrades] : [];
+
     // Fetch ReceivingData for RFID
     const [receivingData] = await sequelize.query(`
       SELECT "batchNumber", rfid
@@ -237,17 +243,20 @@ router.get('/dry-mill-data', async (req, res) => {
       ORDER BY "batchNumber";
     `, { type: sequelize.QueryTypes.SELECT });
 
+    // Ensure receivingData is an array, handle if it's not (e.g., single object or null)
+    const receivingDataArray = Array.isArray(receivingData) ? receivingData : receivingData ? [receivingData] : [];
+
     // Debug: Log all data sources
-    console.log('DryMillData:', dryMillDataRaw);
-    console.log('DryMillGrades:', dryMillGrades);
-    console.log('ReceivingData:', receivingData);
+    console.log('DryMillData:', dryMillDataArray);
+    console.log('DryMillGrades:', dryMillGradesArray);
+    console.log('ReceivingData:', receivingDataArray);
 
     const data = qcArray.map(batch => {
-      const batchDryMillData = dryMillDataRaw.filter(data => data.batchNumber === batch.batchNumber) || [];
+      const batchDryMillData = dryMillDataArray.filter(data => data.batchNumber === batch.batchNumber) || [];
       const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
       const status = latestEntry?.exited_at ? 'Processed' : 'In Dry Mill';
-      const splits = dryMillGrades.filter(grade => grade.batchNumber === batch.batchNumber) || [];
-      const receiving = receivingData.find(r => r.batchNumber === batch.batchNumber) || {};
+      const splits = dryMillGradesArray.filter(grade => grade.batchNumber === batch.batchNumber) || [];
+      const receiving = receivingDataArray.find(r => r.batchNumber === batch.batchNumber) || {};
       const isStored = splits.every(split => split.is_stored) || !splits.length;
 
       return {
