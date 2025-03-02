@@ -195,50 +195,66 @@ router.post('/dry-mill/scan', async (req, res) => {
   }
 });
 
-// GET route for dry mill data, using QCData_v and DryMillData
+// GET route for dry mill data, using direct sequelize queries
 router.get('/dry-mill-data', async (req, res) => {
   try {
-    const qcResponse = await fetch('https://processing-facility-backend.onrender.com/api/qc');
-    if (!qcResponse.ok) throw new Error('Failed to fetch QC data');
-    const qcResult = await qcResponse.json();
-    const qcData = qcResult.allRows || [];
+    // Fetch QCData_v for base batch data
+    const [qcData] = await sequelize.query(`
+      SELECT "batchNumber", weight AS "cherry_weight", producer, "productLine", "processingType", quality AS "targetQuality", "batchStatus"
+      FROM "QCData_v"
+      WHERE "batchStatus" IN ('Processing', 'Dried')
+      ORDER BY "batchNumber" DESC;
+    `, { type: sequelize.QueryTypes.SELECT });
 
-    const dryMillResponse = await fetch('https://processing-facility-backend.onrender.com/api/dry-mill-data');
-    if (!dryMillResponse.ok) throw new Error('Failed to fetch dry mill data');
-    const dryMillDataRaw = await dryMillResponse.json();
+    // Fetch DryMillData for Dry Mill status
+    const [dryMillDataRaw] = await sequelize.query(`
+      SELECT dm.rfid, dm."batchNumber", dm.entered_at, dm.exited_at, dm.created_at
+      FROM "DryMillData" dm
+      ORDER BY dm.created_at DESC;
+    `, { type: sequelize.QueryTypes.SELECT });
 
-    const receivingResponse = await fetch('https://processing-facility-backend.onrender.com/api/receiving');
-    if (!receivingResponse.ok) throw new Error('Failed to fetch receiving data');
-    const receivingData = await receivingResponse.json();
+    // Fetch DryMillGrades for splits
+    const [dryMillGrades] = await sequelize.query(`
+      SELECT dg."batchNumber", dg."subBatchId", dg.grade, dg.weight, dg.split_at, dg.bagged_at, dg."is_stored"
+      FROM "DryMillGrades" dg
+      ORDER BY dg."batchNumber", dg."subBatchId";
+    `, { type: sequelize.QueryTypes.SELECT });
 
-    const data = qcData
-      .filter(batch => batch.batchStatus === 'Processing' || batch.batchStatus === 'Dried') // Adjusted filter based on QCData_v batchStatus
-      .map(batch => {
-        const batchDryMillData = dryMillDataRaw.filter(data => data.batchNumber === batch.batchNumber);
-        const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-        const status = latestEntry?.exited_at ? 'Processed' : 'In Dry Mill';
-        const splits = batchDryMillData.filter(data => data.subBatchId).map(split => ({
-          subBatchId: split.subBatchId,
-          grade: split.grade,
-          weight: split.weight,
-          split_at: split.split_at,
-          bagged_at: split.bagged_at,
-          is_stored: split.is_stored,
-        }));
-        const receiving = receivingData.find(r => r.batchNumber === batch.batchNumber) || {};
+    // Fetch ReceivingData for RFID
+    const [receivingData] = await sequelize.query(`
+      SELECT "batchNumber", rfid
+      FROM "ReceivingData"
+      ORDER BY "batchNumber";
+    `, { type: sequelize.QueryTypes.SELECT });
 
-        return {
-          ...batch,
-          status,
-          dryMillEntered: latestEntry?.entered_at ? new Date(latestEntry.entered_at).toISOString().slice(0, 10) : 'N/A',
-          dryMillExited: latestEntry?.exited_at ? new Date(latestEntry.exited_at).toISOString().slice(0, 10) : 'N/A',
-          rfid: receiving.rfid || 'N/A', // Fetch RFID from ReceivingData
-          green_bean_splits: splits.length > 0 ? 
-            splits.map(split => 
-              `Grade: ${split.grade}, Weight: ${split.weight} kg, Split: ${new Date(split.split_at).toISOString().slice(0, 19).replace('T', ' ')}, Bagged: ${new Date(split.bagged_at).toISOString().slice(0, 10)}, Stored: ${split.is_stored ? 'Yes' : 'No'}`
-            ).join('; ') : null,
-        };
-      });
+    const data = qcData.map(batch => {
+      const batchDryMillData = dryMillDataRaw.filter(data => data.batchNumber === batch.batchNumber);
+      const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+      const status = latestEntry?.exited_at ? 'Processed' : 'In Dry Mill';
+      const splits = dryMillGrades.filter(grade => grade.batchNumber === batch.batchNumber).map(split => ({
+        subBatchId: split.subBatchId,
+        grade: split.grade,
+        weight: split.weight,
+        split_at: split.split_at,
+        bagged_at: split.bagged_at,
+        is_stored: split.is_stored,
+      }));
+      const receiving = receivingData.find(r => r.batchNumber === batch.batchNumber) || {};
+      const isStored = splits.every(split => split.is_stored) || !splits.length;
+
+      return {
+        ...batch,
+        status,
+        dryMillEntered: latestEntry?.entered_at ? new Date(latestEntry.entered_at).toISOString().slice(0, 10) : 'N/A',
+        dryMillExited: latestEntry?.exited_at ? new Date(latestEntry.exited_at).toISOString().slice(0, 10) : 'N/A',
+        rfid: receiving.rfid || 'N/A',
+        green_bean_splits: splits.length > 0 ? 
+          splits.map(split => 
+            `Grade: ${split.grade}, Weight: ${split.weight} kg, Split: ${new Date(split.split_at).toISOString().slice(0, 19).replace('T', ' ')}, Bagged: ${new Date(split.bagged_at).toISOString().slice(0, 10)}, Stored: ${split.is_stored ? 'Yes' : 'No'}`
+          ).join('; ') : null,
+        isStored,
+      };
+    });
 
     res.status(200).json(data);
   } catch (error) {
