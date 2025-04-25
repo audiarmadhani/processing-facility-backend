@@ -113,7 +113,10 @@ router.post('/scan-rfid', async (req, res) => {
     "Drying Area 3",
     "Drying Area 4",
     "Drying Area 5",
-    "Dry Mill"
+    "Dry Mill",
+    "Drying Room",
+    "Warehouse Entrance",
+    "Warehouse Exit",
   ];
 
   if (!scanned_at || !validScanners.includes(scanned_at)) {
@@ -137,7 +140,7 @@ router.post('/scan-rfid', async (req, res) => {
       });
 
       res.status(201).json({
-        message: 'RFID tag scanned at Receiving, logged to RfidScanned',
+        message: 'RFID tag scanned, logged to RfidScanned',
         rfid: trimmedRfid,
       });
       return; // Exit early, no further processing needed
