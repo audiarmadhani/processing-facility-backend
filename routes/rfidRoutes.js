@@ -106,17 +106,17 @@ router.post('/scan-rfid', async (req, res) => {
   const validScanners = [
     "Receiving",
     "QC",
-    "Wet Mill Entrance",
-    "Wet Mill Exit",
-    "Drying Area 1",
-    "Drying Area 2",
-    "Drying Area 3",
-    "Drying Area 4",
-    "Drying Area 5",
-    "Dry Mill",
-    "Drying Room",
-    "Warehouse Entrance",
-    "Warehouse Exit",
+    "Wet_Mill_Entrance",
+    "Wet_Mill_Exit",
+    "Drying_Area_1",
+    "Drying_Area_2",
+    "Drying_Area_3",
+    "Drying_Area_4",
+    "Drying_Area_5",
+    "Dry_Mill",
+    "Drying_Room",
+    "Warehouse_Entrance",
+    "Warehouse_Exit",
   ];
 
   if (!scanned_at || !validScanners.includes(scanned_at)) {
