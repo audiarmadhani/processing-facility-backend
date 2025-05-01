@@ -181,7 +181,7 @@ router.post('/scan-rfid', async (req, res) => {
         rfid: trimmedRfid,
         batchNumber,
       });
-    } else if (scanned_at === 'Wet Mill Entrance') {
+    } else if (scanned_at === 'Wet_Mill_Entrance') {
       const [existingEntry] = await sequelize.query(`
         SELECT id
         FROM "WetMillData"
@@ -222,7 +222,7 @@ router.post('/scan-rfid', async (req, res) => {
         batchNumber,
         entered_at: result[0].entered_at,
       });
-    } else if (scanned_at === 'Wet Mill Exit') {
+    } else if (scanned_at === 'Wet_Mill_Exit') {
       const [entry] = await sequelize.query(`
         SELECT id
         FROM "WetMillData"
@@ -371,7 +371,7 @@ router.post('/scan-rfid', async (req, res) => {
           entered_at: result[0].entered_at,
         });
       }
-    } else if (scanned_at === 'Dry Mill') {
+    } else if (scanned_at === 'Dry_Mill') {
       // Check if batch has exited drying area
       const [dryingEntry] = await sequelize.query(`
         SELECT "exited_at"
