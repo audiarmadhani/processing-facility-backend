@@ -36,10 +36,25 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     const results = [];
     const subBatches = [];
     for (const { grade, weight, bagged_at } of grades) {
-      if (!grade || typeof weight !== 'number' || weight <= 0 || !bagged_at) {
+      // Validate that grade is present and non-empty
+      if (!grade || typeof grade !== 'string' || grade.trim() === '') {
         await t.rollback();
-        return res.status(400).json({ error: 'Each grade must have a valid grade, positive weight, and bagging date.' });
+        return res.status(400).json({ error: 'Each entry must have a valid grade.' });
       }
+
+      // Parse weight: Convert to number if provided, otherwise set to NULL
+      let parsedWeight = null;
+      if (weight !== undefined && weight !== null && weight !== '') {
+        const weightNum = parseFloat(weight);
+        if (isNaN(weightNum) || weightNum <= 0) {
+          await t.rollback();
+          return res.status(400).json({ error: `Invalid weight for grade ${grade}: must be a positive number.` });
+        }
+        parsedWeight = weightNum;
+      }
+
+      // bagged_at is optional: Use provided value or NULL
+      const baggedAtValue = bagged_at || null;
 
       const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '')}`;
       const [result] = await sequelize.query(`
@@ -48,83 +63,92 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         ON CONFLICT ("subBatchId") DO UPDATE SET weight = :weight, split_at = NOW(), bagged_at = :bagged_at, "is_stored" = FALSE
         RETURNING *;
       `, { 
-        replacements: { batchNumber, subBatchId, grade, weight: parseFloat(weight), bagged_at }, 
+        replacements: { 
+          batchNumber, 
+          subBatchId, 
+          grade, 
+          weight: parsedWeight, 
+          bagged_at: baggedAtValue 
+        }, 
         transaction: t,
         type: sequelize.QueryTypes.INSERT 
       });
       results.push(result[0]);
 
-      const [productResults] = await sequelize.query(
-        'SELECT abbreviation FROM "ProductLines" WHERE "productLine" = ?',
-        { replacements: [parentBatch.productLine], transaction: t }
-      );
+      // Only create a sub-batch in PostprocessingData if weight is provided and valid
+      if (parsedWeight !== null) {
+        const [productResults] = await sequelize.query(
+          'SELECT abbreviation FROM "ProductLines" WHERE "productLine" = ?',
+          { replacements: [parentBatch.productLine], transaction: t }
+        );
 
-      const [processingResults] = await sequelize.query(
-        'SELECT abbreviation FROM "ProcessingTypes" WHERE "processingType" = ?',
-        { replacements: [parentBatch.processingType], transaction: t }
-      );
+        const [processingResults] = await sequelize.query(
+          'SELECT abbreviation FROM "ProcessingTypes" WHERE "processingType" = ?',
+          { replacements: [parentBatch.processingType], transaction: t }
+        );
 
-      if (productResults.length === 0 || processingResults.length === 0) {
-        await t.rollback();
-        return res.status(400).json({ error: 'Invalid product line or processing type' });
-      }
+        if (productResults.length === 0 || processingResults.length === 0) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Invalid product line or processing type' });
+        }
 
-      const productAbbreviation = productResults[0].abbreviation;
-      const processingAbbreviation = processingResults[0].abbreviation;
+        const productAbbreviation = productResults[0].abbreviation;
+        const processingAbbreviation = processingResults[0].abbreviation;
 
-      const [referenceResults] = await sequelize.query(
-        'SELECT "referenceNumber" FROM "ReferenceMappings_duplicate" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "quality" = ? AND "type" = ?',
-        { replacements: [parentBatch.productLine, parentBatch.processingType, parentBatch.producer, grade, parentBatch.type], transaction: t }
-      );
+        const [referenceResults] = await sequelize.query(
+          'SELECT "referenceNumber" FROM "ReferenceMappings_duplicate" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "quality" = ? AND "type" = ?',
+          { replacements: [parentBatch.productLine, parentBatch.processingType, parentBatch.producer, grade, parentBatch.type], transaction: t }
+        );
 
-      if (referenceResults.length === 0) {
-        await t.rollback();
-        return res.status(400).json({ error: `No matching reference number found for grade ${grade}` });
-      }
+        if (referenceResults.length === 0) {
+          await t.rollback();
+          return res.status(400).json({ error: `No matching reference number found for grade ${grade}` });
+        }
 
-      const referenceNumber = referenceResults[0].referenceNumber;
-      const currentYear = new Date().getFullYear().toString().slice(-2);
-      const batchPrefix = `${parentBatch.producer}${currentYear}${productAbbreviation}-${processingAbbreviation}`;
+        const referenceNumber = referenceResults[0].referenceNumber;
+        const currentYear = new Date().getFullYear().toString().slice(-2);
+        const batchPrefix = `${parentBatch.producer}${currentYear}${productAbbreviation}-${processingAbbreviation}`;
 
-      const [existingBatches] = await sequelize.query(
-        'SELECT "batchNumber" FROM "PostprocessingData" WHERE "batchNumber" LIKE ? ORDER BY "batchNumber" DESC LIMIT 1',
-        { replacements: [`${batchPrefix}-%`], transaction: t }
-      );
+        const [existingBatches] = await sequelize.query(
+          'SELECT "batchNumber" FROM "PostprocessingData" WHERE "batchNumber" LIKE ? ORDER BY "batchNumber" DESC LIMIT 1',
+          { replacements: [`${batchPrefix}-%`], transaction: t }
+        );
 
-      let sequenceNumber = existingBatches.length > 0 ? parseInt(existingBatches[0].batchNumber.split('-').pop(), 10) + 1 : 1;
-      const newBatchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}`;
+        let sequenceNumber = existingBatches.length > 0 ? parseInt(existingBatches[0].batchNumber.split('-').pop(), 10) + 1 : 1;
+        const newBatchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}`;
 
-      const totalBags = Math.ceil(weight / 60);
+        const totalBags = Math.ceil(parsedWeight / 60);
 
-      const [subBatch] = await sequelize.query(`
-        INSERT INTO "PostprocessingData" ("batchNumber", "referenceNumber", "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt", "parentBatchNumber")
-        VALUES (:batchNumber, :referenceNumber, :processingType, :productLine, :weight, :totalBags, :notes, :quality, :producer, :storedDate, :createdAt, :updatedAt, :parentBatchNumber)
-        RETURNING *;
-      `, {
-        replacements: {
+        const [subBatch] = await sequelize.query(`
+          INSERT INTO "PostprocessingData" ("batchNumber", "referenceNumber", "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt", "parentBatchNumber")
+          VALUES (:batchNumber, :referenceNumber, :processingType, :productLine, :weight, :totalBags, :notes, :quality, :producer, :storedDate, :createdAt, :updatedAt, :parentBatchNumber)
+          RETURNING *;
+        `, {
+          replacements: {
+            batchNumber: newBatchNumber,
+            referenceNumber,
+            processingType: parentBatch.processingType,
+            productLine: parentBatch.productLine,
+            weight: parsedWeight,
+            totalBags,
+            notes: '', // Notes are optional and not sourced from PreprocessingData
+            quality: grade,
+            producer: parentBatch.producer,
+            storedDate: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            parentBatchNumber: batchNumber,
+          },
+          transaction: t,
+          type: sequelize.QueryTypes.INSERT,
+        });
+
+        subBatches.push({
           batchNumber: newBatchNumber,
           referenceNumber,
-          processingType: parentBatch.processingType,
-          productLine: parentBatch.productLine,
-          weight: parseFloat(weight),
-          totalBags,
-          notes: '', // Notes are optional and not sourced from PreprocessingData
           quality: grade,
-          producer: parentBatch.producer,
-          storedDate: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          parentBatchNumber: batchNumber,
-        },
-        transaction: t,
-        type: sequelize.QueryTypes.INSERT,
-      });
-
-      subBatches.push({
-        batchNumber: newBatchNumber,
-        referenceNumber,
-        quality: grade,
-      });
+        });
+      }
     }
 
     await t.commit();
@@ -292,7 +316,7 @@ router.get('/dry-mill-data', async (req, res) => {
         rfid: receiving.rfid || 'N/A',
         green_bean_splits: splits.length > 0 ? 
           splits.map(split => 
-            `Grade: ${split.grade}, Weight: ${split.weight} kg, Split: ${new Date(split.split_at).toISOString().slice(0, 19).replace('T', ' ')}, Bagged: ${new Date(split.bagged_at).toISOString().slice(0, 10)}, Stored: ${split.is_stored ? 'Yes' : 'No'}`
+            `Grade: ${split.grade}, Weight: ${split.weight ? split.weight + ' kg' : 'N/A'}, Split: ${new Date(split.split_at).toISOString().slice(0, 19).replace('T', ' ')}, Bagged: ${split.bagged_at ? new Date(split.bagged_at).toISOString().slice(0, 10) : 'N/A'}, Stored: ${split.is_stored ? 'Yes' : 'No'}`
           ).join('; ') : null,
         isStored,
       };
