@@ -30,7 +30,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     t = await sequelize.transaction();
 
     const [dryMillEntry] = await sequelize.query(`
-      SELECT dm."entered_at", pp."processingType", pp."productLine", pp."producer", rd."type"
+      SELECT dm."entered_at", pp."processingType", pp."productLine", pp."producer", rd."type", rd."farmerName"
       FROM "DryMillData" dm
       JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber"
       JOIN "ReceivingData" rd ON dm."batchNumber" = rd."batchNumber"
@@ -324,6 +324,7 @@ router.get('/dry-mill-data', async (req, res) => {
         rd."type",
         rd."weight" AS "cherry_weight",
         rd."totalBags",
+        rd."farmerName",
         NULL AS "notes",
         NULL AS "referenceNumber",
         NULL AS quality,
@@ -351,6 +352,7 @@ router.get('/dry-mill-data', async (req, res) => {
         ppd."notes",
         ppd."quality",
         ppd."producer",
+        rd."farmerName",
         DATE(ppd."storedDate") AS storeddatetrunc,
         ppd."parentBatchNumber"
       FROM "PostprocessingData" ppd
