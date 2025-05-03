@@ -231,20 +231,20 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
 router.get('/dry-mill-data', async (req, res) => {
   try {
     // Debug queries to verify raw data
-    const [debugPostprocessing] = await sequelize.query(
-      `SELECT * FROM "PostprocessingData" WHERE "parentBatchNumber" = '2025-05-01-0001' ORDER BY "batchNumber" DESC;`,
-      { type: sequelize.QueryTypes.SELECT, raw: true }
-    );
-    console.log('Debug PostprocessingData:', debugPostprocessing);
+    const debugPostprocessingQuery = `
+      SELECT * FROM "PostprocessingData" WHERE "parentBatchNumber" = '2025-05-01-0001' ORDER BY "batchNumber" DESC;
+    `;
+    const debugPostprocessingResult = await sequelize.query(debugPostprocessingQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
+    console.log('Debug PostprocessingData Raw Result:', debugPostprocessingResult);
 
-    const [debugDryMillGrades] = await sequelize.query(
-      `SELECT * FROM "DryMillGrades" WHERE "batchNumber" = '2025-05-01-0001' ORDER BY "subBatchId";`,
-      { type: sequelize.QueryTypes.SELECT, raw: true }
-    );
-    console.log('Debug DryMillGrades:', debugDryMillGrades);
+    const debugDryMillGradesQuery = `
+      SELECT * FROM "DryMillGrades" WHERE "batchNumber" = '2025-05-01-0001' ORDER BY "subBatchId";
+    `;
+    const debugDryMillGradesResult = await sequelize.query(debugDryMillGradesQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
+    console.log('Debug DryMillGrades Raw Result:', debugDryMillGradesResult);
 
     // Fetch parent batches
-    const [parentBatches] = await sequelize.query(`
+    const parentBatchesQuery = `
       SELECT 
         dm."batchNumber",
         pp."processingType",
@@ -262,12 +262,13 @@ router.get('/dry-mill-data', async (req, res) => {
       JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber"
       JOIN "ReceivingData" rd ON dm."batchNumber" = rd."batchNumber"
       ORDER BY dm."batchNumber" DESC;
-    `, { type: sequelize.QueryTypes.SELECT, raw: true });
-
-    const parentBatchesArray = Array.isArray(parentBatches) ? parentBatches : parentBatches ? [parentBatches] : [];
+    `;
+    const parentBatchesResult = await sequelize.query(parentBatchesQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
+    const parentBatchesArray = Array.isArray(parentBatchesResult) ? parentBatchesResult : parentBatchesResult ? [parentBatchesResult] : [];
+    console.log('parentBatchesArray:', parentBatchesArray);
 
     // Fetch sub-batches
-    const [subBatches] = await sequelize.query(`
+    const subBatchesQuery = `
       SELECT 
         ppd."batchNumber",
         ppd."referenceNumber",
@@ -284,38 +285,38 @@ router.get('/dry-mill-data', async (req, res) => {
       FROM "PostprocessingData" ppd
       LEFT JOIN "ReceivingData" rd ON ppd."parentBatchNumber" = rd."batchNumber"
       ORDER BY ppd."batchNumber" DESC;
-    `, { type: sequelize.QueryTypes.SELECT, raw: true });
-
-    const subBatchesArray = Array.isArray(subBatches) ? subBatches : subBatches ? [subBatches] : [];
+    `;
+    const subBatchesResult = await sequelize.query(subBatchesQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
+    const subBatchesArray = Array.isArray(subBatchesResult) ? subBatchesResult : subBatchesResult ? [subBatchesResult] : [];
     console.log('subBatchesArray:', subBatchesArray);
 
     const postprocessingArray = [...parentBatchesArray, ...subBatchesArray];
     console.log('postprocessingArray:', postprocessingArray);
 
-    const [dryMillData] = await sequelize.query(`
+    const dryMillDataQuery = `
       SELECT dm."batchNumber", dm.entered_at, dm.exited_at, dm.created_at
       FROM "DryMillData" dm
       ORDER BY dm.created_at DESC;
-    `, { type: sequelize.QueryTypes.SELECT, raw: true });
+    `;
+    const dryMillDataResult = await sequelize.query(dryMillDataQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
+    const dryMillDataArray = Array.isArray(dryMillDataResult) ? dryMillDataResult : dryMillDataResult ? [dryMillDataResult] : [];
 
-    const dryMillDataArray = Array.isArray(dryMillData) ? dryMillData : dryMillData ? [dryMillData] : [];
-
-    const [dryMillGrades] = await sequelize.query(`
+    const dryMillGradesQuery = `
       SELECT dg."batchNumber", dg."subBatchId", dg.grade, dg.weight, dg.split_at, dg.bagged_at, dg."is_stored"
       FROM "DryMillGrades" dg
       ORDER BY dg."batchNumber", dg."subBatchId";
-    `, { type: sequelize.QueryTypes.SELECT, raw: true });
-
-    const dryMillGradesArray = Array.isArray(dryMillGrades) ? dryMillGrades : dryMillGrades ? [dryMillGrades] : [];
+    `;
+    const dryMillGradesResult = await sequelize.query(dryMillGradesQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
+    const dryMillGradesArray = Array.isArray(dryMillGradesResult) ? dryMillGradesResult : dryMillGradesResult ? [dryMillGradesResult] : [];
     console.log('dryMillGradesArray:', dryMillGradesArray);
 
-    const [receivingData] = await sequelize.query(`
+    const receivingDataQuery = `
       SELECT "batchNumber", rfid, "currentAssign"
       FROM "ReceivingData"
       ORDER BY "batchNumber";
-    `, { type: sequelize.QueryTypes.SELECT, raw: true });
-
-    const receivingDataArray = Array.isArray(receivingData) ? receivingData : receivingData ? [receivingData] : [];
+    `;
+    const receivingDataResult = await sequelize.query(receivingDataQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
+    const receivingDataArray = Array.isArray(receivingDataResult) ? receivingDataResult : receivingDataResult ? [receivingDataResult] : [];
 
     const data = postprocessingArray.map(batch => {
       const relevantBatchNumber = batch.parentBatchNumber || batch.batchNumber;
