@@ -519,7 +519,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
   try {
     const gradesResult = await sequelize.query(`
       SELECT dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
-             ARRAY_AGG(bd.weight ORDER BY bd.bag_number) AS bag_weights
+             COALESCE(ARRAY_AGG(bd.weight ORDER BY bd.bag_number), ARRAY[]::FLOAT[]) AS bag_weights
       FROM "DryMillGrades" dg
       LEFT JOIN "BagDetails" bd ON dg."subBatchId" = bd.grade_id
       WHERE dg."batchNumber" = :batchNumber
