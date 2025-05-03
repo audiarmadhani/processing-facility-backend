@@ -35,6 +35,34 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
     const results = [];
     const subBatches = [];
+
+    // Fetch the highest sequence number once, then increment manually for each grade
+    const currentYear = new Date().getFullYear().toString().slice(-2);
+    const [productResults] = await sequelize.query(
+      'SELECT abbreviation FROM "ProductLines" WHERE "productLine" = ?',
+      { replacements: [parentBatch.productLine], transaction: t }
+    );
+    const [processingResults] = await sequelize.query(
+      'SELECT abbreviation FROM "ProcessingTypes" WHERE "processingType" = ?',
+      { replacements: [parentBatch.processingType], transaction: t }
+    );
+
+    if (productResults.length === 0 || processingResults.length === 0) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid product line or processing type' });
+    }
+
+    const productAbbreviation = productResults[0].abbreviation;
+    const processingAbbreviation = processingResults[0].abbreviation;
+    const batchPrefix = `${parentBatch.producer}${currentYear}${productAbbreviation}-${processingAbbreviation}`;
+
+    const [existingBatches] = await sequelize.query(
+      'SELECT "batchNumber" FROM "PostprocessingData" WHERE "batchNumber" LIKE ? ORDER BY "batchNumber" DESC LIMIT 1',
+      { replacements: [`${batchPrefix}-%`], transaction: t }
+    );
+
+    let sequenceNumber = existingBatches.length > 0 ? parseInt(existingBatches[0].batchNumber.split('-').pop(), 10) : 0;
+
     for (const { grade, weight, bagged_at } of grades) {
       // Validate that grade is present and non-empty
       if (!grade || typeof grade !== 'string' || grade.trim() === '') {
@@ -77,24 +105,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
       // Only create a sub-batch in PostprocessingData if weight is provided and valid
       if (parsedWeight !== null) {
-        const [productResults] = await sequelize.query(
-          'SELECT abbreviation FROM "ProductLines" WHERE "productLine" = ?',
-          { replacements: [parentBatch.productLine], transaction: t }
-        );
-
-        const [processingResults] = await sequelize.query(
-          'SELECT abbreviation FROM "ProcessingTypes" WHERE "processingType" = ?',
-          { replacements: [parentBatch.processingType], transaction: t }
-        );
-
-        if (productResults.length === 0 || processingResults.length === 0) {
-          await t.rollback();
-          return res.status(400).json({ error: 'Invalid product line or processing type' });
-        }
-
-        const productAbbreviation = productResults[0].abbreviation;
-        const processingAbbreviation = processingResults[0].abbreviation;
-
         const [referenceResults] = await sequelize.query(
           'SELECT "referenceNumber" FROM "ReferenceMappings_duplicate" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "quality" = ? AND "type" = ?',
           { replacements: [parentBatch.productLine, parentBatch.processingType, parentBatch.producer, grade, parentBatch.type], transaction: t }
@@ -106,15 +116,9 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         }
 
         const referenceNumber = referenceResults[0].referenceNumber;
-        const currentYear = new Date().getFullYear().toString().slice(-2);
-        const batchPrefix = `${parentBatch.producer}${currentYear}${productAbbreviation}-${processingAbbreviation}`;
 
-        const [existingBatches] = await sequelize.query(
-          'SELECT "batchNumber" FROM "PostprocessingData" WHERE "batchNumber" LIKE ? ORDER BY "batchNumber" DESC LIMIT 1',
-          { replacements: [`${batchPrefix}-%`], transaction: t }
-        );
-
-        let sequenceNumber = existingBatches.length > 0 ? parseInt(existingBatches[0].batchNumber.split('-').pop(), 10) + 1 : 1;
+        // Increment sequence number for this sub-batch
+        sequenceNumber += 1;
         const newBatchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}`;
 
         const totalBags = Math.ceil(parsedWeight / 60);
@@ -441,6 +445,45 @@ router.post('/rfid/reuse', async (req, res) => {
   } catch (error) {
     console.error('Error reusing RFID tag:', error);
     res.status(500).json({ error: 'Failed to reuse RFID tag', details: error.message });
+  }
+});
+
+// GET route for fetching existing grades for a batch
+router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
+  const { batchNumber } = req.params;
+
+  try {
+    const [grades] = await sequelize.query(`
+      SELECT grade, weight, bagged_at, is_stored
+      FROM "DryMillGrades"
+      WHERE "batchNumber" = :batchNumber
+      ORDER BY grade;
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    const formattedGrades = grades.map(grade => ({
+      grade: grade.grade,
+      weight: grade.weight ? grade.weight.toString() : '', // Convert to string for TextField
+      bagged_at: grade.bagged_at ? new Date(grade.bagged_at).toISOString().slice(0, 10) : '',
+    }));
+
+    // If no grades exist, return default grades
+    if (formattedGrades.length === 0) {
+      return res.status(200).json([
+        { grade: 'Specialty Grade', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
+        { grade: 'Grade 1', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
+        { grade: 'Grade 2', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
+        { grade: 'Grade 3', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
+        { grade: 'Grade 4', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
+      ]);
+    }
+
+    res.status(200).json(formattedGrades);
+  } catch (error) {
+    console.error('Error fetching dry mill grades:', error);
+    res.status(500).json({ error: 'Failed to fetch dry mill grades', details: error.message });
   }
 });
 
