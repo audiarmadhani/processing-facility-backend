@@ -371,7 +371,7 @@ router.post('/scan-rfid', async (req, res) => {
           entered_at: result[0].entered_at,
         });
       }
-    } else if (scanned_at === 'Dry_Mill') {
+    } else if (scanned_at === 'DryMill') {
       // Check if batch has exited drying area
       const [dryingEntry] = await sequelize.query(`
         SELECT "exited_at"
