@@ -279,7 +279,10 @@ router.get('/dry-mill-data', async (req, res) => {
       const status = latestEntry?.exited_at ? 'Processed' : (latestEntry?.entered_at ? 'In Dry Mill' : 'Not Started');
       const splits = dryMillGradesArray.filter(grade => grade.batchNumber === (batch.parentBatchNumber || batch.batchNumber)) || [];
       const receiving = receivingDataArray.find(r => r.batchNumber === batch.batchNumber) || {};
-      const isStored = receiving.currentAssign === 1 || splits.every(split => split.is_stored) || !splits.length;
+      // Updated isStored logic: A batch is stored if currentAssign is 0 (RFID unassigned) AND either there are no splits OR all splits are stored
+      const hasSplits = splits.length > 0;
+      const allSplitsStored = hasSplits ? splits.every(split => split.is_stored) : false;
+      const isStored = receiving.currentAssign === 0 && (!hasSplits || allSplitsStored);
 
       return {
         ...batch,
