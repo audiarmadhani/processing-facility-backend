@@ -15,26 +15,23 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
   try {
     t = await sequelize.transaction();
 
+    // Join DryMillData with PreprocessingData and ReceivingData to fetch parent batch metadata
     const [dryMillEntry] = await sequelize.query(`
-      SELECT "entered_at" FROM "DryMillData" WHERE "batchNumber" = :batchNumber AND "entered_at" IS NOT NULL LIMIT 1;
+      SELECT dm."entered_at", pp."processingType", pp."productLine", pp."producer", rd."type"
+      FROM "DryMillData" dm
+      JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber"
+      JOIN "ReceivingData" rd ON dm."batchNumber" = rd."batchNumber"
+      WHERE dm."batchNumber" = :batchNumber
+      AND dm."entered_at" IS NOT NULL
+      LIMIT 1;
     `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT });
 
     if (!dryMillEntry) {
       await t.rollback();
-      return res.status(400).json({ error: 'Batch must be entered into dry mill first.' });
+      return res.status(400).json({ error: 'Batch must be entered into dry mill first or metadata not found.' });
     }
 
-    const [parentBatch] = await sequelize.query(`
-      SELECT type, "processingType", "productLine", producer, notes
-      FROM "PostprocessingData"
-      WHERE "batchNumber" = :batchNumber
-      LIMIT 1;
-    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT });
-
-    if (!parentBatch) {
-      await t.rollback();
-      return res.status(404).json({ error: 'Parent batch not found.' });
-    }
+    const parentBatch = dryMillEntry;
 
     const results = [];
     const subBatches = [];
@@ -100,19 +97,18 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       const totalBags = Math.ceil(weight / 60);
 
       const [subBatch] = await sequelize.query(`
-        INSERT INTO "PostprocessingData" ("batchNumber", "referenceNumber", type, "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt", "parentBatchNumber")
-        VALUES (:batchNumber, :referenceNumber, :type, :processingType, :productLine, :weight, :totalBags, :notes, :quality, :producer, :storedDate, :createdAt, :updatedAt, :parentBatchNumber)
+        INSERT INTO "PostprocessingData" ("batchNumber", "referenceNumber", "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt", "parentBatchNumber")
+        VALUES (:batchNumber, :referenceNumber, :processingType, :productLine, :weight, :totalBags, :notes, :quality, :producer, :storedDate, :createdAt, :updatedAt, :parentBatchNumber)
         RETURNING *;
       `, {
         replacements: {
           batchNumber: newBatchNumber,
           referenceNumber,
-          type: parentBatch.type,
           processingType: parentBatch.processingType,
           productLine: parentBatch.productLine,
           weight: parseFloat(weight),
           totalBags,
-          notes: parentBatch.notes || '',
+          notes: '', // Notes are optional and not sourced from PreprocessingData
           quality: grade,
           producer: parentBatch.producer,
           storedDate: new Date(),
@@ -188,7 +184,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
 
     await sequelize.query(`
       UPDATE "ReceivingData"
-      SET "is_stored" = TRUE, "currentAssign" = 0
+      SET "currentAssign" = 0
       WHERE "batchNumber" = :batchNumber;
     `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
 
@@ -210,7 +206,7 @@ router.post('/dry-mill/scan', async (req, res) => {
     return res.status(400).json({ error: 'RFID tag is required.' });
   }
 
-  if (!scanned_at || scanned_at !== 'Dry Mill') {
+  if (!scanned_at || scanned_at !== 'Dry_Mill') {
     return res.status(400).json({ error: 'Invalid scanner identifier. Must be "Dry Mill".' });
   }
 
@@ -218,7 +214,7 @@ router.post('/dry-mill/scan', async (req, res) => {
 
   try {
     const [batch] = await sequelize.query(`
-      SELECT "batchNumber", "is_stored", "currentAssign"
+      SELECT "batchNumber", "currentAssign"
       FROM "ReceivingData"
       WHERE "rfid" = :rfid
       AND "currentAssign" = 1
@@ -245,13 +241,12 @@ router.post('/dry-mill/scan', async (req, res) => {
     const [existingEntry] = await sequelize.query(`
       SELECT id, entered_at, exited_at
       FROM "DryMillData"
-      WHERE "rfid" = :rfid
-      AND "batchNumber" = :batchNumber
+      WHERE "batchNumber" = :batchNumber
       AND "entered_at" IS NOT NULL
       AND "exited_at" IS NULL
       LIMIT 1;
     `, {
-      replacements: { rfid: trimmedRfid, batchNumber },
+      replacements: { batchNumber },
       type: sequelize.QueryTypes.SELECT,
     });
 
@@ -274,11 +269,11 @@ router.post('/dry-mill/scan', async (req, res) => {
       });
     } else {
       const [result] = await sequelize.query(`
-        INSERT INTO "DryMillData" (rfid, "batchNumber", entered_at, created_at)
-        VALUES (:rfid, :batchNumber, NOW(), NOW())
+        INSERT INTO "DryMillData" ("batchNumber", entered_at, created_at)
+        VALUES (:batchNumber, NOW(), NOW())
         RETURNING *;
       `, {
-        replacements: { rfid: trimmedRfid, batchNumber },
+        replacements: { batchNumber },
         type: sequelize.QueryTypes.INSERT,
       });
 
@@ -298,28 +293,56 @@ router.post('/dry-mill/scan', async (req, res) => {
 // GET route for dry mill data
 router.get('/dry-mill-data', async (req, res) => {
   try {
-    const [postprocessingData] = await sequelize.query(`
+    // Fetch parent batches (cherry batches) from DryMillData, joined with PreprocessingData and ReceivingData for metadata
+    const [parentBatches] = await sequelize.query(`
       SELECT 
-        "batchNumber",
-        "referenceNumber",
-        type,
-        "processingType",
-        "productLine",
-        weight AS "cherry_weight",
-        "totalBags",
-        notes,
-        quality,
-        producer,
-        DATE("storedDate") AS storeddatetrunc,
-        "parentBatchNumber"
-      FROM "PostprocessingData"
-      ORDER BY "batchNumber" DESC;
+        dm."batchNumber",
+        pp."processingType",
+        pp."productLine",
+        pp."producer",
+        rd."type",
+        rd."weight" AS "cherry_weight",
+        rd."totalBags",
+        NULL AS "notes", -- Notes not available for parent batches
+        NULL AS "referenceNumber", -- Parent batches don't have a reference number
+        NULL AS quality, -- Parent batches use PreprocessingData.quality if needed
+        NULL AS "storedDate", -- Parent batches don't have a stored date
+        NULL AS "parentBatchNumber" -- Parent batches have no parent
+      FROM "DryMillData" dm
+      JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber"
+      JOIN "ReceivingData" rd ON dm."batchNumber" = rd."batchNumber"
+      ORDER BY dm."batchNumber" DESC;
     `, { type: sequelize.QueryTypes.SELECT });
 
-    const postprocessingArray = Array.isArray(postprocessingData) ? postprocessingData : postprocessingData ? [postprocessingData] : [];
+    const parentBatchesArray = Array.isArray(parentBatches) ? parentBatches : parentBatches ? [parentBatches] : [];
+
+    // Fetch sub-batches (green bean batches) from PostprocessingData, joined with ReceivingData for type
+    const [subBatches] = await sequelize.query(`
+      SELECT 
+        ppd."batchNumber",
+        ppd."referenceNumber",
+        rd."type",
+        ppd."processingType",
+        ppd."productLine",
+        ppd."weight",
+        ppd."totalBags",
+        ppd."notes",
+        ppd."quality",
+        ppd."producer",
+        DATE(ppd."storedDate") AS storeddatetrunc,
+        ppd."parentBatchNumber"
+      FROM "PostprocessingData" ppd
+      JOIN "ReceivingData" rd ON ppd."parentBatchNumber" = rd."batchNumber"
+      ORDER BY ppd."batchNumber" DESC;
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    const subBatchesArray = Array.isArray(subBatches) ? subBatches : subBatches ? [subBatches] : [];
+
+    // Combine parent and sub-batches
+    const postprocessingArray = [...parentBatchesArray, ...subBatchesArray];
 
     const [dryMillData] = await sequelize.query(`
-      SELECT dm.rfid, dm."batchNumber", dm.entered_at, dm.exited_at, dm.created_at
+      SELECT dm."batchNumber", dm.entered_at, dm.exited_at, dm.created_at
       FROM "DryMillData" dm
       ORDER BY dm.created_at DESC;
     `, { type: sequelize.QueryTypes.SELECT });
@@ -335,7 +358,7 @@ router.get('/dry-mill-data', async (req, res) => {
     const dryMillGradesArray = Array.isArray(dryMillGrades) ? dryMillGrades : dryMillGrades ? [dryMillGrades] : [];
 
     const [receivingData] = await sequelize.query(`
-      SELECT "batchNumber", rfid, "is_stored", "currentAssign"
+      SELECT "batchNumber", rfid, "currentAssign"
       FROM "ReceivingData"
       ORDER BY "batchNumber";
     `, { type: sequelize.QueryTypes.SELECT });
@@ -348,7 +371,7 @@ router.get('/dry-mill-data', async (req, res) => {
       const status = latestEntry?.exited_at ? 'Processed' : (latestEntry?.entered_at ? 'In Dry Mill' : 'Not Started');
       const splits = dryMillGradesArray.filter(grade => grade.batchNumber === (batch.parentBatchNumber || batch.batchNumber)) || [];
       const receiving = receivingDataArray.find(r => r.batchNumber === batch.batchNumber) || {};
-      const isStored = receiving.is_stored || splits.every(split => split.is_stored) || !splits.length;
+      const isStored = receiving.currentAssign === 0 || splits.every(split => split.is_stored) || !splits.length;
 
       return {
         ...batch,
@@ -422,7 +445,7 @@ router.post('/warehouse/scan', async (req, res) => {
 
     await sequelize.query(`
       UPDATE "ReceivingData"
-      SET "is_stored" = TRUE, "currentAssign" = 0
+      SET "currentAssign" = 0
       WHERE "batchNumber" = :batchNumber;
     `, {
       replacements: { batchNumber },
@@ -450,7 +473,7 @@ router.post('/rfid/reuse', async (req, res) => {
 
   try {
     const [batch] = await sequelize.query(`
-      SELECT "rfid", "is_stored", "currentAssign"
+      SELECT "rfid", "currentAssign"
       FROM "ReceivingData"
       WHERE "batchNumber" = :batchNumber
       LIMIT 1;
@@ -463,7 +486,7 @@ router.post('/rfid/reuse', async (req, res) => {
       return res.status(404).json({ error: 'Batch not found.' });
     }
 
-    if (!batch.is_stored || batch.currentAssign) {
+    if (batch.currentAssign !== 0) {
       return res.status(400).json({ error: 'RFID tag is not ready for reuse.' });
     }
 
