@@ -69,91 +69,110 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
     let sequenceNumber = existingBatches.length > 0 ? parseInt(existingBatches[0].batchNumber.split('-').pop(), 10) : 0;
 
-    for (const { grade, weight, bagged_at } of grades) {
+    for (const { grade, bagWeights, bagged_at } of grades) {
       if (!grade || typeof grade !== 'string' || grade.trim() === '') {
         await t.rollback();
         return res.status(400).json({ error: 'Each entry must have a valid grade.' });
       }
 
-      let parsedWeight = null;
-      if (weight !== undefined && weight !== null && weight !== '') {
-        const weightNum = parseFloat(weight);
-        if (isNaN(weightNum) || weightNum <= 0) {
-          await t.rollback();
-          return res.status(400).json({ error: `Invalid weight for grade ${grade}: must be a positive number.` });
-        }
-        parsedWeight = weightNum;
+      if (!Array.isArray(bagWeights) || bagWeights.length === 0) {
+        await t.rollback();
+        return res.status(400).json({ error: `No valid bag weights provided for grade ${grade}.` });
       }
 
+      const weights = bagWeights.map(w => {
+        const weightNum = parseFloat(w);
+        if (isNaN(weightNum) || weightNum <= 0) {
+          throw new Error(`Invalid weight for grade ${grade}: must be a positive number.`);
+        }
+        return weightNum;
+      });
+      const totalWeight = weights.reduce((sum, w) => sum + w, 0);
       const baggedAtValue = bagged_at || null;
 
       const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '')}`;
-      const [result] = await sequelize.query(`
+      const [gradeResult] = await sequelize.query(`
         INSERT INTO "DryMillGrades" ("batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "is_stored")
         VALUES (:batchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, FALSE)
         ON CONFLICT ("subBatchId") DO UPDATE SET weight = :weight, split_at = NOW(), bagged_at = :bagged_at, "is_stored" = FALSE
-        RETURNING *;
+        RETURNING id;
       `, { 
         replacements: { 
           batchNumber, 
           subBatchId, 
           grade, 
-          weight: parsedWeight, 
+          weight: totalWeight, 
           bagged_at: baggedAtValue 
         }, 
         transaction: t,
         type: sequelize.QueryTypes.INSERT 
       });
-      results.push(result[0]);
+      const gradeId = gradeResult[0].id;
 
-      if (parsedWeight !== null) {
-        const [referenceResults] = await sequelize.query(
-          'SELECT "referenceNumber" FROM "ReferenceMappings_duplicate" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "quality" = ? AND "type" = ?',
-          { replacements: [parentBatch.productLine, parentBatch.processingType, parentBatch.producer, grade, parentBatch.type], transaction: t }
-        );
-
-        if (referenceResults.length === 0) {
-          await t.rollback();
-          return res.status(400).json({ error: `No matching reference number found for grade ${grade}` });
-        }
-
-        const referenceNumber = referenceResults[0].referenceNumber;
-
-        sequenceNumber += 1;
-        const newBatchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}`;
-
-        const totalBags = Math.ceil(parsedWeight / 60);
-
-        const [subBatch] = await sequelize.query(`
-          INSERT INTO "PostprocessingData" ("batchNumber", "referenceNumber", "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt", "parentBatchNumber")
-          VALUES (:batchNumber, :referenceNumber, :processingType, :productLine, :weight, :totalBags, :notes, :quality, :producer, :storedDate, :createdAt, :updatedAt, :parentBatchNumber)
-          RETURNING *;
+      // Insert individual bag details
+      for (let i = 0; i < weights.length; i++) {
+        await sequelize.query(`
+          INSERT INTO "BagDetails" (grade_id, bag_number, weight, bagged_at)
+          VALUES (:gradeId, :bagNumber, :weight, :baggedAt)
         `, {
           replacements: {
-            batchNumber: newBatchNumber,
-            referenceNumber,
-            processingType: parentBatch.processingType,
-            productLine: parentBatch.productLine,
-            weight: parsedWeight,
-            totalBags,
-            notes: '',
-            quality: grade,
-            producer: parentBatch.producer,
-            storedDate: new Date(),
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            parentBatchNumber: batchNumber,
+            gradeId,
+            bagNumber: i + 1,
+            weight: weights[i],
+            baggedAt: baggedAtValue
           },
           transaction: t,
-          type: sequelize.QueryTypes.INSERT,
-        });
-
-        subBatches.push({
-          batchNumber: newBatchNumber,
-          referenceNumber,
-          quality: grade,
+          type: sequelize.QueryTypes.INSERT
         });
       }
+
+      results.push({ ...gradeResult[0], bagWeights: weights });
+
+      const [referenceResults] = await sequelize.query(
+        'SELECT "referenceNumber" FROM "ReferenceMappings_duplicate" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "quality" = ? AND "type" = ?',
+        { replacements: [parentBatch.productLine, parentBatch.processingType, parentBatch.producer, grade, parentBatch.type], transaction: t }
+      );
+
+      if (referenceResults.length === 0) {
+        await t.rollback();
+        return res.status(400).json({ error: `No matching reference number found for grade ${grade}` });
+      }
+
+      const referenceNumber = referenceResults[0].referenceNumber;
+
+      sequenceNumber += 1;
+      const newBatchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}`;
+      const totalBags = weights.length;
+
+      const [subBatch] = await sequelize.query(`
+        INSERT INTO "PostprocessingData" ("batchNumber", "referenceNumber", "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt", "parentBatchNumber")
+        VALUES (:batchNumber, :referenceNumber, :processingType, :productLine, :weight, :totalBags, :notes, :quality, :producer, :storedDate, :createdAt, :updatedAt, :parentBatchNumber)
+        RETURNING *;
+      `, {
+        replacements: {
+          batchNumber: newBatchNumber,
+          referenceNumber,
+          processingType: parentBatch.processingType,
+          productLine: parentBatch.productLine,
+          weight: totalWeight,
+          totalBags,
+          notes: '',
+          quality: grade,
+          producer: parentBatch.producer,
+          storedDate: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          parentBatchNumber: batchNumber,
+        },
+        transaction: t,
+        type: sequelize.QueryTypes.INSERT,
+      });
+
+      subBatches.push({
+        batchNumber: newBatchNumber,
+        referenceNumber,
+        quality: grade,
+      });
     }
 
     await t.commit();
@@ -243,6 +262,12 @@ router.get('/dry-mill-data', async (req, res) => {
     const debugDryMillGradesResult = await sequelize.query(debugDryMillGradesQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
     console.log('Debug DryMillGrades Raw Result:', debugDryMillGradesResult);
 
+    const debugBagDetailsQuery = `
+      SELECT * FROM "BagDetails" WHERE grade_id IN (SELECT id FROM "DryMillGrades" WHERE "batchNumber" = '2025-05-01-0001') ORDER BY bag_number;
+    `;
+    const debugBagDetailsResult = await sequelize.query(debugBagDetailsQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
+    console.log('Debug BagDetails Raw Result:', debugBagDetailsResult);
+
     // Fetch parent batches
     const parentBatchesQuery = `
       SELECT 
@@ -302,13 +327,23 @@ router.get('/dry-mill-data', async (req, res) => {
     const dryMillDataArray = Array.isArray(dryMillDataResult) ? dryMillDataResult : dryMillDataResult ? [dryMillDataResult] : [];
 
     const dryMillGradesQuery = `
-      SELECT dg."batchNumber", dg."subBatchId", dg.grade, dg.weight, dg.split_at, dg.bagged_at, dg."is_stored"
+      SELECT dg."batchNumber", dg."subBatchId", dg.id, dg.grade, dg.weight, dg.split_at, dg.bagged_at, dg."is_stored"
       FROM "DryMillGrades" dg
       ORDER BY dg."batchNumber", dg."subBatchId";
     `;
     const dryMillGradesResult = await sequelize.query(dryMillGradesQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
     const dryMillGradesArray = Array.isArray(dryMillGradesResult) ? dryMillGradesResult : dryMillGradesResult ? [dryMillGradesResult] : [];
     console.log('dryMillGradesArray:', dryMillGradesArray);
+
+    const bagDetailsQuery = `
+      SELECT bd.*, dg."batchNumber"
+      FROM "BagDetails" bd
+      JOIN "DryMillGrades" dg ON bd.grade_id = dg.id
+      ORDER BY dg."batchNumber", bd.bag_number;
+    `;
+    const bagDetailsResult = await sequelize.query(bagDetailsQuery, { type: sequelize.QueryTypes.SELECT, raw: true });
+    const bagDetailsArray = Array.isArray(bagDetailsResult) ? bagDetailsResult : bagDetailsResult ? [bagDetailsResult] : [];
+    console.log('bagDetailsArray:', bagDetailsArray);
 
     const receivingDataQuery = `
       SELECT "batchNumber", rfid, "currentAssign"
@@ -324,10 +359,11 @@ router.get('/dry-mill-data', async (req, res) => {
       const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
       const status = latestEntry?.exited_at ? 'Processed' : (latestEntry?.entered_at ? 'In Dry Mill' : 'Not Started');
 
-      const splits = dryMillGradesArray.filter(grade => grade.batchNumber === relevantBatchNumber) || [];
+      const grades = dryMillGradesArray.filter(grade => grade.batchNumber === relevantBatchNumber) || [];
+      const bags = bagDetailsArray.filter(bag => grades.some(g => g.id === bag.grade_id)) || [];
       const receiving = receivingDataArray.find(r => r.batchNumber === (batch.parentBatchNumber || batch.batchNumber)) || {};
-      const hasSplits = splits.length > 0;
-      const allSplitsStored = hasSplits ? splits.every(split => split.is_stored) : false;
+      const hasSplits = grades.length > 0;
+      const allSplitsStored = hasSplits ? grades.every(g => g.is_stored && bags.every(b => b.is_stored)) : false;
       const isStored = receiving.currentAssign === 0 && (!hasSplits || allSplitsStored);
 
       return {
@@ -336,9 +372,10 @@ router.get('/dry-mill-data', async (req, res) => {
         dryMillEntered: latestEntry?.entered_at ? new Date(latestEntry.entered_at).toISOString().slice(0, 10) : 'N/A',
         dryMillExited: latestEntry?.exited_at ? new Date(latestEntry.exited_at).toISOString().slice(0, 10) : 'N/A',
         rfid: receiving.rfid || 'N/A',
-        green_bean_splits: splits.length > 0 ? 
-          splits.map(split => 
-            `Grade: ${split.grade}, Weight: ${split.weight ? split.weight + ' kg' : 'N/A'}, Split: ${new Date(split.split_at).toISOString().slice(0, 19).replace('T', ' ')}, Bagged: ${split.bagged_at ? new Date(split.bagged_at).toISOString().slice(0, 10) : 'N/A'}, Stored: ${split.is_stored ? 'Yes' : 'No'}`
+        bagWeights: bags.map(b => b.weight),
+        green_bean_splits: grades.length > 0 ? 
+          grades.map(g => 
+            `Grade: ${g.grade}, Weight: ${g.weight ? g.weight + ' kg' : 'N/A'}, Split: ${new Date(g.split_at).toISOString().slice(0, 19).replace('T', ' ')}, Bagged: ${g.bagged_at ? new Date(g.bagged_at).toISOString().slice(0, 10) : 'N/A'}, Stored: ${g.is_stored ? 'Yes' : 'No'}`
           ).join('; ') : null,
         isStored,
       };
@@ -396,6 +433,15 @@ router.post('/warehouse/scan', async (req, res) => {
       UPDATE "DryMillGrades"
       SET "is_stored" = TRUE
       WHERE "batchNumber" = :batchNumber;
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.UPDATE,
+    });
+
+    await sequelize.query(`
+      UPDATE "BagDetails"
+      SET is_stored = TRUE
+      WHERE grade_id IN (SELECT id FROM "DryMillGrades" WHERE "batchNumber" = :batchNumber);
     `, {
       replacements: { batchNumber },
       type: sequelize.QueryTypes.UPDATE,
@@ -473,10 +519,13 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
 
   try {
     const [grades] = await sequelize.query(`
-      SELECT grade, weight, bagged_at, is_stored
-      FROM "DryMillGrades"
-      WHERE "batchNumber" = :batchNumber
-      ORDER BY grade;
+      SELECT dg.id, dg.grade, dg.weight, dg.bagged_at, dg."is_stored",
+             ARRAY_AGG(bd.weight ORDER BY bd.bag_number) AS bag_weights
+      FROM "DryMillGrades" dg
+      LEFT JOIN "BagDetails" bd ON dg.id = bd.grade_id
+      WHERE dg."batchNumber" = :batchNumber
+      GROUP BY dg.id, dg.grade, dg.weight, dg.bagged_at, dg."is_stored"
+      ORDER BY dg.grade;
     `, {
       replacements: { batchNumber },
       type: sequelize.QueryTypes.SELECT,
@@ -485,16 +534,17 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
     const formattedGrades = grades.map(grade => ({
       grade: grade.grade,
       weight: grade.weight ? grade.weight.toString() : '',
+      bagWeights: grade.bag_weights || [],
       bagged_at: grade.bagged_at ? new Date(grade.bagged_at).toISOString().slice(0, 10) : '',
     }));
 
     if (formattedGrades.length === 0) {
       return res.status(200).json([
-        { grade: 'Specialty Grade', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
-        { grade: 'Grade 1', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
-        { grade: 'Grade 2', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
-        { grade: 'Grade 3', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
-        { grade: 'Grade 4', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
+        { grade: 'Specialty Grade', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
+        { grade: 'Grade 1', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
+        { grade: 'Grade 2', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
+        { grade: 'Grade 3', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
+        { grade: 'Grade 4', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
       ]);
     }
 
