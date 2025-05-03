@@ -46,6 +46,25 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
     const parentBatch = dryMillEntry;
 
+    // Delete existing data for this batch
+    // 1. Delete from BagDetails (dependent on DryMillGrades)
+    await sequelize.query(`
+      DELETE FROM "BagDetails"
+      WHERE grade_id IN (SELECT "subBatchId" FROM "DryMillGrades" WHERE "batchNumber" = :batchNumber)
+    `, { replacements: { batchNumber }, transaction: t });
+
+    // 2. Delete from DryMillGrades
+    await sequelize.query(`
+      DELETE FROM "DryMillGrades"
+      WHERE "batchNumber" = :batchNumber
+    `, { replacements: { batchNumber }, transaction: t });
+
+    // 3. Delete from PostprocessingData
+    await sequelize.query(`
+      DELETE FROM "PostprocessingData"
+      WHERE "parentBatchNumber" = :batchNumber
+    `, { replacements: { batchNumber }, transaction: t });
+
     const results = [];
     const subBatches = [];
 
@@ -68,6 +87,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     const processingAbbreviation = processingResults[0].abbreviation;
     const batchPrefix = `${parentBatch.producer}${currentYear}${productAbbreviation}-${processingAbbreviation}`;
 
+    // Fetch the highest sequence number for the batch prefix
     const [existingBatches] = await sequelize.query(
       'SELECT "batchNumber" FROM "PostprocessingData" WHERE "batchNumber" LIKE ? ORDER BY "batchNumber" DESC LIMIT 1',
       { replacements: [`${batchPrefix}-%`], transaction: t }
@@ -92,11 +112,11 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       const baggedAtValue = bagged_at || null;
 
       const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '')}`;
-      const [gradeResult] = await sequelize.query(`
+
+      // Insert into DryMillGrades
+      await sequelize.query(`
         INSERT INTO "DryMillGrades" ("batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "is_stored")
         VALUES (:batchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, FALSE)
-        ON CONFLICT ("subBatchId") DO UPDATE SET weight = :weight, split_at = NOW(), bagged_at = :bagged_at, "is_stored" = FALSE
-        RETURNING "subBatchId";
       `, { 
         replacements: { 
           batchNumber, 
@@ -109,16 +129,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         type: sequelize.QueryTypes.INSERT 
       });
 
-      // Delete existing BagDetails for this subBatchId
-      await sequelize.query(`
-        DELETE FROM "BagDetails"
-        WHERE grade_id = :gradeId
-      `, {
-        replacements: { gradeId: subBatchId },
-        transaction: t
-      });
-
-      // Insert individual bag details
+      // Insert individual bag details into BagDetails
       for (let i = 0; i < weights.length; i++) {
         await sequelize.query(`
           INSERT INTO "BagDetails" (grade_id, bag_number, weight, bagged_at)
@@ -179,22 +190,10 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       const newBatchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}${qualitySuffix}`;
       const totalBags = bagWeights.length;
 
-      const [subBatch] = await sequelize.query(`
+      // Insert into PostprocessingData
+      await sequelize.query(`
         INSERT INTO "PostprocessingData" ("batchNumber", "referenceNumber", "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt", "parentBatchNumber")
         VALUES (:batchNumber, :referenceNumber, :processingType, :productLine, :weight, :totalBags, :notes, :quality, :producer, :storedDate, :createdAt, :updatedAt, :parentBatchNumber)
-        ON CONFLICT ("batchNumber") DO UPDATE
-        SET "referenceNumber" = :referenceNumber,
-            "processingType" = :processingType,
-            "productLine" = :productLine,
-            weight = :weight,
-            "totalBags" = :totalBags,
-            notes = :notes,
-            quality = :quality,
-            producer = :producer,
-            "storedDate" = :storedDate,
-            "updatedAt" = :updatedAt,
-            "parentBatchNumber" = :parentBatchNumber
-        RETURNING *;
       `, {
         replacements: {
           batchNumber: newBatchNumber,
