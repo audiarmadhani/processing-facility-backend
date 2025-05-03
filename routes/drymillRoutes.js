@@ -279,7 +279,7 @@ router.get('/dry-mill-data', async (req, res) => {
       const status = latestEntry?.exited_at ? 'Processed' : (latestEntry?.entered_at ? 'In Dry Mill' : 'Not Started');
       const splits = dryMillGradesArray.filter(grade => grade.batchNumber === (batch.parentBatchNumber || batch.batchNumber)) || [];
       const receiving = receivingDataArray.find(r => r.batchNumber === batch.batchNumber) || {};
-      const isStored = receiving.currentAssign === 0 || splits.every(split => split.is_stored) || !splits.length;
+      const isStored = receiving.currentAssign === 1 || splits.every(split => split.is_stored) || !splits.length;
 
       return {
         ...batch,
