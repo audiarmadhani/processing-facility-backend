@@ -75,9 +75,9 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         return res.status(400).json({ error: 'Each entry must have a valid grade.' });
       }
 
-      if (!Array.isArray(bagWeights) || bagWeights.length === 0) {
+      if (!Array.isArray(bagWeights)) {
         await t.rollback();
-        return res.status(400).json({ error: `No valid bag weights provided for grade ${grade}.` });
+        return res.status(400).json({ error: `Bag weights for grade ${grade} must be an array.` });
       }
 
       const weights = bagWeights.map(w => {
@@ -87,7 +87,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         }
         return weightNum;
       });
-      const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+      const totalWeight = bagWeights.length > 0 ? weights.reduce((sum, w) => sum + w, 0) : 0;
       const baggedAtValue = bagged_at || null;
 
       const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '')}`;
@@ -108,28 +108,40 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         type: sequelize.QueryTypes.INSERT 
       });
 
-      // Insert individual bag details
-      for (let i = 0; i < weights.length; i++) {
-        await sequelize.query(`
-          INSERT INTO "BagDetails" (grade_id, bag_number, weight, bagged_at)
-          VALUES (:gradeId, :bagNumber, :weight, :baggedAt)
-        `, {
-          replacements: {
-            gradeId: subBatchId,
-            bagNumber: i + 1,
-            weight: weights[i],
-            baggedAt: baggedAtValue
-          },
-          transaction: t,
-          type: sequelize.QueryTypes.INSERT
-        });
+      // Delete existing BagDetails for this subBatchId
+      await sequelize.query(`
+        DELETE FROM "BagDetails"
+        WHERE grade_id = :gradeId
+      `, {
+        replacements: { gradeId: subBatchId },
+        transaction: t
+      });
+
+      // Insert individual bag details if there are bag weights
+      if (bagWeights.length > 0) {
+        for (let i = 0; i < weights.length; i++) {
+          await sequelize.query(`
+            INSERT INTO "BagDetails" (grade_id, bag_number, weight, bagged_at)
+            VALUES (:gradeId, :bagNumber, :weight, :baggedAt)
+          `, {
+            replacements: {
+              gradeId: subBatchId,
+              bagNumber: i + 1,
+              weight: weights[i],
+              baggedAt: baggedAtValue
+            },
+            transaction: t,
+            type: sequelize.QueryTypes.INSERT
+          });
+        }
       }
 
       results.push({ subBatchId, grade, weight: totalWeight, bagWeights: weights, bagged_at: baggedAtValue });
 
+      // Look up the base reference number from ReferenceMappings_duplicate (without quality)
       const [referenceResults] = await sequelize.query(
-        'SELECT "referenceNumber" FROM "ReferenceMappings_duplicate" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "quality" = ? AND "type" = ?',
-        { replacements: [parentBatch.productLine, parentBatch.processingType, parentBatch.producer, grade, parentBatch.type], transaction: t }
+        'SELECT "referenceNumber" FROM "ReferenceMappings_duplicate" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "type" = ? LIMIT 1',
+        { replacements: [parentBatch.productLine, parentBatch.processingType, parentBatch.producer, parentBatch.type], transaction: t }
       );
 
       if (referenceResults.length === 0) {
@@ -137,15 +149,53 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         return res.status(400).json({ error: `No matching reference number found for grade ${grade}` });
       }
 
-      const referenceNumber = referenceResults[0].referenceNumber;
+      const baseReferenceNumber = referenceResults[0].referenceNumber;
+
+      // Determine the quality suffix based on the grade
+      let qualitySuffix;
+      switch (grade) {
+        case 'Specialty Grade':
+          qualitySuffix = '-S';
+          break;
+        case 'Grade 1':
+          qualitySuffix = '-G1';
+          break;
+        case 'Grade 2':
+          qualitySuffix = '-G2';
+          break;
+        case 'Grade 3':
+          qualitySuffix = '-G3';
+          break;
+        case 'Grade 4':
+          qualitySuffix = '-G4';
+          break;
+        default:
+          await t.rollback();
+          return res.status(400).json({ error: `Invalid grade: ${grade}` });
+      }
+
+      // Construct the new reference number
+      const referenceNumber = `${baseReferenceNumber}${qualitySuffix}`;
 
       sequenceNumber += 1;
       const newBatchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}`;
-      const totalBags = weights.length;
+      const totalBags = bagWeights.length;
 
       const [subBatch] = await sequelize.query(`
         INSERT INTO "PostprocessingData" ("batchNumber", "referenceNumber", "processingType", "productLine", weight, "totalBags", notes, quality, producer, "storedDate", "createdAt", "updatedAt", "parentBatchNumber")
         VALUES (:batchNumber, :referenceNumber, :processingType, :productLine, :weight, :totalBags, :notes, :quality, :producer, :storedDate, :createdAt, :updatedAt, :parentBatchNumber)
+        ON CONFLICT ("batchNumber") DO UPDATE
+        SET "referenceNumber" = :referenceNumber,
+            "processingType" = :processingType,
+            "productLine" = :productLine,
+            weight = :weight,
+            "totalBags" = :totalBags,
+            notes = :notes,
+            quality = :quality,
+            producer = :producer,
+            "storedDate" = :storedDate,
+            "updatedAt" = :updatedAt,
+            "parentBatchNumber" = :parentBatchNumber
         RETURNING *;
       `, {
         replacements: {
