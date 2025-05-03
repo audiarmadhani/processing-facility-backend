@@ -239,11 +239,11 @@ router.get('/dry-mill-data', async (req, res) => {
         rd."type",
         rd."weight" AS "cherry_weight",
         rd."totalBags",
-        NULL AS "notes", -- Notes not available for parent batches
-        NULL AS "referenceNumber", -- Parent batches don't have a reference number
-        NULL AS quality, -- Parent batches use PreprocessingData.quality if needed
-        NULL AS "storedDate", -- Parent batches don't have a stored date
-        NULL AS "parentBatchNumber" -- Parent batches have no parent
+        NULL AS "notes",
+        NULL AS "referenceNumber",
+        NULL AS quality,
+        NULL AS "storedDate",
+        NULL AS "parentBatchNumber"
       FROM "DryMillData" dm
       JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber"
       JOIN "ReceivingData" rd ON dm."batchNumber" = rd."batchNumber"
@@ -273,9 +273,11 @@ router.get('/dry-mill-data', async (req, res) => {
     `, { type: sequelize.QueryTypes.SELECT });
 
     const subBatchesArray = Array.isArray(subBatches) ? subBatches : subBatches ? [subBatches] : [];
+    console.log('subBatchesArray:', subBatchesArray); // Debug log to verify sub-batches
 
     // Combine parent and sub-batches
     const postprocessingArray = [...parentBatchesArray, ...subBatchesArray];
+    console.log('postprocessingArray:', postprocessingArray); // Debug log to verify combined array
 
     const [dryMillData] = await sequelize.query(`
       SELECT dm."batchNumber", dm.entered_at, dm.exited_at, dm.created_at
@@ -292,6 +294,7 @@ router.get('/dry-mill-data', async (req, res) => {
     `, { type: sequelize.QueryTypes.SELECT });
 
     const dryMillGradesArray = Array.isArray(dryMillGrades) ? dryMillGrades : dryMillGrades ? [dryMillGrades] : [];
+    console.log('dryMillGradesArray:', dryMillGradesArray); // Debug log to verify grades
 
     const [receivingData] = await sequelize.query(`
       SELECT "batchNumber", rfid, "currentAssign"
@@ -302,12 +305,14 @@ router.get('/dry-mill-data', async (req, res) => {
     const receivingDataArray = Array.isArray(receivingData) ? receivingData : receivingData ? [receivingData] : [];
 
     const data = postprocessingArray.map(batch => {
-      const batchDryMillData = dryMillDataArray.filter(data => data.batchNumber === batch.batchNumber) || [];
+      // For sub-batches, look up the DryMillData using parentBatchNumber; for parent batches, use batchNumber
+      const relevantBatchNumber = batch.parentBatchNumber || batch.batchNumber;
+      const batchDryMillData = dryMillDataArray.filter(data => data.batchNumber === relevantBatchNumber) || [];
       const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
       const status = latestEntry?.exited_at ? 'Processed' : (latestEntry?.entered_at ? 'In Dry Mill' : 'Not Started');
-      const splits = dryMillGradesArray.filter(grade => grade.batchNumber === (batch.parentBatchNumber || batch.batchNumber)) || [];
-      const receiving = receivingDataArray.find(r => r.batchNumber === batch.batchNumber) || {};
-      // Updated isStored logic: A batch is stored if currentAssign is 0 (RFID unassigned) AND either there are no splits OR all splits are stored
+
+      const splits = dryMillGradesArray.filter(grade => grade.batchNumber === relevantBatchNumber) || [];
+      const receiving = receivingDataArray.find(r => r.batchNumber === (batch.parentBatchNumber || batch.batchNumber)) || {};
       const hasSplits = splits.length > 0;
       const allSplitsStored = hasSplits ? splits.every(split => split.is_stored) : false;
       const isStored = receiving.currentAssign === 0 && (!hasSplits || allSplitsStored);
@@ -326,6 +331,7 @@ router.get('/dry-mill-data', async (req, res) => {
       };
     });
 
+    console.log('Final data:', data); // Debug log to verify final output
     res.status(200).json(data);
   } catch (error) {
     console.error('Error fetching dry mill data:', error);
