@@ -2,6 +2,14 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 
+// Log database connection details for debugging
+console.log('Database connection:', {
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  username: process.env.DB_USER,
+  port: process.env.DB_PORT
+});
+
 // POST route for manual green bean splitting, weighing, and bagging
 router.post('/dry-mill/:batchNumber/split', async (req, res) => {
   const { batchNumber } = req.params;
@@ -15,7 +23,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
   try {
     t = await sequelize.transaction();
 
-    // Join DryMillData with PreprocessingData and ReceivingData to fetch parent batch metadata
     const [dryMillEntry] = await sequelize.query(`
       SELECT dm."entered_at", pp."processingType", pp."productLine", pp."producer", rd."type"
       FROM "DryMillData" dm
@@ -36,7 +43,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     const results = [];
     const subBatches = [];
 
-    // Fetch the highest sequence number once, then increment manually for each grade
     const currentYear = new Date().getFullYear().toString().slice(-2);
     const [productResults] = await sequelize.query(
       'SELECT abbreviation FROM "ProductLines" WHERE "productLine" = ?',
@@ -64,13 +70,11 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     let sequenceNumber = existingBatches.length > 0 ? parseInt(existingBatches[0].batchNumber.split('-').pop(), 10) : 0;
 
     for (const { grade, weight, bagged_at } of grades) {
-      // Validate that grade is present and non-empty
       if (!grade || typeof grade !== 'string' || grade.trim() === '') {
         await t.rollback();
         return res.status(400).json({ error: 'Each entry must have a valid grade.' });
       }
 
-      // Parse weight: Convert to number if provided, otherwise set to NULL
       let parsedWeight = null;
       if (weight !== undefined && weight !== null && weight !== '') {
         const weightNum = parseFloat(weight);
@@ -81,7 +85,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         parsedWeight = weightNum;
       }
 
-      // bagged_at is optional: Use provided value or NULL
       const baggedAtValue = bagged_at || null;
 
       const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '')}`;
@@ -103,7 +106,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       });
       results.push(result[0]);
 
-      // Only create a sub-batch in PostprocessingData if weight is provided and valid
       if (parsedWeight !== null) {
         const [referenceResults] = await sequelize.query(
           'SELECT "referenceNumber" FROM "ReferenceMappings_duplicate" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "quality" = ? AND "type" = ?',
@@ -117,7 +119,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
         const referenceNumber = referenceResults[0].referenceNumber;
 
-        // Increment sequence number for this sub-batch
         sequenceNumber += 1;
         const newBatchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}`;
 
@@ -135,7 +136,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
             productLine: parentBatch.productLine,
             weight: parsedWeight,
             totalBags,
-            notes: '', // Notes are optional and not sourced from PreprocessingData
+            notes: '',
             quality: grade,
             producer: parentBatch.producer,
             storedDate: new Date(),
@@ -229,7 +230,20 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
 // GET route for dry mill data
 router.get('/dry-mill-data', async (req, res) => {
   try {
-    // Fetch parent batches (cherry batches) from DryMillData, joined with PreprocessingData and ReceivingData for metadata
+    // Debug queries to verify raw data
+    const [debugPostprocessing] = await sequelize.query(
+      `SELECT * FROM "PostprocessingData" WHERE "parentBatchNumber" = '2025-05-01-0001' ORDER BY "batchNumber" DESC;`,
+      { type: sequelize.QueryTypes.SELECT, raw: true }
+    );
+    console.log('Debug PostprocessingData:', debugPostprocessing);
+
+    const [debugDryMillGrades] = await sequelize.query(
+      `SELECT * FROM "DryMillGrades" WHERE "batchNumber" = '2025-05-01-0001' ORDER BY "subBatchId";`,
+      { type: sequelize.QueryTypes.SELECT, raw: true }
+    );
+    console.log('Debug DryMillGrades:', debugDryMillGrades);
+
+    // Fetch parent batches
     const [parentBatches] = await sequelize.query(`
       SELECT 
         dm."batchNumber",
@@ -248,16 +262,16 @@ router.get('/dry-mill-data', async (req, res) => {
       JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber"
       JOIN "ReceivingData" rd ON dm."batchNumber" = rd."batchNumber"
       ORDER BY dm."batchNumber" DESC;
-    `, { type: sequelize.QueryTypes.SELECT });
+    `, { type: sequelize.QueryTypes.SELECT, raw: true });
 
     const parentBatchesArray = Array.isArray(parentBatches) ? parentBatches : parentBatches ? [parentBatches] : [];
 
-    // Fetch sub-batches (green bean batches) from PostprocessingData, joined with ReceivingData for type
+    // Fetch sub-batches
     const [subBatches] = await sequelize.query(`
       SELECT 
         ppd."batchNumber",
         ppd."referenceNumber",
-        rd."type",
+        COALESCE(rd."type", 'Unknown') AS type,
         ppd."processingType",
         ppd."productLine",
         ppd."weight",
@@ -268,22 +282,21 @@ router.get('/dry-mill-data', async (req, res) => {
         DATE(ppd."storedDate") AS storeddatetrunc,
         ppd."parentBatchNumber"
       FROM "PostprocessingData" ppd
-      JOIN "ReceivingData" rd ON ppd."parentBatchNumber" = rd."batchNumber"
+      LEFT JOIN "ReceivingData" rd ON ppd."parentBatchNumber" = rd."batchNumber"
       ORDER BY ppd."batchNumber" DESC;
-    `, { type: sequelize.QueryTypes.SELECT });
+    `, { type: sequelize.QueryTypes.SELECT, raw: true });
 
     const subBatchesArray = Array.isArray(subBatches) ? subBatches : subBatches ? [subBatches] : [];
-    console.log('subBatchesArray:', subBatchesArray); // Debug log to verify sub-batches
+    console.log('subBatchesArray:', subBatchesArray);
 
-    // Combine parent and sub-batches
     const postprocessingArray = [...parentBatchesArray, ...subBatchesArray];
-    console.log('postprocessingArray:', postprocessingArray); // Debug log to verify combined array
+    console.log('postprocessingArray:', postprocessingArray);
 
     const [dryMillData] = await sequelize.query(`
       SELECT dm."batchNumber", dm.entered_at, dm.exited_at, dm.created_at
       FROM "DryMillData" dm
       ORDER BY dm.created_at DESC;
-    `, { type: sequelize.QueryTypes.SELECT });
+    `, { type: sequelize.QueryTypes.SELECT, raw: true });
 
     const dryMillDataArray = Array.isArray(dryMillData) ? dryMillData : dryMillData ? [dryMillData] : [];
 
@@ -291,21 +304,20 @@ router.get('/dry-mill-data', async (req, res) => {
       SELECT dg."batchNumber", dg."subBatchId", dg.grade, dg.weight, dg.split_at, dg.bagged_at, dg."is_stored"
       FROM "DryMillGrades" dg
       ORDER BY dg."batchNumber", dg."subBatchId";
-    `, { type: sequelize.QueryTypes.SELECT });
+    `, { type: sequelize.QueryTypes.SELECT, raw: true });
 
     const dryMillGradesArray = Array.isArray(dryMillGrades) ? dryMillGrades : dryMillGrades ? [dryMillGrades] : [];
-    console.log('dryMillGradesArray:', dryMillGradesArray); // Debug log to verify grades
+    console.log('dryMillGradesArray:', dryMillGradesArray);
 
     const [receivingData] = await sequelize.query(`
       SELECT "batchNumber", rfid, "currentAssign"
       FROM "ReceivingData"
       ORDER BY "batchNumber";
-    `, { type: sequelize.QueryTypes.SELECT });
+    `, { type: sequelize.QueryTypes.SELECT, raw: true });
 
     const receivingDataArray = Array.isArray(receivingData) ? receivingData : receivingData ? [receivingData] : [];
 
     const data = postprocessingArray.map(batch => {
-      // For sub-batches, look up the DryMillData using parentBatchNumber; for parent batches, use batchNumber
       const relevantBatchNumber = batch.parentBatchNumber || batch.batchNumber;
       const batchDryMillData = dryMillDataArray.filter(data => data.batchNumber === relevantBatchNumber) || [];
       const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
@@ -331,7 +343,7 @@ router.get('/dry-mill-data', async (req, res) => {
       };
     });
 
-    console.log('Final data:', data); // Debug log to verify final output
+    console.log('Final data:', data);
     res.status(200).json(data);
   } catch (error) {
     console.error('Error fetching dry mill data:', error);
@@ -471,11 +483,10 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
 
     const formattedGrades = grades.map(grade => ({
       grade: grade.grade,
-      weight: grade.weight ? grade.weight.toString() : '', // Convert to string for TextField
+      weight: grade.weight ? grade.weight.toString() : '',
       bagged_at: grade.bagged_at ? new Date(grade.bagged_at).toISOString().slice(0, 10) : '',
     }));
 
-    // If no grades exist, return default grades
     if (formattedGrades.length === 0) {
       return res.status(200).json([
         { grade: 'Specialty Grade', weight: '', bagged_at: new Date().toISOString().slice(0, 10) },
