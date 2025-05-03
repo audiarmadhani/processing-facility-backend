@@ -19,6 +19,12 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     return res.status(400).json({ error: 'Batch number and valid grades are required.' });
   }
 
+  // Filter out grades with no bags
+  const validGrades = grades.filter(g => Array.isArray(g.bagWeights) && g.bagWeights.length > 0);
+  if (validGrades.length === 0) {
+    return res.status(400).json({ error: 'At least one grade must have bags added.' });
+  }
+
   let t;
   try {
     t = await sequelize.transaction();
@@ -67,17 +73,12 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       { replacements: [`${batchPrefix}-%`], transaction: t }
     );
 
-    let sequenceNumber = existingBatches.length > 0 ? parseInt(existingBatches[0].batchNumber.split('-').pop(), 10) : 0;
+    let sequenceNumber = existingBatches.length > 0 ? parseInt(existingBatches[0].batchNumber.split('-').slice(-2, -1)[0], 10) : 0;
 
-    for (const { grade, bagWeights, bagged_at } of grades) {
+    for (const { grade, bagWeights, bagged_at } of validGrades) {
       if (!grade || typeof grade !== 'string' || grade.trim() === '') {
         await t.rollback();
         return res.status(400).json({ error: 'Each entry must have a valid grade.' });
-      }
-
-      if (!Array.isArray(bagWeights)) {
-        await t.rollback();
-        return res.status(400).json({ error: `Bag weights for grade ${grade} must be an array.` });
       }
 
       const weights = bagWeights.map(w => {
@@ -87,7 +88,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         }
         return weightNum;
       });
-      const totalWeight = bagWeights.length > 0 ? weights.reduce((sum, w) => sum + w, 0) : 0;
+      const totalWeight = weights.reduce((sum, w) => sum + w, 0);
       const baggedAtValue = bagged_at || null;
 
       const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '')}`;
@@ -117,23 +118,21 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         transaction: t
       });
 
-      // Insert individual bag details if there are bag weights
-      if (bagWeights.length > 0) {
-        for (let i = 0; i < weights.length; i++) {
-          await sequelize.query(`
-            INSERT INTO "BagDetails" (grade_id, bag_number, weight, bagged_at)
-            VALUES (:gradeId, :bagNumber, :weight, :baggedAt)
-          `, {
-            replacements: {
-              gradeId: subBatchId,
-              bagNumber: i + 1,
-              weight: weights[i],
-              baggedAt: baggedAtValue
-            },
-            transaction: t,
-            type: sequelize.QueryTypes.INSERT
-          });
-        }
+      // Insert individual bag details
+      for (let i = 0; i < weights.length; i++) {
+        await sequelize.query(`
+          INSERT INTO "BagDetails" (grade_id, bag_number, weight, bagged_at)
+          VALUES (:gradeId, :bagNumber, :weight, :baggedAt)
+        `, {
+          replacements: {
+            gradeId: subBatchId,
+            bagNumber: i + 1,
+            weight: weights[i],
+            baggedAt: baggedAtValue
+          },
+          transaction: t,
+          type: sequelize.QueryTypes.INSERT
+        });
       }
 
       results.push({ subBatchId, grade, weight: totalWeight, bagWeights: weights, bagged_at: baggedAtValue });
@@ -174,11 +173,10 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           return res.status(400).json({ error: `Invalid grade: ${grade}` });
       }
 
-      // Construct the new reference number
+      // Construct the new reference number and batch number
       const referenceNumber = `${baseReferenceNumber}${qualitySuffix}`;
-
       sequenceNumber += 1;
-      const newBatchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}`;
+      const newBatchNumber = `${batchPrefix}-${String(sequenceNumber).padStart(4, '0')}${qualitySuffix}`;
       const totalBags = bagWeights.length;
 
       const [subBatch] = await sequelize.query(`
@@ -603,7 +601,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
     res.status(200).json(formattedGrades);
   } catch (error) {
     console.error('Error fetching dry mill grades:', error);
-    res.status(500).json({ error: 'Failed to fetch dry mill grades', details: error.message });
+    res.status(500).json({ error: 'Fetch failed', details: error.message });
   }
 });
 
