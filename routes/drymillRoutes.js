@@ -104,10 +104,10 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       WHERE "parentBatchNumber" = :batchNumber
     `, { replacements: { batchNumber }, transaction: t });
 
-    await sequelize.query(`
-      DELETE FROM "UsedSequences"
-      WHERE batchNumber = :batchNumber
-    `, { replacements: { batchNumber }, transaction: t });
+    // await sequelize.query(`
+    //   DELETE FROM "UsedSequences"
+    //   WHERE batchNumber = :batchNumber
+    // `, { replacements: { batchNumber }, transaction: t });
 
     const results = [];
     const subBatches = [];
@@ -269,18 +269,18 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       });
 
       // Log the used sequence
-      await sequelize.query(`
-        INSERT INTO "UsedSequences" (batchNumber, sequence, grade)
-        VALUES (:batchNumber, :sequence, :grade)
-      `, {
-        replacements: {
-          batchNumber: newBatchNumber,
-          sequence: sequenceNumber,
-          grade,
-        },
-        transaction: t,
-        type: sequelize.QueryTypes.INSERT,
-      });
+      // await sequelize.query(`
+      //   INSERT INTO "UsedSequences" (batchNumber, sequence, grade)
+      //   VALUES (:batchNumber, :sequence, :grade)
+      // `, {
+      //   replacements: {
+      //     batchNumber: newBatchNumber,
+      //     sequence: sequenceNumber,
+      //     grade,
+      //   },
+      //   transaction: t,
+      //   type: sequelize.QueryTypes.INSERT,
+      // });
 
       subBatches.push({
         batchNumber: newBatchNumber,
@@ -419,10 +419,10 @@ router.post('/dry-mill/:batchNumber/remove-bag', async (req, res) => {
         WHERE "batchNumber" LIKE :batchNumberPattern AND quality = :grade;
       `, { replacements: { batchNumberPattern: `${batchNumber}-%`, grade }, transaction: t });
 
-      await sequelize.query(`
-        DELETE FROM "UsedSequences"
-        WHERE batchNumber LIKE :batchNumberPattern AND grade = :grade;
-      `, { replacements: { batchNumberPattern: `${batchNumber}-%`, grade }, transaction: t });
+      // await sequelize.query(`
+      //   DELETE FROM "UsedSequences"
+      //   WHERE batchNumber LIKE :batchNumberPattern AND grade = :grade;
+      // `, { replacements: { batchNumberPattern: `${batchNumber}-%`, grade }, transaction: t });
     }
 
     await t.commit();
