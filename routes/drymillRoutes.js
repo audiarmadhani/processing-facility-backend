@@ -347,7 +347,7 @@ router.post('/dry-mill/:batchNumber/remove-bag', async (req, res) => {
 
     if (!bag) {
       await t.rollback();
-      return res.status(404).json({ error: 'Bag not found.' });
+      return res.status(404).json({ error: 'Bag not stored.' });
     }
 
     // Fetch batch metadata to get producer, productLine, processingType
@@ -620,37 +620,19 @@ router.get('/dry-mill-data', async (req, res) => {
       const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
       const status = latestEntry?.exited_at ? 'Processed' : (latestEntry?.entered_at ? 'In Dry Mill' : 'Not Started');
 
-      // Fetch all grades for the parent batch
-      const allGrades = dryMillGradesArray.filter(grade => grade.batchNumber === relevantBatchNumber) || [];
-      const allBags = bagDetailsArray.filter(bag => allGrades.some(g => g.subBatchId === bag.grade_id)) || [];
-      const receiving = receivingDataArray.find(r => r.batchNumber === (batch.parentBatchNumber || batch.batchNumber)) || {};
-
-      let isStored;
-      if (batch.parentBatchNumber) {
-        // For sub-batches, only consider the grade matching the sub-batch's quality
-        const subBatchGrade = allGrades.find(g => g.grade === batch.quality);
-        const subBatchBags = subBatchGrade ? allBags.filter(b => b.grade_id === subBatchGrade.subBatchId) : [];
-        const hasSplits = !!subBatchGrade;
-        const gradeStored = subBatchGrade ? subBatchGrade.is_stored : false;
-        const bagsStored = subBatchBags.length > 0 ? subBatchBags.every(b => b.is_stored) : true;
-        // Sub-batch is stored if its grade and bags are stored, currentAssign is 0, and storedDate is set
-        isStored = receiving.currentAssign === 0 && (!hasSplits || (gradeStored && bagsStored)) && !!batch.storeddatetrunc;
-      } else {
-        // For parent batches, consider all splits
-        const hasSplits = allGrades.length > 0;
-        const allSplitsStored = hasSplits ? allGrades.every(g => g.is_stored && allBags.filter(b => b.grade_id === g.subBatchId).every(b => b.is_stored)) : false;
-        isStored = receiving.currentAssign === 0 && (!hasSplits || allSplitsStored);
-      }
+      // Check if any grade for the relevant batch has is_stored = true
+      const storedGrades = dryMillGradesArray.filter(grade => grade.batchNumber === relevantBatchNumber && grade.is_stored);
+      const isStored = storedGrades.length > 0;
 
       return {
         ...batch,
         status,
         dryMillEntered: latestEntry?.entered_at ? new Date(latestEntry.entered_at).toISOString().slice(0, 10) : 'N/A',
         dryMillExited: latestEntry?.exited_at ? new Date(latestEntry.exited_at).toISOString().slice(0, 10) : 'N/A',
-        rfid: receiving.rfid || 'N/A',
-        bagWeights: allBags.map(b => b.weight),
-        green_bean_splits: allGrades.length > 0 ? 
-          allGrades.map(g => 
+        rfid: receivingDataArray.find(r => r.batchNumber === (batch.parentBatchNumber || batch.batchNumber))?.rfid || 'N/A',
+        bagWeights: bagDetailsArray.filter(bag => dryMillGradesArray.some(g => g.subBatchId === bag.grade_id && g.batchNumber === relevantBatchNumber)).map(b => b.weight),
+        green_bean_splits: dryMillGradesArray.filter(g => g.batchNumber === relevantBatchNumber).length > 0 ? 
+          dryMillGradesArray.filter(g => g.batchNumber === relevantBatchNumber).map(g => 
             `Grade: ${g.grade}, Weight: ${g.weight ? g.weight + ' kg' : 'N/A'}, Split: ${new Date(g.split_at).toISOString().slice(0, 19).replace('T', ' ')}, Bagged: ${g.bagged_at ? new Date(g.bagged_at).toISOString().slice(0, 10) : 'N/A'}, Stored: ${g.is_stored ? 'Yes' : 'No'}`
           ).join('; ') : null,
         isStored,
@@ -996,3 +978,23 @@ router.post('/lot-number-sequence', async (req, res) => {
 });
 
 module.exports = router;
+
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
+// yay 1000 lines
