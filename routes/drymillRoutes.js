@@ -466,13 +466,19 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
       return res.status(400).json({ error: 'Batch is not in dry mill or already processed.' });
     }
 
+    // Fetch splits data with debugging
     const [splits] = await sequelize.query(`
       SELECT COUNT(*) AS total, SUM(CASE WHEN weight IS NOT NULL AND bagged_at IS NOT NULL THEN 1 ELSE 0 END) AS completed
       FROM "DryMillGrades" 
       WHERE "batchNumber" = :batchNumber;
     `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT });
 
-    if (splits[0].completed !== splits[0].total) {
+    console.log('Query result for splits:', splits); // Debug log
+
+    // Handle case where no rows are returned
+    const splitData = splits.length > 0 ? splits[0] : { total: 0, completed: 0 };
+
+    if (splitData.completed !== splitData.total) {
       await t.rollback();
       return res.status(400).json({ error: 'All splits must have weights and bagging dates before marking as processed.' });
     }
@@ -917,7 +923,7 @@ router.post('/lot-number-sequence', async (req, res) => {
     if (action === 'increment') {
       sequence += 1;
       await sequelize.query(
-        `UPDATE "LotNumberSequences" 
+        `UPDATE "LotNumberSequences"
          SET sequence = :sequence 
          WHERE producer = :producer AND productLine = :productLine 
          AND processingType = :processingType AND year = :year AND grade = :grade`,
