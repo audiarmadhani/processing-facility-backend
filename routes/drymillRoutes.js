@@ -131,29 +131,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     const processingAbbreviation = processingResults[0].abbreviation;
     const batchPrefix = `${parentBatch.producer}${currentYear}${productAbbreviation}-${processingAbbreviation}`;
 
-    let sequenceNumber = 1;
-    const [sequenceResult] = await sequelize.query(
-      `SELECT sequence FROM "LotNumberSequences" 
-       WHERE producer = :producer AND productLine = :productLine 
-       AND processingType = :processingType AND year = :year 
-       FOR UPDATE`,
-      { 
-        replacements: { 
-          producer: parentBatch.producer, 
-          productLine: parentBatch.productLine, 
-          processingType: parentBatch.processingType, 
-          year: currentYear 
-        }, 
-        transaction: t 
-      }
-    );
-
-    if (sequenceResult.length > 0) {
-      sequenceNumber = sequenceResult[0].sequence; // Use current sequence, incremented earlier
-    }
-
-    const formattedSequence = String(sequenceNumber).padStart(4, '0');
-
     for (const { grade, bagWeights, bagged_at } of validGrades) {
       if (!grade || typeof grade !== 'string' || grade.trim() === '') {
         await t.rollback();
@@ -171,6 +148,31 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       const baggedAtValue = bagged_at || null;
 
       const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '')}`;
+
+      // Fetch the sequence number for this grade
+      let sequenceNumber = 1;
+      const [sequenceResult] = await sequelize.query(
+        `SELECT sequence FROM "LotNumberSequences" 
+         WHERE producer = :producer AND productLine = :productLine 
+         AND processingType = :processingType AND year = :year AND grade = :grade 
+         FOR UPDATE`,
+        { 
+          replacements: { 
+            producer: parentBatch.producer, 
+            productLine: parentBatch.productLine, 
+            processingType: parentBatch.processingType, 
+            year: currentYear,
+            grade
+          }, 
+          transaction: t 
+        }
+      );
+
+      if (sequenceResult.length > 0) {
+        sequenceNumber = sequenceResult[0].sequence;
+      }
+
+      const formattedSequence = String(sequenceNumber).padStart(4, '0');
 
       await sequelize.query(`
         INSERT INTO "DryMillGrades" ("batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "is_stored")
@@ -335,6 +337,48 @@ router.post('/dry-mill/:batchNumber/remove-bag', async (req, res) => {
     if (!bag) {
       await t.rollback();
       return res.status(404).json({ error: 'Bag not found.' });
+    }
+
+    // Fetch batch metadata to get producer, productLine, processingType
+    const [batchMeta] = await sequelize.query(`
+      SELECT pp."processingType", pp."productLine", pp."producer"
+      FROM "PreprocessingData" pp
+      WHERE pp."batchNumber" = :batchNumber
+      LIMIT 1;
+    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT });
+
+    if (!batchMeta) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batch metadata not found.' });
+    }
+
+    const { producer, productLine, processingType } = batchMeta;
+    const currentYear = new Date().getFullYear().toString().slice(-2);
+
+    // Decrement the sequence for this grade
+    const [sequenceResult] = await sequelize.query(
+      `SELECT sequence FROM "LotNumberSequences" 
+       WHERE producer = :producer AND productLine = :productLine 
+       AND processingType = :processingType AND year = :year AND grade = :grade 
+       FOR UPDATE`,
+      { 
+        replacements: { producer, productLine, processingType, year: currentYear, grade }, 
+        transaction: t 
+      }
+    );
+
+    if (sequenceResult.length > 0 && sequenceResult[0].sequence > 0) {
+      const newSequence = sequenceResult[0].sequence - 1;
+      await sequelize.query(
+        `UPDATE "LotNumberSequences" 
+         SET sequence = :sequence 
+         WHERE producer = :producer AND productLine = :productLine 
+         AND processingType = :processingType AND year = :year AND grade = :grade`,
+        { 
+          replacements: { sequence: newSequence, producer, productLine, processingType, year: currentYear, grade }, 
+          transaction: t 
+        }
+      );
     }
 
     // Delete the bag
@@ -740,10 +784,10 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
 
 // POST route for lot number sequence management
 router.post('/lot-number-sequence', async (req, res) => {
-  const { producer, productLine, processingType, year, action } = req.body;
+  const { producer, productLine, processingType, year, grade, action } = req.body;
 
-  if (!producer || !productLine || !processingType || !year) {
-    return res.status(400).json({ error: 'Missing required fields: producer, productLine, processingType, year' });
+  if (!producer || !productLine || !processingType || !year || !grade) {
+    return res.status(400).json({ error: 'Missing required fields: producer, productLine, processingType, year, grade' });
   }
 
   let t;
@@ -753,10 +797,10 @@ router.post('/lot-number-sequence', async (req, res) => {
     const [sequenceResult] = await sequelize.query(
       `SELECT sequence FROM "LotNumberSequences" 
        WHERE producer = :producer AND productLine = :productLine 
-       AND processingType = :processingType AND year = :year 
+       AND processingType = :processingType AND year = :year AND grade = :grade 
        FOR UPDATE`,
       { 
-        replacements: { producer, productLine, processingType, year }, 
+        replacements: { producer, productLine, processingType, year, grade }, 
         transaction: t 
       }
     );
@@ -764,10 +808,10 @@ router.post('/lot-number-sequence', async (req, res) => {
     let sequence;
     if (sequenceResult.length === 0) {
       await sequelize.query(
-        `INSERT INTO "LotNumberSequences" (producer, productLine, processingType, year, sequence)
-         VALUES (:producer, :productLine, :processingType, :year, 0)`,
+        `INSERT INTO "LotNumberSequences" (producer, productLine, processingType, year, grade, sequence)
+         VALUES (:producer, :productLine, :processingType, :year, :grade, 0)`,
         { 
-          replacements: { producer, productLine, processingType, year }, 
+          replacements: { producer, productLine, processingType, year, grade }, 
           transaction: t 
         }
       );
@@ -782,9 +826,9 @@ router.post('/lot-number-sequence', async (req, res) => {
         `UPDATE "LotNumberSequences" 
          SET sequence = :sequence 
          WHERE producer = :producer AND productLine = :productLine 
-         AND processingType = :processingType AND year = :year`,
+         AND processingType = :processingType AND year = :year AND grade = :grade`,
         { 
-          replacements: { sequence, producer, productLine, processingType, year }, 
+          replacements: { sequence, producer, productLine, processingType, year, grade }, 
           transaction: t 
         }
       );
@@ -794,9 +838,9 @@ router.post('/lot-number-sequence', async (req, res) => {
         `UPDATE "LotNumberSequences" 
          SET sequence = :sequence 
          WHERE producer = :producer AND productLine = :productLine 
-         AND processingType = :processingType AND year = :year`,
+         AND processingType = :processingType AND year = :year AND grade = :grade`,
         { 
-          replacements: { sequence, producer, productLine, processingType, year }, 
+          replacements: { sequence, producer, productLine, processingType, year, grade }, 
           transaction: t 
         }
       );
