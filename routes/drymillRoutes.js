@@ -483,6 +483,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
       return res.status(400).json({ error: 'All splits must have weights and bagging dates before marking as processed.' });
     }
 
+    // Update DryMillData to mark batch as exited
     const [result] = await sequelize.query(`
       UPDATE "DryMillData" 
       SET exited_at = NOW() 
@@ -492,10 +493,32 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
       RETURNING *;
     `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
 
+    // Update ReceivingData to free the RFID tag
     await sequelize.query(`
       UPDATE "ReceivingData"
       SET "currentAssign" = 0
       WHERE "batchNumber" = :batchNumber;
+    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
+
+    // Update DryMillGrades to mark as stored
+    await sequelize.query(`
+      UPDATE "DryMillGrades"
+      SET "is_stored" = TRUE
+      WHERE "batchNumber" = :batchNumber;
+    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
+
+    // Update BagDetails to mark all bags as stored
+    await sequelize.query(`
+      UPDATE "BagDetails"
+      SET is_stored = TRUE
+      WHERE grade_id IN (SELECT "subBatchId" FROM "DryMillGrades" WHERE "batchNumber" = :batchNumber);
+    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
+
+    // Update PostprocessingData to set storedDate for sub-batches
+    await sequelize.query(`
+      UPDATE "PostprocessingData"
+      SET "storedDate" = NOW()
+      WHERE "parentBatchNumber" = :batchNumber;
     `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
 
     await t.commit();
@@ -923,7 +946,7 @@ router.post('/lot-number-sequence', async (req, res) => {
     if (action === 'increment') {
       sequence += 1;
       await sequelize.query(
-        `UPDATE "LotNumberSequences"
+        `UPDATE "LotNumberSequences" 
          SET sequence = :sequence 
          WHERE producer = :producer AND productLine = :productLine 
          AND processingType = :processingType AND year = :year AND grade = :grade`,
