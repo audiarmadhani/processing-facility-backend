@@ -105,7 +105,7 @@ router.get('/postprocessing', async (req, res) => {
 });
 
 // Route to get postprocessing data by batch number
-router.get('/postprocessing/:batchNumber', async (req, res) => {
+router.get('/postprocessingdata/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
 
   console.log('Received request for batch number:', batchNumber);

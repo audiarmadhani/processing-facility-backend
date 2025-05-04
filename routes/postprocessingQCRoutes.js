@@ -3,7 +3,7 @@ const router = express.Router();
 const sequelize = require('../config/database');
 
 // Route for fetching batch details
-router.get('/postprocessingdata/:batchNumber', async (req, res) => {
+router.get('/postprocessingqcdata/:batchNumber', async (req, res) => {
   try {
     const { batchNumber } = req.params;
 
