@@ -623,9 +623,19 @@ router.get('/dry-mill-data', async (req, res) => {
       const grades = dryMillGradesArray.filter(grade => grade.batchNumber === relevantBatchNumber) || [];
       const bags = bagDetailsArray.filter(bag => grades.some(g => g.subBatchId === bag.grade_id)) || [];
       const receiving = receivingDataArray.find(r => r.batchNumber === (batch.parentBatchNumber || batch.batchNumber)) || {};
+
+      // Debug logging for isStored calculation
       const hasSplits = grades.length > 0;
-      const allSplitsStored = hasSplits ? grades.every(g => g.is_stored && bags.every(b => b.is_stored)) : false;
+      const gradesStored = grades.every(g => g.is_stored);
+      const bagsStored = bags.every(b => b.is_stored);
+      const allSplitsStored = hasSplits ? gradesStored && bagsStored : false;
       const isStored = receiving.currentAssign === 0 && (!hasSplits || allSplitsStored);
+
+      console.log(`Batch: ${batch.batchNumber}, Relevant Batch: ${relevantBatchNumber}`);
+      console.log(`  Grades:`, grades);
+      console.log(`  Bags:`, bags);
+      console.log(`  Receiving:`, receiving);
+      console.log(`  hasSplits: ${hasSplits}, gradesStored: ${gradesStored}, bagsStored: ${bagsStored}, allSplitsStored: ${allSplitsStored}, isStored: ${isStored}`);
 
       return {
         ...batch,
