@@ -10,6 +10,48 @@ console.log('Database connection:', {
   port: process.env.DB_PORT,
 });
 
+// GET route for ProcessingTypes
+router.get('/processing-types', async (req, res) => {
+  try {
+    const processingTypes = await sequelize.query(
+      'SELECT id, "processingType", abbreviation FROM "ProcessingTypes" ORDER BY id',
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    res.status(200).json(processingTypes);
+  } catch (error) {
+    console.error('Error fetching ProcessingTypes:', error);
+    res.status(500).json({ error: 'Failed to fetch ProcessingTypes', details: error.message });
+  }
+});
+
+// GET route for ProductLines
+router.get('/product-lines', async (req, res) => {
+  try {
+    const productLines = await sequelize.query(
+      'SELECT id, "productLine", abbreviation FROM "ProductLines" ORDER BY id',
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    res.status(200).json(productLines);
+  } catch (error) {
+    console.error('Error fetching ProductLines:', error);
+    res.status(500).json({ error: 'Failed to fetch ProductLines', details: error.message });
+  }
+});
+
+// GET route for ReferenceMappings
+router.get('/reference-mappings', async (req, res) => {
+  try {
+    const referenceMappings = await sequelize.query(
+      'SELECT id, "referenceNumber", "productLine", "processingType", producer, quality, type FROM "ReferenceMappings_duplicate" ORDER BY id',
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    res.status(200).json(referenceMappings);
+  } catch (error) {
+    console.error('Error fetching ReferenceMappings:', error);
+    res.status(500).json({ error: 'Failed to fetch ReferenceMappings', details: error.message });
+  }
+});
+
 // POST route for manual green bean splitting, weighing, and bagging
 router.post('/dry-mill/:batchNumber/split', async (req, res) => {
   const { batchNumber } = req.params;
@@ -107,38 +149,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     );
 
     if (sequenceResult.length > 0) {
-      sequenceNumber = sequenceResult[0].sequence + 1; // Increment only on save
-      await sequelize.query(
-        `UPDATE "LotNumberSequences" 
-         SET sequence = :sequence 
-         WHERE producer = :producer AND productLine = :productLine 
-         AND processingType = :processingType AND year = :year`,
-        { 
-          replacements: { 
-            sequence: sequenceNumber, 
-            producer: parentBatch.producer, 
-            productLine: parentBatch.productLine, 
-            processingType: parentBatch.processingType, 
-            year: currentYear 
-          }, 
-          transaction: t 
-        }
-      );
-    } else {
-      await sequelize.query(
-        `INSERT INTO "LotNumberSequences" (producer, productLine, processingType, year, sequence)
-         VALUES (:producer, :productLine, :processingType, :year, 1)`,
-        { 
-          replacements: { 
-            producer: parentBatch.producer, 
-            productLine: parentBatch.productLine, 
-            processingType: parentBatch.processingType, 
-            year: currentYear, 
-            sequence: 1 
-          }, 
-          transaction: t 
-        }
-      );
+      sequenceNumber = sequenceResult[0].sequence; // Use current sequence, incremented earlier
     }
 
     const formattedSequence = String(sequenceNumber).padStart(4, '0');
@@ -380,7 +391,7 @@ router.post('/dry-mill/:batchNumber/remove-bag', async (req, res) => {
   }
 });
 
-// Remaining routes (complete, dry-mill-data, warehouse/scan, rfid/reuse, dry-mill-grades, lot-number-sequence) remain unchanged
+// POST route to complete a batch
 router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
   const { batchNumber } = req.params;
 
@@ -441,6 +452,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
   }
 });
 
+// GET route for dry mill data
 router.get('/dry-mill-data', async (req, res) => {
   try {
     const parentBatchesQuery = `
@@ -558,6 +570,7 @@ router.get('/dry-mill-data', async (req, res) => {
   }
 });
 
+// POST route for warehouse RFID scan
 router.post('/warehouse/scan', async (req, res) => {
   const { rfid, scanned_at } = req.body;
 
@@ -635,6 +648,7 @@ router.post('/warehouse/scan', async (req, res) => {
   }
 });
 
+// POST route for RFID reuse
 router.post('/rfid/reuse', async (req, res) => {
   const { batchNumber } = req.body;
 
@@ -680,6 +694,7 @@ router.post('/rfid/reuse', async (req, res) => {
   }
 });
 
+// GET route for dry mill grades
 router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
 
@@ -723,8 +738,9 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
   }
 });
 
+// POST route for lot number sequence management
 router.post('/lot-number-sequence', async (req, res) => {
-  const { producer, productLine, processingType, year } = req.body;
+  const { producer, productLine, processingType, year, action } = req.body;
 
   if (!producer || !productLine || !processingType || !year) {
     return res.status(400).json({ error: 'Missing required fields: producer, productLine, processingType, year' });
@@ -749,15 +765,41 @@ router.post('/lot-number-sequence', async (req, res) => {
     if (sequenceResult.length === 0) {
       await sequelize.query(
         `INSERT INTO "LotNumberSequences" (producer, productLine, processingType, year, sequence)
-         VALUES (:producer, :productLine, :processingType, :year, 1)`,
+         VALUES (:producer, :productLine, :processingType, :year, 0)`,
         { 
           replacements: { producer, productLine, processingType, year }, 
           transaction: t 
         }
       );
-      sequence = 1;
+      sequence = 0;
     } else {
       sequence = sequenceResult[0].sequence;
+    }
+
+    if (action === 'increment') {
+      sequence += 1;
+      await sequelize.query(
+        `UPDATE "LotNumberSequences" 
+         SET sequence = :sequence 
+         WHERE producer = :producer AND productLine = :productLine 
+         AND processingType = :processingType AND year = :year`,
+        { 
+          replacements: { sequence, producer, productLine, processingType, year }, 
+          transaction: t 
+        }
+      );
+    } else if (action === 'decrement' && sequence > 0) {
+      sequence -= 1;
+      await sequelize.query(
+        `UPDATE "LotNumberSequences" 
+         SET sequence = :sequence 
+         WHERE producer = :producer AND productLine = :productLine 
+         AND processingType = :processingType AND year = :year`,
+        { 
+          replacements: { sequence, producer, productLine, processingType, year }, 
+          transaction: t 
+        }
+      );
     }
 
     await t.commit();
@@ -766,7 +808,7 @@ router.post('/lot-number-sequence', async (req, res) => {
     res.json({ sequence: formattedSequence });
   } catch (error) {
     if (t) await t.rollback();
-    console.error('Error fetching/incrementing lot number sequence:', error);
+    console.error('Error managing lot number sequence:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
