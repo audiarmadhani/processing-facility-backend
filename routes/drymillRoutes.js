@@ -757,35 +757,68 @@ router.post('/rfid/reuse', async (req, res) => {
 router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
 
+  // Validate batchNumber
+  if (!batchNumber || typeof batchNumber !== 'string' || batchNumber.trim() === '') {
+    console.error('Invalid batch number provided:', batchNumber);
+    return res.status(400).json({ error: 'Invalid batch number provided' });
+  }
+
+  const trimmedBatchNumber = batchNumber.trim();
+  console.log(`Fetching grades for batchNumber: ${trimmedBatchNumber}`);
+
   try {
-    let gradesResult;
+    let gradesResult = [];
+    let parentBatchNumber = trimmedBatchNumber;
+
     // Check if this is a sub-batch by looking in PostprocessingData
     const [subBatch] = await sequelize.query(`
-      SELECT quality
+      SELECT quality, "parentBatchNumber"
       FROM "PostprocessingData"
       WHERE "batchNumber" = :batchNumber
       LIMIT 1;
     `, {
-      replacements: { batchNumber },
+      replacements: { batchNumber: trimmedBatchNumber },
       type: sequelize.QueryTypes.SELECT,
     });
 
     if (subBatch) {
+      console.log(`Identified as sub-batch: ${trimmedBatchNumber}, parentBatchNumber: ${subBatch.parentBatchNumber}, quality: ${subBatch.quality}`);
+      parentBatchNumber = subBatch.parentBatchNumber;
       // For sub-batches, fetch the specific grade and its bags
       gradesResult = await sequelize.query(`
         SELECT dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
                COALESCE(ARRAY_AGG(bd.weight ORDER BY bd.bag_number), ARRAY[]::FLOAT[]) AS bag_weights
         FROM "DryMillGrades" dg
-        JOIN "PostprocessingData" ppd ON dg.grade = ppd.quality AND ppd."batchNumber" = :batchNumber
         LEFT JOIN "BagDetails" bd ON dg."subBatchId" = bd.grade_id
-        WHERE dg."batchNumber" = (SELECT "parentBatchNumber" FROM "PostprocessingData" WHERE "batchNumber" = :batchNumber)
+        WHERE dg."batchNumber" = :parentBatchNumber
         AND dg.grade = :quality
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored
       `, {
-        replacements: { batchNumber, quality: subBatch.quality },
+        replacements: { parentBatchNumber, quality: subBatch.quality },
         type: sequelize.QueryTypes.SELECT,
       });
+
+      if (gradesResult.length === 0) {
+        console.warn(`No grades found for sub-batch ${trimmedBatchNumber} with quality ${subBatch.quality}`);
+      }
     } else {
+      console.log(`Identified as parent batch: ${trimmedBatchNumber}`);
+      // Check if the batch exists in DryMillData to confirm it's a valid parent batch
+      const [parentBatch] = await sequelize.query(`
+        SELECT "batchNumber"
+        FROM "DryMillData"
+        WHERE "batchNumber" = :batchNumber
+        LIMIT 1;
+      `, {
+        replacements: { batchNumber: trimmedBatchNumber },
+        type: sequelize.QueryTypes.SELECT,
+      });
+
+      if (!parentBatch) {
+        console.error(`Batch ${trimmedBatchNumber} not found in DryMillData`);
+        return res.status(404).json({ error: `Batch ${trimmedBatchNumber} not found` });
+      }
+
       // For parent batches, fetch all grades
       gradesResult = await sequelize.query(`
         SELECT dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
@@ -796,12 +829,17 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored
         ORDER BY dg.grade;
       `, {
-        replacements: { batchNumber },
+        replacements: { batchNumber: trimmedBatchNumber },
         type: sequelize.QueryTypes.SELECT,
       });
+
+      if (gradesResult.length === 0) {
+        console.warn(`No grades found for parent batch ${trimmedBatchNumber}`);
+      }
     }
 
     const grades = Array.isArray(gradesResult) ? gradesResult : [];
+    console.log(`Found ${grades.length} grades for batch ${trimmedBatchNumber}`);
 
     const formattedGrades = grades.map(grade => ({
       grade: grade.grade,
@@ -810,7 +848,9 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       bagged_at: grade.bagged_at ? new Date(grade.bagged_at).toISOString().slice(0, 10) : '',
     }));
 
+    // If no grades are found, return default grades to maintain consistent response format
     if (formattedGrades.length === 0) {
+      console.log(`Returning default grades for batch ${trimmedBatchNumber}`);
       return res.status(200).json([
         { grade: 'Specialty Grade', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
         { grade: 'Grade 1', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
@@ -822,8 +862,8 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
 
     res.status(200).json(formattedGrades);
   } catch (error) {
-    console.error('Error fetching dry mill grades:', error);
-    res.status(500).json({ error: 'Fetch failed', details: error.message });
+    console.error(`Error fetching dry mill grades for batch ${trimmedBatchNumber}:`, error);
+    res.status(500).json({ error: 'Failed to fetch existing grades', details: error.message });
   }
 });
 
