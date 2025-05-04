@@ -104,11 +104,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       WHERE "parentBatchNumber" = :batchNumber
     `, { replacements: { batchNumber }, transaction: t });
 
-    // await sequelize.query(`
-    //   DELETE FROM "UsedSequences"
-    //   WHERE batchNumber = :batchNumber
-    // `, { replacements: { batchNumber }, transaction: t });
-
     const results = [];
     const subBatches = [];
 
@@ -176,7 +171,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
       await sequelize.query(`
         INSERT INTO "DryMillGrades" ("batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "is_stored")
-        VALUES (:batchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, FALSE)
+        VALUES (:batchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, TRUE)
       `, { 
         replacements: { 
           batchNumber, 
@@ -191,8 +186,8 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
       for (let i = 0; i < weights.length; i++) {
         await sequelize.query(`
-          INSERT INTO "BagDetails" (grade_id, bag_number, weight, bagged_at)
-          VALUES (:gradeId, :bagNumber, :weight, :baggedAt)
+          INSERT INTO "BagDetails" (grade_id, bag_number, weight, bagged_at, is_stored)
+          VALUES (:gradeId, :bagNumber, :weight, :baggedAt, TRUE)
         `, {
           replacements: {
             gradeId: subBatchId,
@@ -267,20 +262,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         transaction: t,
         type: sequelize.QueryTypes.INSERT,
       });
-
-      // Log the used sequence
-      // await sequelize.query(`
-      //   INSERT INTO "UsedSequences" (batchNumber, sequence, grade)
-      //   VALUES (:batchNumber, :sequence, :grade)
-      // `, {
-      //   replacements: {
-      //     batchNumber: newBatchNumber,
-      //     sequence: sequenceNumber,
-      //     grade,
-      //   },
-      //   transaction: t,
-      //   type: sequelize.QueryTypes.INSERT,
-      // });
 
       subBatches.push({
         batchNumber: newBatchNumber,
@@ -418,11 +399,6 @@ router.post('/dry-mill/:batchNumber/remove-bag', async (req, res) => {
         DELETE FROM "PostprocessingData"
         WHERE "batchNumber" LIKE :batchNumberPattern AND quality = :grade;
       `, { replacements: { batchNumberPattern: `${batchNumber}-%`, grade }, transaction: t });
-
-      // await sequelize.query(`
-      //   DELETE FROM "UsedSequences"
-      //   WHERE batchNumber LIKE :batchNumberPattern AND grade = :grade;
-      // `, { replacements: { batchNumberPattern: `${batchNumber}-%`, grade }, transaction: t });
     }
 
     await t.commit();
