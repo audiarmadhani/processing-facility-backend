@@ -771,7 +771,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
     let parentBatchNumber = trimmedBatchNumber;
 
     // Check if this is a sub-batch by looking in PostprocessingData
-    const [subBatch] = await sequelize.query(`
+    const subBatchResult = await sequelize.query(`
       SELECT quality, "parentBatchNumber"
       FROM "PostprocessingData"
       WHERE "batchNumber" = :batchNumber
@@ -781,9 +781,17 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       type: sequelize.QueryTypes.SELECT,
     });
 
-    if (subBatch) {
+    const subBatch = subBatchResult.length > 0 ? subBatchResult[0] : null;
+    console.log(`Sub-batch query result for ${trimmedBatchNumber}:`, subBatch);
+
+    // Check if batchNumber matches the sub-batch format (e.g., ends with -S, -G1, etc.)
+    const subBatchRegex = /-(S|G[1-4])$/;
+    const isSubBatchFormat = subBatchRegex.test(trimmedBatchNumber);
+
+    if (subBatch && isSubBatchFormat) {
       console.log(`Identified as sub-batch: ${trimmedBatchNumber}, parentBatchNumber: ${subBatch.parentBatchNumber}, quality: ${subBatch.quality}`);
       parentBatchNumber = subBatch.parentBatchNumber;
+
       // For sub-batches, fetch the specific grade and its bags
       gradesResult = await sequelize.query(`
         SELECT dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
@@ -802,7 +810,8 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         console.warn(`No grades found for sub-batch ${trimmedBatchNumber} with quality ${subBatch.quality}`);
       }
     } else {
-      console.log(`Identified as parent batch: ${trimmedBatchNumber}`);
+      console.log(`Identified as parent batch or no sub-batch found: ${trimmedBatchNumber}`);
+
       // Check if the batch exists in DryMillData to confirm it's a valid parent batch
       const [parentBatch] = await sequelize.query(`
         SELECT "batchNumber"
@@ -814,12 +823,12 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         type: sequelize.QueryTypes.SELECT,
       });
 
-      if (!parentBatch) {
-        console.error(`Batch ${trimmedBatchNumber} not found in DryMillData`);
+      if (!parentBatch && !subBatch) {
+        console.error(`Batch ${trimmedBatchNumber} not found in DryMillData or PostprocessingData`);
         return res.status(404).json({ error: `Batch ${trimmedBatchNumber} not found` });
       }
 
-      // For parent batches, fetch all grades
+      // For parent batches (or if sub-batch lookup fails), fetch all grades
       gradesResult = await sequelize.query(`
         SELECT dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
                COALESCE(ARRAY_AGG(bd.weight ORDER BY bd.bag_number), ARRAY[]::FLOAT[]) AS bag_weights
@@ -829,12 +838,12 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored
         ORDER BY dg.grade;
       `, {
-        replacements: { batchNumber: trimmedBatchNumber },
+        replacements: { batchNumber: parentBatchNumber },
         type: sequelize.QueryTypes.SELECT,
       });
 
       if (gradesResult.length === 0) {
-        console.warn(`No grades found for parent batch ${trimmedBatchNumber}`);
+        console.warn(`No grades found for batch ${parentBatchNumber}`);
       }
     }
 
