@@ -210,13 +210,14 @@ router.get('/postprocessing/not-qced', async (req, res) => {
         p."processingType",
         p."productLine",
         p."producer",
-        p."type",
+        COALESCE(p."type",rd.type) type,
         p."quality",
         p."weight",
         p."totalBags",
         p."notes"
       FROM "PostprocessingData" p
       LEFT JOIN "PostprocessingQCData" q ON p."batchNumber" = q."batchNumber"
+      LEFT JOIN "ReceivingData" rd on p."parentBatchNumber" = rd."batchNumber"
       WHERE q."batchNumber" IS NULL OR q."isCompleted" = false
       ORDER BY p."storedDate" DESC;
     `);
