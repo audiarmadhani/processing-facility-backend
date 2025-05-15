@@ -29,6 +29,8 @@ const wetmillRoutes = require('./routes/wetmillRoutes')
 const dryingRoutes = require('./routes/dryingRoutes')
 const drymillRoutes = require('./routes/drymillRoutes')
 const OMSRoutes = require('./routes/OMSRoutes')
+const IMSRoutes = require('./routes/IMSRoutes')
+const inventoryRoutes = require('./routes/inventoryRoutes')
 
 // Load environment variables
 dotenv.config();
@@ -82,6 +84,8 @@ const apiRoutes = [
   dryingRoutes,
   drymillRoutes,
   OMSRoutes,
+  IMSRoutes,
+  inventoryRoutes,
 ];
 
 apiRoutes.forEach(route => app.use('/api', route));

@@ -2,6 +2,40 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 
+// --- NEW ROUTE: Receive greenhouse sensor data from ESP32 ---
+router.post('/greenhouse-data', async (req, res) => {
+  const { device_id, humidity, temperature } = req.body;
+
+  // Validate input
+  if (!device_id || typeof humidity !== 'number' || typeof temperature !== 'number') {
+    return res.status(400).json({ error: 'device_id, humidity, and temperature are required as numbers.' });
+  }
+
+  // Validate ranges (DHT11: humidity 20–80%, temperature 0–50°C)
+  if (humidity < 0 || humidity > 100 || temperature < 0 || temperature > 50) {
+    return res.status(400).json({ error: 'Humidity (0–100) or temperature (0–50°C) out of valid range.' });
+  }
+
+  try {
+    // Insert sensor data into GreenhouseData
+    await sequelize.query(`
+      INSERT INTO "GreenhouseData" (device_id, humidity, temperature, recorded_at)
+      VALUES (:device_id, :humidity, :temperature, NOW());
+    `, {
+      replacements: { device_id: device_id.trim(), humidity, temperature },
+      type: sequelize.QueryTypes.INSERT,
+    });
+
+    res.status(201).json({
+      message: 'Greenhouse sensor data logged successfully',
+      data: { device_id, humidity, temperature },
+    });
+  } catch (error) {
+    console.error('Error storing greenhouse sensor data:', error);
+    res.status(500).json({ error: 'Failed to store sensor data', details: error.message });
+  }
+});
+
 // --- NEW ROUTE: Get the most recently scanned RFID ---
 router.get('/get-rfid', async (req, res) => {
   try {

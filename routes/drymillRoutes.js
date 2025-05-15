@@ -2,14 +2,6 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 
-// Log database connection details for debugging
-console.log('Database connection:', {
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  username: process.env.DB_USER,
-  port: process.env.DB_PORT,
-});
-
 // GET route for ProcessingTypes
 router.get('/processing-types', async (req, res) => {
   try {
@@ -61,7 +53,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     return res.status(400).json({ error: 'Batch number and valid grades are required.' });
   }
 
-  // Filter out grades with no bags
   const validGrades = grades.filter(g => Array.isArray(g.bagWeights) && g.bagWeights.length > 0);
   if (validGrades.length === 0) {
     return res.status(400).json({ error: 'At least one grade must have bags added.' });
@@ -88,7 +79,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
     const parentBatch = dryMillEntry;
 
-    // Delete existing data for this batch
     await sequelize.query(`
       DELETE FROM "BagDetails"
       WHERE grade_id IN (SELECT "subBatchId" FROM "DryMillGrades" WHERE "batchNumber" = :batchNumber)
@@ -144,7 +134,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
       const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '')}`;
 
-      // Fetch the sequence number for this grade
       let sequenceNumber = parseInt(tempSequence, 10) || 1;
       const [sequenceResult] = await sequelize.query(
         `SELECT sequence FROM "LotNumberSequences" 
@@ -269,22 +258,22 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         quality: grade,
       });
 
-      // Increment sequence number
       await sequelize.query(
-        `UPDATE "LotNumberSequences" 
-         SET sequence = :sequence 
-         WHERE producer = :producer AND productLine = :productLine 
-         AND processingType = :processingType AND year = :year AND grade = :grade`,
+        `INSERT INTO "LotNumberSequences" (producer, productLine, processingType, year, grade, sequence) 
+         VALUES (:producer, :productLine, :processingType, :year, :grade, :sequence)
+         ON CONFLICT (producer, productLine, processingType, year, grade) 
+         DO UPDATE SET sequence = :sequence`,
         { 
           replacements: { 
-            sequence: sequenceNumber + 1, 
             producer: parentBatch.producer, 
             productLine: parentBatch.productLine, 
             processingType: parentBatch.processingType, 
             year: currentYear, 
-            grade 
+            grade, 
+            sequence: sequenceNumber + 1 
           }, 
-          transaction: t 
+          transaction: t,
+          type: sequelize.QueryTypes.INSERT 
         }
       );
     }
@@ -299,154 +288,16 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
   }
 });
 
-// POST route to remove a bag and adjust sequence
-router.post('/dry-mill/:batchNumber/remove-bag', async (req, res) => {
-  const { batchNumber } = req.params;
-  const { grade, bagIndex } = req.body;
-
-  if (!batchNumber || !grade || bagIndex === undefined) {
-    return res.status(400).json({ error: 'Batch number, grade, and bag index are required.' });
-  }
-
-  let t;
-  try {
-    t = await sequelize.transaction();
-
-    // Find the subBatchId and verify the bag for the given batchNumber (parent or sub-batch)
-    const [gradeEntry] = await sequelize.query(`
-      SELECT "subBatchId", weight, bagged_at
-      FROM "DryMillGrades" dg
-      WHERE dg."batchNumber" = :batchNumber AND dg.grade = :grade
-      LIMIT 1;
-    `, { replacements: { batchNumber, grade }, transaction: t, type: sequelize.QueryTypes.SELECT });
-
-    if (!gradeEntry) {
-      // Check if this is a sub-batch by joining with PostprocessingData
-      const [subBatchGrade] = await sequelize.query(`
-        SELECT dg."subBatchId", dg.weight, dg.bagged_at
-        FROM "PostprocessingData" ppd
-        JOIN "DryMillGrades" dg ON ppd."batchNumber" = :batchNumber AND dg.grade = ppd.quality
-        LIMIT 1;
-      `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT });
-
-      if (!subBatchGrade) {
-        await t.rollback();
-        return res.status(404).json({ error: 'Grade not found for this batch.' });
-      }
-      gradeEntry = subBatchGrade;
-    }
-
-    const subBatchId = gradeEntry.subBatchId;
-    const [bag] = await sequelize.query(`
-      SELECT weight, bag_number
-      FROM "BagDetails"
-      WHERE grade_id = :subBatchId
-      ORDER BY bag_number
-      LIMIT 1 OFFSET :bagIndex;
-    `, { replacements: { subBatchId, bagIndex }, transaction: t, type: sequelize.QueryTypes.SELECT });
-
-    if (!bag) {
-      await t.rollback();
-      return res.status(404).json({ error: 'Bag not stored.' });
-    }
-
-    // Fetch batch metadata to get producer, productLine, processingType
-    const [batchMeta] = await sequelize.query(`
-      SELECT pp."processingType", pp."productLine", pp."producer"
-      FROM "PreprocessingData" pp
-      WHERE pp."batchNumber" = :batchNumber
-      LIMIT 1;
-    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT });
-
-    if (!batchMeta) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Batch metadata not found.' });
-    }
-
-    const { producer, productLine, processingType } = batchMeta;
-    const currentYear = new Date().getFullYear().toString().slice(-2);
-
-    // Decrement the sequence for this grade
-    const [sequenceResult] = await sequelize.query(
-      `SELECT sequence FROM "LotNumberSequences" 
-       WHERE producer = :producer AND productLine = :productLine 
-       AND processingType = :processingType AND year = :year AND grade = :grade 
-       FOR UPDATE`,
-      { 
-        replacements: { producer, productLine, processingType, year: currentYear, grade }, 
-        transaction: t 
-      }
-    );
-
-    if (sequenceResult.length > 0 && sequenceResult[0].sequence > 0) {
-      const newSequence = sequenceResult[0].sequence - 1;
-      await sequelize.query(
-        `UPDATE "LotNumberSequences" 
-         SET sequence = :sequence 
-         WHERE producer = :producer AND productLine = :productLine 
-         AND processingType = :processingType AND year = :year AND grade = :grade`,
-        { 
-          replacements: { sequence: newSequence, producer, productLine, processingType, year: currentYear, grade }, 
-          transaction: t 
-        }
-      );
-    }
-
-    // Delete the bag
-    await sequelize.query(`
-      DELETE FROM "BagDetails"
-      WHERE grade_id = :subBatchId AND bag_number = :bagNumber;
-    `, { replacements: { subBatchId, bagNumber: bag.bag_number }, transaction: t });
-
-    // Update DryMillGrades weight
-    const remainingBags = await sequelize.query(`
-      SELECT COALESCE(SUM(weight), 0) AS total_weight
-      FROM "BagDetails"
-      WHERE grade_id = :subBatchId;
-    `, { replacements: { subBatchId }, transaction: t, type: sequelize.QueryTypes.SELECT });
-    const newTotalWeight = remainingBags[0].total_weight;
-
-    await sequelize.query(`
-      UPDATE "DryMillGrades"
-      SET weight = :weight
-      WHERE "subBatchId" = :subBatchId;
-    `, { replacements: { weight: newTotalWeight, subBatchId }, transaction: t });
-
-    // Check if this was the last bag for this grade
-    const [bagCount] = await sequelize.query(`
-      SELECT COUNT(*) AS count
-      FROM "BagDetails"
-      WHERE grade_id = :subBatchId;
-    `, { replacements: { subBatchId }, transaction: t, type: sequelize.QueryTypes.SELECT });
-
-    if (bagCount[0].count === 0) {
-      await sequelize.query(`
-        DELETE FROM "DryMillGrades"
-        WHERE "subBatchId" = :subBatchId;
-      `, { replacements: { subBatchId }, transaction: t });
-
-      await sequelize.query(`
-        DELETE FROM "PostprocessingData"
-        WHERE "batchNumber" = :batchNumber AND quality = :grade;
-      `, { replacements: { batchNumber, grade }, transaction: t });
-    }
-
-    await t.commit();
-
-    res.status(200).json({ message: 'Bag removed successfully', newTotalWeight });
-  } catch (error) {
-    if (t) await t.rollback();
-    console.error('Error removing bag:', error);
-    res.status(500).json({ error: 'Failed to remove bag', details: error.message });
-  }
-});
-
 // POST route to complete a batch
 router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
   const { batchNumber } = req.params;
+  const { createdBy, updatedBy } = req.body;
 
   if (!batchNumber) {
     return res.status(400).json({ error: 'Batch number is required.' });
+  }
+  if (!createdBy || !updatedBy) {
+    return res.status(400).json({ error: 'createdBy and updatedBy are required for inventory operations.' });
   }
 
   let t;
@@ -466,16 +317,12 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
       return res.status(400).json({ error: 'Batch is not in dry mill or already processed.' });
     }
 
-    // Fetch splits data with debugging
     const [splits] = await sequelize.query(`
       SELECT COUNT(*) AS total, SUM(CASE WHEN weight IS NOT NULL AND bagged_at IS NOT NULL THEN 1 ELSE 0 END) AS completed
       FROM "DryMillGrades" 
       WHERE "batchNumber" = :batchNumber;
     `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT });
 
-    console.log('Query result for splits:', splits); // Debug log
-
-    // Handle case where no rows are returned
     const splitData = splits.length > 0 ? splits[0] : { total: 0, completed: 0 };
 
     if (splitData.completed !== splitData.total) {
@@ -521,9 +368,80 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
       WHERE "parentBatchNumber" = :batchNumber;
     `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
 
+    // Remove cherry batch from CherryInventoryStatus
+    const [cherryInventory] = await sequelize.query(
+      `SELECT status, orderId FROM "CherryInventoryStatus" WHERE "batchNumber" = :batchNumber AND "exitedAt" IS NULL`,
+      { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (cherryInventory) {
+      if (cherryInventory.orderId) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Cannot complete batch: cherry batch is reserved for an order.' });
+      }
+
+      await sequelize.query(
+        `UPDATE "CherryInventoryStatus" 
+         SET status = 'Picked', "exitedAt" = NOW(), "updatedAt" = NOW(), "updatedBy" = :updatedBy
+         WHERE "batchNumber" = :batchNumber AND "exitedAt" IS NULL`,
+        { replacements: { batchNumber, updatedBy }, transaction: t }
+      );
+
+      await sequelize.query(
+        `INSERT INTO "CherryInventoryMovements" ("batchNumber", "movementType", "movedAt", "createdBy")
+         VALUES (:batchNumber, 'Exit', NOW(), :createdBy)`,
+        {
+          replacements: { batchNumber, createdBy },
+          transaction: t,
+          type: sequelize.QueryTypes.INSERT,
+        }
+      );
+    }
+
+    // Add green bean sub-batches to GreenBeansInventoryStatus
+    const subBatches = await sequelize.query(
+      `SELECT "batchNumber", "storedDate" FROM "PostprocessingData" WHERE "parentBatchNumber" = :batchNumber`,
+      { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT }
+    );
+
+    for (const subBatch of subBatches) {
+      const existing = await sequelize.query(
+        `SELECT "batchNumber" FROM "GreenBeansInventoryStatus" WHERE "batchNumber" = :batchNumber`,
+        { replacements: { batchNumber: subBatch.batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT }
+      );
+
+      if (existing.length === 0) {
+        await sequelize.query(
+          `INSERT INTO "GreenBeansInventoryStatus" ("batchNumber", status, "enteredAt", "createdAt", "updatedAt", "createdBy", "updatedBy")
+           VALUES (:batchNumber, 'Stored', :enteredAt, NOW(), NOW(), :createdBy, :updatedBy)
+           RETURNING *`,
+          {
+            replacements: {
+              batchNumber: subBatch.batchNumber,
+              enteredAt: subBatch.storedDate,
+              createdBy,
+              updatedBy
+            },
+            transaction: t,
+            type: sequelize.QueryTypes.INSERT,
+          }
+        );
+
+        await sequelize.query(
+          `INSERT INTO "GreenBeansInventoryMovements" ("batchNumber", "movementType", "movedAt", "createdBy")
+           VALUES (:batchNumber, 'Entry', NOW(), :createdBy)`,
+          {
+            replacements: { batchNumber: subBatch.batchNumber, createdBy },
+            transaction: t,
+            type: sequelize.QueryTypes.INSERT,
+          }
+        );
+      }
+    }
+
     await t.commit();
 
-    res.status(200).json({ message: 'Batch marked as processed successfully, RFID tag available for reuse', exited_at: result[0].exited_at });
+    res.status(200).json({ message: 'Batch marked as processed successfully, inventory updated', exited_at: result[0].exited_at });
   } catch (error) {
     if (t) await t.rollback();
     console.error('Error marking batch as processed:', error);
@@ -620,7 +538,6 @@ router.get('/dry-mill-data', async (req, res) => {
       const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
       const status = latestEntry?.exited_at ? 'Processed' : (latestEntry?.entered_at ? 'In Dry Mill' : 'Not Started');
 
-      // Check if any grade for the relevant batch has is_stored = true
       const storedGrades = dryMillGradesArray.filter(grade => grade.batchNumber === relevantBatchNumber && grade.is_stored);
       const isStored = storedGrades.length > 0;
 
@@ -769,232 +686,11 @@ router.post('/rfid/reuse', async (req, res) => {
       type: sequelize.QueryTypes.UPDATE,
     });
 
-    res.status(200).json({
-      message: 'RFID tag reused successfully',
-      batchNumber,
-    });
+    res.status(200).json({ message: 'RFID tag is now ready for reuse', batchNumber });
   } catch (error) {
     console.error('Error reusing RFID tag:', error);
     res.status(500).json({ error: 'Failed to reuse RFID tag', details: error.message });
   }
 });
 
-// GET route for dry mill grades
-router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
-  const { batchNumber } = req.params;
-
-  // Validate batchNumber
-  if (!batchNumber || typeof batchNumber !== 'string' || batchNumber.trim() === '') {
-    console.error('Invalid batch number provided:', batchNumber);
-    return res.status(400).json({ error: 'Invalid batch number provided' });
-  }
-
-  const trimmedBatchNumber = batchNumber.trim();
-  console.log(`Fetching grades for batchNumber: ${trimmedBatchNumber}`);
-
-  try {
-    let gradesResult = [];
-    let parentBatchNumber = trimmedBatchNumber;
-
-    // Check if this is a sub-batch by looking in PostprocessingData
-    const subBatchResult = await sequelize.query(`
-      SELECT quality, "parentBatchNumber"
-      FROM "PostprocessingData"
-      WHERE "batchNumber" = :batchNumber
-      LIMIT 1;
-    `, {
-      replacements: { batchNumber: trimmedBatchNumber },
-      type: sequelize.QueryTypes.SELECT,
-    });
-
-    const subBatch = subBatchResult.length > 0 ? subBatchResult[0] : null;
-    console.log(`Sub-batch query result for ${trimmedBatchNumber}:`, subBatch);
-
-    // Check if batchNumber matches the sub-batch format (e.g., ends with -S, -G1, etc.)
-    const subBatchRegex = /-(S|G[1-4])$/;
-    const isSubBatchFormat = subBatchRegex.test(trimmedBatchNumber);
-
-    if (subBatch && isSubBatchFormat) {
-      console.log(`Identified as sub-batch: ${trimmedBatchNumber}, parentBatchNumber: ${subBatch.parentBatchNumber}, quality: ${subBatch.quality}`);
-      parentBatchNumber = subBatch.parentBatchNumber;
-
-      // For sub-batches, fetch the specific grade and its bags
-      gradesResult = await sequelize.query(`
-        SELECT dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
-               COALESCE(ARRAY_AGG(bd.weight ORDER BY bd.bag_number), ARRAY[]::FLOAT[]) AS bag_weights
-        FROM "DryMillGrades" dg
-        LEFT JOIN "BagDetails" bd ON dg."subBatchId" = bd.grade_id
-        WHERE dg."batchNumber" = :parentBatchNumber
-        AND dg.grade = :quality
-        GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored
-      `, {
-        replacements: { parentBatchNumber, quality: subBatch.quality },
-        type: sequelize.QueryTypes.SELECT,
-      });
-
-      if (gradesResult.length === 0) {
-        console.warn(`No grades found for sub-batch ${trimmedBatchNumber} with quality ${subBatch.quality}`);
-      }
-    } else {
-      console.log(`Identified as parent batch or no sub-batch found: ${trimmedBatchNumber}`);
-
-      // Check if the batch exists in DryMillData to confirm it's a valid parent batch
-      const [parentBatch] = await sequelize.query(`
-        SELECT "batchNumber"
-        FROM "DryMillData"
-        WHERE "batchNumber" = :batchNumber
-        LIMIT 1;
-      `, {
-        replacements: { batchNumber: trimmedBatchNumber },
-        type: sequelize.QueryTypes.SELECT,
-      });
-
-      if (!parentBatch && !subBatch) {
-        console.error(`Batch ${trimmedBatchNumber} not found in DryMillData or PostprocessingData`);
-        return res.status(404).json({ error: `Batch ${trimmedBatchNumber} not found` });
-      }
-
-      // For parent batches (or if sub-batch lookup fails), fetch all grades
-      gradesResult = await sequelize.query(`
-        SELECT dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
-               COALESCE(ARRAY_AGG(bd.weight ORDER BY bd.bag_number), ARRAY[]::FLOAT[]) AS bag_weights
-        FROM "DryMillGrades" dg
-        LEFT JOIN "BagDetails" bd ON dg."subBatchId" = bd.grade_id
-        WHERE dg."batchNumber" = :batchNumber
-        GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored
-        ORDER BY dg.grade;
-      `, {
-        replacements: { batchNumber: parentBatchNumber },
-        type: sequelize.QueryTypes.SELECT,
-      });
-
-      if (gradesResult.length === 0) {
-        console.warn(`No grades found for batch ${parentBatchNumber}`);
-      }
-    }
-
-    const grades = Array.isArray(gradesResult) ? gradesResult : [];
-    console.log(`Found ${grades.length} grades for batch ${trimmedBatchNumber}`);
-
-    const formattedGrades = grades.map(grade => ({
-      grade: grade.grade,
-      weight: grade.weight ? grade.weight.toString() : '',
-      bagWeights: grade.bag_weights || [],
-      bagged_at: grade.bagged_at ? new Date(grade.bagged_at).toISOString().slice(0, 10) : '',
-    }));
-
-    // If no grades are found, return default grades to maintain consistent response format
-    if (formattedGrades.length === 0) {
-      console.log(`Returning default grades for batch ${trimmedBatchNumber}`);
-      return res.status(200).json([
-        { grade: 'Specialty Grade', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
-        { grade: 'Grade 1', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
-        { grade: 'Grade 2', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
-        { grade: 'Grade 3', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
-        { grade: 'Grade 4', weight: '', bagWeights: [], bagged_at: new Date().toISOString().slice(0, 10) },
-      ]);
-    }
-
-    res.status(200).json(formattedGrades);
-  } catch (error) {
-    console.error(`Error fetching dry mill grades for batch ${trimmedBatchNumber}:`, error);
-    res.status(500).json({ error: 'Failed to fetch existing grades', details: error.message });
-  }
-});
-
-// POST route for lot number sequence management
-router.post('/lot-number-sequence', async (req, res) => {
-  const { producer, productLine, processingType, year, grade, action } = req.body;
-
-  if (!producer || !productLine || !processingType || !year || !grade) {
-    return res.status(400).json({ error: 'Missing required fields: producer, productLine, processingType, year, grade' });
-  }
-
-  let t;
-  try {
-    t = await sequelize.transaction();
-
-    const [sequenceResult] = await sequelize.query(
-      `SELECT sequence FROM "LotNumberSequences" 
-       WHERE producer = :producer AND productLine = :productLine 
-       AND processingType = :processingType AND year = :year AND grade = :grade 
-       FOR UPDATE`,
-      { 
-        replacements: { producer, productLine, processingType, year, grade }, 
-        transaction: t 
-      }
-    );
-
-    let sequence;
-    if (sequenceResult.length === 0) {
-      await sequelize.query(
-        `INSERT INTO "LotNumberSequences" (producer, productLine, processingType, year, grade, sequence)
-         VALUES (:producer, :productLine, :processingType, :year, :grade, 0)`,
-        { 
-          replacements: { producer, productLine, processingType, year, grade }, 
-          transaction: t 
-        }
-      );
-      sequence = 0;
-    } else {
-      sequence = sequenceResult[0].sequence;
-    }
-
-    if (action === 'increment') {
-      sequence += 1;
-      await sequelize.query(
-        `UPDATE "LotNumberSequences" 
-         SET sequence = :sequence 
-         WHERE producer = :producer AND productLine = :productLine 
-         AND processingType = :processingType AND year = :year AND grade = :grade`,
-        { 
-          replacements: { sequence, producer, productLine, processingType, year, grade }, 
-          transaction: t 
-        }
-      );
-    } else if (action === 'decrement' && sequence > 0) {
-      sequence -= 1;
-      await sequelize.query(
-        `UPDATE "LotNumberSequences" 
-         SET sequence = :sequence 
-         WHERE producer = :producer AND productLine = :productLine 
-         AND processingType = :processingType AND year = :year AND grade = :grade`,
-        { 
-          replacements: { sequence, producer, productLine, processingType, year, grade }, 
-          transaction: t 
-        }
-      );
-    }
-
-    await t.commit();
-
-    const formattedSequence = String(sequence).padStart(4, '0');
-    res.json({ sequence: formattedSequence });
-  } catch (error) {
-    if (t) await t.rollback();
-    console.error('Error managing lot number sequence:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 module.exports = router;
-
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
-// yay 1000 lines
