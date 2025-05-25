@@ -191,26 +191,49 @@ router.get('/orders/:order_id', async (req, res) => {
 router.post('/orders', upload.single('spb_file'), async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items } = req.body;
+    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items, batch_number } = req.body;
 
-    // Handle items as a JSON string (sent from FormData)
+    // Parse items
     if (items && typeof items === 'string') {
       try {
-        items = JSON.parse(items); // Parse the JSON string into an array
+        items = JSON.parse(items);
       } catch (error) {
         await t.rollback();
         return res.status(400).json({ error: 'Invalid items format: must be a valid JSON array', details: error.message });
       }
     } else if (!items || !Array.isArray(items)) {
-      items = []; // Default to empty array if not provided or invalid
+      items = [];
     }
 
-    if (!customer_id || !shipping_method) {
+    if (!customer_id || !shipping_method || !batch_number) {
       await t.rollback();
-      return res.status(400).json({ error: 'customer_id and shipping_method are required' });
+      return res.status(400).json({ error: 'customer_id, shipping_method, and batch_number are required' });
     }
 
-    // Validate and parse numeric fields
+    // Validate batch_number and available weight
+    const [batch] = await sequelize.query(`
+      SELECT "batchNumber", weight, currentAssign
+      FROM "ReceivingData"
+      WHERE "batchNumber" = :batch_number
+    `, {
+      replacements: { batch_number },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    if (!batch) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid batch_number: batch does not exist' });
+    }
+
+    const totalQuantity = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+    const availableWeight = batch.weight - batch.currentAssign;
+    if (availableWeight < totalQuantity) {
+      await t.rollback();
+      return res.status(400).json({ error: `Insufficient batch weight: ${availableWeight} kg available, ${totalQuantity} kg needed` });
+    }
+
+    // Validate numeric fields
     const parsedPrice = parseFloat(price) || 0;
     const parsedTaxPercentage = parseFloat(tax_percentage) || 0;
 
@@ -225,8 +248,8 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
 
     // Create the order
     const [order] = await sequelize.query(`
-      INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, created_at, updated_at, status)
-      VALUES (:customer_id, :driver_id, :shipping_method, :driver_details, :price, :tax_percentage, NOW(), NOW(), :status)
+      INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, batch_number, created_at, updated_at, status)
+      VALUES (:customer_id, :driver_id, :shipping_method, :driver_details, :price, :tax_percentage, :batch_number, NOW(), NOW(), :status)
       RETURNING *;
     `, {
       replacements: { 
@@ -236,6 +259,7 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
         price: parsedPrice, 
         tax_percentage: parsedTaxPercentage,
+        batch_number,
         status: 'Pending',
       },
       transaction: t,
@@ -243,12 +267,12 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
     });
 
     const [orders] = await sequelize.query(`
-        SELECT last_value FROM "Orders_order_id_seq";
-      `, {
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t,
-      });
-      const orderId = orders.last_value;
+      SELECT last_value FROM "Orders_order_id_seq";
+    `, {
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+    const orderId = orders.last_value;
 
     // Create order items
     if (!items.length) {
@@ -270,7 +294,7 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         VALUES (:order_id, :product, :quantity, :price, NOW())
       `, {
         replacements: { 
-          order_id: orderId, // Use the captured order_id
+          order_id: orderId, 
           product: item.product, 
           quantity: itemQuantity, 
           price: itemPrice 
@@ -279,7 +303,18 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
       });
     }
 
-    // Upload SPB file to Google Drive (if provided)
+    // Update currentAssign in ReceivingData
+    await sequelize.query(`
+      UPDATE "ReceivingData"
+      SET currentAssign = currentAssign + :totalQuantity,
+          updatedAt = NOW()
+      WHERE "batchNumber" = :batch_number
+    `, {
+      replacements: { batch_number, totalQuantity },
+      transaction: t,
+    });
+
+    // Upload SPB file (if provided)
     let spbUrl = null;
     if (req.file) {
       spbUrl = await uploadFileToDrive(req.file, folderIds['SPB']);
@@ -287,7 +322,7 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         INSERT INTO "Documents" (order_id, type, drive_url, created_at)
         VALUES (:order_id, 'SPB', :drive_url, NOW());
       `, {
-        replacements: { order_id: orderId, drive_url: spbUrl }, // Use the captured order_id
+        replacements: { order_id: orderId, drive_url: spbUrl },
         transaction: t,
       });
     }
@@ -305,26 +340,26 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
   const { order_id } = req.params;
   const t = await sequelize.transaction();
   try {
-    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items, status } = req.body;
+    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items, status, batch_number } = req.body;
 
-    // Handle items as a JSON string (sent from FormData)
+    // Parse items
     if (items && typeof items === 'string') {
       try {
-        items = JSON.parse(items); // Parse the JSON string into an array
+        items = JSON.parse(items);
       } catch (error) {
         await t.rollback();
         return res.status(400).json({ error: 'Invalid items format: must be a valid JSON array', details: error.message });
       }
     } else if (!items || !Array.isArray(items)) {
-      items = []; // Default to empty array if not provided or invalid
+      items = [];
     }
 
-    if (!customer_id || !shipping_method) {
+    if (!customer_id || !shipping_method || !batch_number) {
       await t.rollback();
-      return res.status(400).json({ error: 'customer_id and shipping_method are required' });
+      return res.status(400).json({ error: 'customer_id, shipping_method, and batch_number are required' });
     }
 
-    // Validate and parse numeric fields
+    // Validate numeric fields
     const parsedPrice = parseFloat(price) || 0;
     const parsedTaxPercentage = parseFloat(tax_percentage) || 0;
 
@@ -337,9 +372,10 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       return res.status(400).json({ error: 'Invalid tax percentage: must be a number between 0 and 100' });
     }
 
-    // Fetch the current order to check its existing status and timestamps for preservation
-    const existingOrder = await sequelize.query(`
-      SELECT status, process_at, reject_at, ready_at, ship_at, arrive_at, paid_at, payment_status, COALESCE(ROUND(CAST(price * (1 + tax_percentage / 100) AS numeric), 2), 0)::FLOAT AS grand_total 
+    // Fetch the current order
+    const [existingOrder] = await sequelize.query(`
+      SELECT batch_number, 
+             COALESCE(ROUND(CAST(price * (1 + tax_percentage / 100) AS numeric), 2), 0)::FLOAT AS grand_total 
       FROM "Orders" 
       WHERE order_id = :order_id
     `, {
@@ -348,103 +384,68 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       transaction: t,
     });
 
-    if (!existingOrder.length) {
+    if (!existingOrder) {
       await t.rollback();
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    const currentStatus = existingOrder[0].status;
-    const currentPaymentStatus = existingOrder[0].payment_status || 'Pending'; // Default to 'Pending' if not set
-    const grandTotal = existingOrder[0].grand_total || 0;
-    const currentTimestamps = {
-      process_at: existingOrder[0].process_at,
-      reject_at: existingOrder[0].reject_at,
-      ready_at: existingOrder[0].ready_at,
-      ship_at: existingOrder[0].ship_at,
-      arrive_at: existingOrder[0].arrive_at,
-      paid_at: existingOrder[0].paid_at,
-    };
-
-    // Calculate total payments for the order to determine payment_status
-    const [payments] = await sequelize.query(`
-      SELECT COALESCE(SUM(amount), 0) AS total_paid 
-      FROM "Payments" 
-      WHERE order_id = :order_id
+    // Validate batch_number and available weight
+    const totalQuantity = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+    const [batch] = await sequelize.query(`
+      SELECT "batchNumber", weight, currentAssign
+      FROM "ReceivingData"
+      WHERE "batchNumber" = :batch_number
     `, {
-      replacements: { order_id },
+      replacements: { batch_number },
       type: sequelize.QueryTypes.SELECT,
       transaction: t,
     });
 
-    const totalPaid = parseFloat(payments.total_paid) || 0;
-    let paymentStatusUpdate = currentPaymentStatus;
-    if (totalPaid > 0 && totalPaid < grandTotal) {
-      paymentStatusUpdate = 'Partial Payment';
-    } else if (totalPaid >= grandTotal) {
-      paymentStatusUpdate = 'Full Payment';
-    } else {
-      paymentStatusUpdate = 'Pending';
+    if (!batch) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid batch_number: batch does not exist' });
     }
 
-    // Handle status (shipment status) without transition validation
-    let timestampUpdate = {};
-    if (status) { // Only process status if provided (for shipment-related changes)
-      switch (status) {
-        case 'Processing':
-          timestampUpdate.process_at = new Date();
-          break;
-        case 'Rejected':
-          timestampUpdate.reject_at = new Date();
-          break;
-        case 'Ready for Shipment':
-          timestampUpdate.ready_at = new Date();
-          break;
-        case 'In Transit':
-          timestampUpdate.ship_at = new Date();
-          break;
-        case 'Delivered':
-          timestampUpdate.arrive_at = new Date();
-          break;
-        default:
-          break;
-      }
+    const availableWeight = batch.weight - batch.currentAssign;
+    if (availableWeight < totalQuantity) {
+      await t.rollback();
+      return res.status(400).json({ error: `Insufficient batch weight: ${availableWeight} kg available, ${totalQuantity} kg needed` });
     }
 
-    // Handle payment_status separately (allow updates via payment actions)
-    if (req.body.payment_status === 'Paid' || paymentStatusUpdate !== currentPaymentStatus) { // Update if explicitly set or calculated differently
-      if (paymentStatusUpdate === 'Full Payment') {
-        timestampUpdate.paid_at = new Date(); // Update paid_at only when reaching Full Payment
-      }
-      paymentStatusUpdate = paymentStatusUpdate; // Use calculated payment_status
-    } else {
-      paymentStatusUpdate = currentPaymentStatus; // Preserve existing payment_status if no change
+    // Revert currentAssign for the old batch (if changing)
+    if (existingOrder.batch_number && existingOrder.batch_number !== batch_number) {
+      const oldItems = await sequelize.query(`
+        SELECT quantity FROM "OrderItems" WHERE order_id = :order_id
+      `, {
+        replacements: { order_id },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      });
+      const oldTotalQuantity = oldItems.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+
+      await sequelize.query(`
+        UPDATE "ReceivingData"
+        SET currentAssign = currentAssign - :oldTotalQuantity,
+            updatedAt = NOW()
+        WHERE "batchNumber" = :old_batch_number
+      `, {
+        replacements: { old_batch_number: existingOrder.batch_number, oldTotalQuantity },
+        transaction: t,
+      });
     }
 
-    // Prepare the update data
-    let updateData = {
-      customer_id,
-      driver_id: shipping_method === 'Self' ? driver_id : null, // Only for Self-Arranged
-      shipping_method,
-      driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null,
-      price: parsedPrice,
-      tax_percentage: parsedTaxPercentage,
-      updated_at: new Date(), // Update updated_at with current timestamp
-    };
+    // Update currentAssign for the new batch
+    await sequelize.query(`
+      UPDATE "ReceivingData"
+      SET currentAssign = currentAssign + :totalQuantity,
+          updatedAt = NOW()
+      WHERE "batchNumber" = :batch_number
+    `, {
+      replacements: { batch_number, totalQuantity },
+      transaction: t,
+    });
 
-    // Merge updates, preserving existing timestamps and payment_status
-    updateData = {
-      ...updateData,
-      ...timestampUpdate,
-      status: status || currentStatus, // Only update status if provided (shipment status)
-      payment_status: paymentStatusUpdate, // Use calculated or updated payment_status
-      process_at: timestampUpdate.process_at || currentTimestamps.process_at,
-      reject_at: timestampUpdate.reject_at || currentTimestamps.reject_at,
-      ready_at: timestampUpdate.ready_at || currentTimestamps.ready_at,
-      ship_at: timestampUpdate.ship_at || currentTimestamps.ship_at,
-      arrive_at: timestampUpdate.arrive_at || currentTimestamps.arrive_at,
-      paid_at: timestampUpdate.paid_at || currentTimestamps.paid_at,
-    };
-
+    // Update order
     const [updatedOrder] = await sequelize.query(`
       UPDATE "Orders"
       SET customer_id = :customer_id, 
@@ -453,14 +454,8 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
           driver_details = :driver_details, 
           price = :price, 
           tax_percentage = :tax_percentage, 
+          batch_number = :batch_number,
           status = :status, 
-          payment_status = :payment_status, 
-          process_at = :process_at, 
-          reject_at = :reject_at, 
-          ready_at = :ready_at, 
-          ship_at = :ship_at, 
-          arrive_at = :arrive_at, 
-          paid_at = :paid_at, 
           updated_at = NOW()
       WHERE order_id = :order_id
       RETURNING *;
@@ -468,20 +463,13 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       replacements: { 
         order_id, 
         customer_id, 
-        driver_id: updateData.driver_id, 
+        driver_id: shipping_method === 'Self' ? driver_id : null, 
         shipping_method, 
-        driver_details: updateData.driver_details, 
+        driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
         price: parsedPrice, 
         tax_percentage: parsedTaxPercentage,
-        status: updateData.status,
-        payment_status: updateData.payment_status,
-        process_at: updateData.process_at || null,
-        reject_at: updateData.reject_at || null,
-        ready_at: updateData.ready_at || null,
-        ship_at: updateData.ship_at || null,
-        arrive_at: updateData.arrive_at || null,
-        paid_at: updateData.paid_at || null,
-        updated_at: updateData.updated_at,
+        batch_number,
+        status: status || 'Pending',
       },
       transaction: t,
       type: sequelize.QueryTypes.UPDATE,
@@ -492,7 +480,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    // Handle order items (delete existing, then insert new)
+    // Update order items
     await sequelize.query(`
       DELETE FROM "OrderItems" WHERE order_id = :order_id
     `, {
@@ -525,7 +513,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       }
     }
 
-    // Upload SPB file to Google Drive (if provided)
+    // Upload SPB file (if provided)
     let spbUrl = null;
     if (req.file) {
       spbUrl = await uploadFileToDrive(req.file, folderIds['SPB']);
@@ -833,6 +821,22 @@ router.get('/payments/:order_id', async (req, res) => {
     res.json(payments);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch payments', details: error.message });
+  }
+});
+
+router.get('/batches', async (req, res) => {
+  try {
+    const batches = await sequelize.query(`
+      SELECT "batchNumber", weight, currentAssign, "farmerName", type, "receivingDate"
+      FROM "ReceivingData"
+      WHERE weight > currentAssign
+      ORDER BY "receivingDate" DESC
+    `, {
+      type: sequelize.QueryTypes.SELECT,
+    });
+    res.json(batches);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch batches', details: error.message });
   }
 });
 
