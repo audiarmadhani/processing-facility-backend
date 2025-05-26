@@ -191,7 +191,7 @@ router.get('/orders/:order_id', async (req, res) => {
 router.post('/orders', upload.single('spb_file'), async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items, batch_number } = req.body;
+    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items } = req.body;
 
     // Parse items
     if (items && typeof items === 'string') {
@@ -201,36 +201,16 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         await t.rollback();
         return res.status(400).json({ error: 'Invalid items format: must be a valid JSON array', details: error.message });
       }
-    } else if (!items || !Array.isArray(items)) {
-      items = [];
+    }
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Items array is required and must not be empty' });
     }
 
-    if (!customer_id || !shipping_method || !batch_number) {
+    // Validate required fields
+    if (!customer_id || !shipping_method) {
       await t.rollback();
-      return res.status(400).json({ error: 'customer_id, shipping_method, and batch_number are required' });
-    }
-
-    // Validate batch_number and available weight
-    const [batch] = await sequelize.query(`
-      SELECT "batchNumber", weight, currentAssign
-      FROM "ReceivingData"
-      WHERE "batchNumber" = :batch_number
-    `, {
-      replacements: { batch_number },
-      type: sequelize.QueryTypes.SELECT,
-      transaction: t,
-    });
-
-    if (!batch) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid batch_number: batch does not exist' });
-    }
-
-    const totalQuantity = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
-    const availableWeight = batch.weight - batch.currentAssign;
-    if (availableWeight < totalQuantity) {
-      await t.rollback();
-      return res.status(400).json({ error: `Insufficient batch weight: ${availableWeight} kg available, ${totalQuantity} kg needed` });
+      return res.status(400).json({ error: 'customer_id and shipping_method are required' });
     }
 
     // Validate numeric fields
@@ -246,10 +226,74 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
       return res.status(400).json({ error: 'Invalid tax percentage: must be a number between 0 and 100' });
     }
 
+    // Validate items and check stock availability
+    const batchNumbers = [...new Set(items.map(item => item.batch_number))]; // Unique batch numbers
+    const batchData = await sequelize.query(`
+      SELECT "batchNumber", weight
+      FROM "PostprocessingData"
+      WHERE "batchNumber" IN (:batch_numbers)
+    `, {
+      replacements: { batch_numbers: batchNumbers },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    const batchMap = {};
+    batchData.forEach(batch => {
+      batchMap[batch.batchNumber] = { weight: batch.weight };
+    });
+
+    // Calculate total sold quantity per batch from OrderItems
+    const soldQuantities = await sequelize.query(`
+      SELECT batch_number, COALESCE(SUM(quantity), 0) as total_sold
+      FROM "OrderItems"
+      WHERE batch_number IN (:batch_numbers)
+      GROUP BY batch_number
+    `, {
+      replacements: { batch_numbers: batchNumbers },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    const soldMap = {};
+    soldQuantities.forEach(sold => {
+      soldMap[sold.batch_number] = parseFloat(sold.total_sold) || 0;
+    });
+
+    // Validate each item
+    for (const item of items) {
+      if (!item.batch_number || !item.quantity || !item.price || !item.product) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Each item must have batch_number, quantity, price, and product' });
+      }
+
+      const batch = batchMap[item.batch_number];
+      if (!batch) {
+        await t.rollback();
+        return res.status(400).json({ error: `Invalid batch_number: ${item.batch_number} does not exist in PostprocessingData` });
+      }
+
+      const itemQuantity = parseFloat(item.quantity) || 0;
+      const itemPrice = parseFloat(item.price) || 0;
+
+      if (isNaN(itemQuantity) || itemQuantity <= 0 || isNaN(itemPrice) || itemPrice < 0) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Invalid item quantity or price: quantity must be positive, price must be non-negative' });
+      }
+
+      // Calculate available stock
+      const totalSold = soldMap[item.batch_number] || 0;
+      const availableWeight = batch.weight - totalSold;
+      if (itemQuantity > availableWeight) {
+        await t.rollback();
+        return res.status(400).json({ error: `Insufficient stock for ${item.batch_number}: ${availableWeight.toFixed(2)} kg available, ${itemQuantity} kg requested` });
+      }
+    }
+
     // Create the order
     const [order] = await sequelize.query(`
-      INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, batch_number, created_at, updated_at, status)
-      VALUES (:customer_id, :driver_id, :shipping_method, :driver_details, :price, :tax_percentage, :batch_number, NOW(), NOW(), :status)
+      INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, created_at, updated_at, status)
+      VALUES (:customer_id, :driver_id, :shipping_method, :driver_details, :price, :tax_percentage, NOW(), NOW(), :status)
       RETURNING *;
     `, {
       replacements: { 
@@ -259,7 +303,6 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
         price: parsedPrice, 
         tax_percentage: parsedTaxPercentage,
-        batch_number,
         status: 'Pending',
       },
       transaction: t,
@@ -275,44 +318,24 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
     const orderId = orders.last_value;
 
     // Create order items
-    if (!items.length) {
-      await t.rollback();
-      return res.status(400).json({ error: 'At least one item is required for the order' });
-    }
-
     for (const item of items) {
       const itemPrice = parseFloat(item.price) || 0;
       const itemQuantity = parseFloat(item.quantity) || 0;
 
-      if (isNaN(itemPrice) || itemPrice < 0 || isNaN(itemQuantity) || itemQuantity < 0) {
-        await t.rollback();
-        return res.status(400).json({ error: 'Invalid item price or quantity: must be non-negative numbers' });
-      }
-
       await sequelize.query(`
-        INSERT INTO "OrderItems" (order_id, product, quantity, price, created_at)
-        VALUES (:order_id, :product, :quantity, :price, NOW())
+        INSERT INTO "OrderItems" (order_id, product, quantity, price, batch_number, created_at)
+        VALUES (:order_id, :product, :quantity, :price, :batch_number, NOW())
       `, {
         replacements: { 
           order_id: orderId, 
           product: item.product, 
           quantity: itemQuantity, 
-          price: itemPrice 
+          price: itemPrice,
+          batch_number: item.batch_number,
         },
         transaction: t,
       });
     }
-
-    // Update currentAssign in ReceivingData
-    await sequelize.query(`
-      UPDATE "ReceivingData"
-      SET currentAssign = currentAssign + :totalQuantity,
-          updatedAt = NOW()
-      WHERE "batchNumber" = :batch_number
-    `, {
-      replacements: { batch_number, totalQuantity },
-      transaction: t,
-    });
 
     // Upload SPB file (if provided)
     let spbUrl = null;
@@ -334,6 +357,7 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
     res.status(500).json({ error: 'Failed to create order', details: error.message });
   }
 });
+
 
 // Update order status or details, including items
 router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
