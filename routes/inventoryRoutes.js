@@ -74,7 +74,7 @@ router.get('/inventory/orders', async (req, res) => {
         o."price",
         p."batchNumber"
       FROM "Orders" o
-      LEFT JOIN "PostprocessingData" p ON o."batchNumber" = p."batchNumber"
+      LEFT JOIN "PostprocessingData" p ON o."batch_number" = p."batchNumber"
       WHERE o."status" IN ('pending', 'processing', 'ready', 'shipped')
       ORDER BY o."created_at" DESC;
     `);
