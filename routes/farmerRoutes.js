@@ -6,13 +6,13 @@ const sequelize = require('../config/database');
 router.post('/farmer', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { farmerName, desa, kecamatan, kabupaten, farmerAddress, bankAccount, bankName, farmerLandArea, farmerContact, latitude, longitude, farmType, notes, farmVarieties } = req.body;
+    const { farmerName, desa, kecamatan, kabupaten, farmerAddress, bankAccount, bankName, farmerLandArea, farmerContact, latitude, longitude, farmType, notes, farmVarieties, isContract } = req.body;
 
     // Save the farmer data
     const [farmerData] = await sequelize.query(
-      'INSERT INTO "Farmers" ("farmerName", desa, kecamatan, kabupaten, "farmerAddress", "bankAccount", "bankName", "farmerLandArea", "farmerContact", "latitude", "longitude", "farmType", "notes", "farmVarieties") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO "Farmers" ("farmerName", desa, kecamatan, kabupaten, "farmerAddress", "bankAccount", "bankName", "farmerLandArea", "farmerContact", "latitude", "longitude", "farmType", "notes", "farmVarieties", "isContract") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       {
-        replacements: [farmerName, desa, kecamatan, kabupaten, farmerAddress, bankAccount, bankName, farmerLandArea, farmerContact, latitude, longitude, farmType, notes, farmVarieties],
+        replacements: [farmerName, desa, kecamatan, kabupaten, farmerAddress, bankAccount, bankName, farmerLandArea, farmerContact, latitude, longitude, farmType, notes, farmVarieties, isContract],
         transaction: t,
       }
     );
