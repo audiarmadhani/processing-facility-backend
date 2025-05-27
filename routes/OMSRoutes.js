@@ -8,7 +8,7 @@ const path = require('path');
 
 require('dotenv').config();
 
-// Google Drive OAuth2 Setup (reused from your code)
+// Google Drive OAuth2 Setup (unchanged)
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_API_CLIENT_ID,
   process.env.GOOGLE_API_CLIENT_SECRET,
@@ -17,7 +17,7 @@ const oauth2Client = new google.auth.OAuth2(
 oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_API_REFRESH_TOKEN });
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
-// Multer configuration (reused from your code)
+// Multer configuration (unchanged)
 const upload = multer({
   dest: 'uploads/',
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit
@@ -30,7 +30,7 @@ const upload = multer({
   },
 });
 
-// Google Drive Folder IDs (replace with your actual folder IDs)
+// Google Drive Folder IDs (unchanged)
 const folderIds = {
   'SPB': '1IlyAX9P8JbcCgPppftXPf-8W7Axai3MF',
   'SPK': '1Wzf31eoapE8CjPFd_WKCJgjh-v_LaXRP',
@@ -41,7 +41,7 @@ const folderIds = {
   'Order List': '1Ykw1OnktdPiG50vhF4GFcpou7cF8fyFP',
 };
 
-// Reused upload function (adapted for OMS)
+// Reused upload function (unchanged)
 const uploadFileToDrive = async (file, folderId) => {
   const fileMetadata = {
     name: file.originalname,
@@ -62,9 +62,7 @@ const uploadFileToDrive = async (file, folderId) => {
   return uploadedFile.data.webViewLink; // Return URL for database storage
 };
 
-// --- Customers Routes ---
-
-// Get all customers
+// --- Customers Routes --- (unchanged)
 router.get('/customers', async (req, res) => {
   try {
     const customers = await sequelize.query('SELECT * FROM "Customers" ORDER BY created_at DESC', {
@@ -97,9 +95,7 @@ router.post('/customers', async (req, res) => {
   }
 });
 
-// --- Drivers Routes ---
-
-// Get all drivers
+// --- Drivers Routes --- (unchanged)
 router.get('/drivers', async (req, res) => {
   try {
     const drivers = await sequelize.query('SELECT * FROM "Drivers" ORDER BY created_at DESC', {
@@ -134,7 +130,7 @@ router.post('/drivers', async (req, res) => {
 
 // --- Orders Routes ---
 
-// Get all orders with associated items
+// Get all orders with associated items (unchanged, assuming Orders_v includes shipping_address and billing_address)
 router.get('/orders', async (req, res) => {
   try {
     const orders = await sequelize.query(`
@@ -160,7 +156,7 @@ router.get('/orders', async (req, res) => {
   }
 });
 
-// Get a specific order with associated items
+// Get a specific order with associated items (unchanged, assuming Orders_v includes shipping_address and billing_address)
 router.get('/orders/:order_id', async (req, res) => {
   const { order_id } = req.params;
   try {
@@ -191,7 +187,7 @@ router.get('/orders/:order_id', async (req, res) => {
 router.post('/orders', upload.single('spb_file'), async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items } = req.body;
+    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items, shipping_address, billing_address } = req.body;
 
     // Parse items
     if (items && typeof items === 'string') {
@@ -208,9 +204,19 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
     }
 
     // Validate required fields
-    if (!customer_id || !shipping_method) {
+    if (!customer_id || !shipping_method || !shipping_address || !billing_address) {
       await t.rollback();
-      return res.status(400).json({ error: 'customer_id and shipping_method are required' });
+      return res.status(400).json({ error: 'customer_id, shipping_method, shipping_address, and billing_address are required' });
+    }
+
+    // Validate address fields
+    if (typeof shipping_address !== 'string' || shipping_address.trim() === '') {
+      await t.rollback();
+      return res.status(400).json({ error: 'Shipping address must be a non-empty string' });
+    }
+    if (typeof billing_address !== 'string' || billing_address.trim() === '') {
+      await t.rollback();
+      return res.status(400).json({ error: 'Billing address must be a non-empty string' });
     }
 
     // Validate numeric fields
@@ -290,10 +296,10 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
       }
     }
 
-    // Create the order
+    // Create the order with shipping_address and billing_address
     const [order] = await sequelize.query(`
-      INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, created_at, updated_at, status)
-      VALUES (:customer_id, :driver_id, :shipping_method, :driver_details, :price, :tax_percentage, NOW(), NOW(), :status)
+      INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, shipping_address, billing_address, created_at, updated_at, status)
+      VALUES (:customer_id, :driver_id, :shipping_method, :driver_details, :price, :tax_percentage, :shipping_address, :billing_address, NOW(), NOW(), :status)
       RETURNING *;
     `, {
       replacements: { 
@@ -303,6 +309,8 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
         price: parsedPrice, 
         tax_percentage: parsedTaxPercentage,
+        shipping_address,
+        billing_address,
         status: 'Pending',
       },
       transaction: t,
@@ -364,7 +372,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
   const { order_id } = req.params;
   const t = await sequelize.transaction();
   try {
-    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items, status, batch_number } = req.body;
+    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items, status, shipping_address, billing_address } = req.body;
 
     // Parse items
     if (items && typeof items === 'string') {
@@ -378,9 +386,20 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       items = [];
     }
 
-    if (!customer_id || !shipping_method || !batch_number) {
+    // Validate required fields
+    if (!customer_id || !shipping_method || !shipping_address || !billing_address) {
       await t.rollback();
-      return res.status(400).json({ error: 'customer_id, shipping_method, and batch_number are required' });
+      return res.status(400).json({ error: 'customer_id, shipping_method, shipping_address, and billing_address are required' });
+    }
+
+    // Validate address fields
+    if (typeof shipping_address !== 'string' || shipping_address.trim() === '') {
+      await t.rollback();
+      return res.status(400).json({ error: 'Shipping address must be a non-empty string' });
+    }
+    if (typeof billing_address !== 'string' || billing_address.trim() === '') {
+      await t.rollback();
+      return res.status(400).json({ error: 'Billing address must be a non-empty string' });
     }
 
     // Validate numeric fields
@@ -398,8 +417,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
 
     // Fetch the current order
     const [existingOrder] = await sequelize.query(`
-      SELECT batch_number, 
-             COALESCE(ROUND(CAST(price * (1 + tax_percentage / 100) AS numeric), 2), 0)::FLOAT AS grand_total 
+      SELECT COALESCE(ROUND(CAST(price * (1 + tax_percentage / 100) AS numeric), 2), 0)::FLOAT AS grand_total 
       FROM "Orders" 
       WHERE order_id = :order_id
     `, {
@@ -413,63 +431,70 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    // Validate batch_number and available weight
-    const totalQuantity = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
-    const [batch] = await sequelize.query(`
-      SELECT "batchNumber", weight, currentAssign
-      FROM "ReceivingData"
-      WHERE "batchNumber" = :batch_number
-    `, {
-      replacements: { batch_number },
-      type: sequelize.QueryTypes.SELECT,
-      transaction: t,
-    });
-
-    if (!batch) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid batch_number: batch does not exist' });
-    }
-
-    const availableWeight = batch.weight - batch.currentAssign;
-    if (availableWeight < totalQuantity) {
-      await t.rollback();
-      return res.status(400).json({ error: `Insufficient batch weight: ${availableWeight} kg available, ${totalQuantity} kg needed` });
-    }
-
-    // Revert currentAssign for the old batch (if changing)
-    if (existingOrder.batch_number && existingOrder.batch_number !== batch_number) {
-      const oldItems = await sequelize.query(`
-        SELECT quantity FROM "OrderItems" WHERE order_id = :order_id
+    // Validate items and check stock availability if items are provided
+    if (items.length > 0) {
+      const batchNumbers = [...new Set(items.map(item => item.batch_number))];
+      const batchData = await sequelize.query(`
+        SELECT "batchNumber", weight
+        FROM "PostprocessingData"
+        WHERE "batchNumber" IN (:batch_numbers)
       `, {
-        replacements: { order_id },
+        replacements: { batch_numbers: batchNumbers },
         type: sequelize.QueryTypes.SELECT,
         transaction: t,
       });
-      const oldTotalQuantity = oldItems.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
 
-      await sequelize.query(`
-        UPDATE "ReceivingData"
-        SET currentAssign = currentAssign - :oldTotalQuantity,
-            updatedAt = NOW()
-        WHERE "batchNumber" = :old_batch_number
+      const batchMap = {};
+      batchData.forEach(batch => {
+        batchMap[batch.batchNumber] = { weight: batch.weight };
+      });
+
+      const soldQuantities = await sequelize.query(`
+        SELECT batch_number, COALESCE(SUM(quantity), 0) as total_sold
+        FROM "OrderItems"
+        WHERE batch_number IN (:batch_numbers) AND order_id != :order_id
+        GROUP BY batch_number
       `, {
-        replacements: { old_batch_number: existingOrder.batch_number, oldTotalQuantity },
+        replacements: { batch_numbers: batchNumbers, order_id },
+        type: sequelize.QueryTypes.SELECT,
         transaction: t,
       });
+
+      const soldMap = {};
+      soldQuantities.forEach(sold => {
+        soldMap[sold.batch_number] = parseFloat(sold.total_sold) || 0;
+      });
+
+      for (const item of items) {
+        if (!item.batch_number || !item.quantity || !item.price || !item.product) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Each item must have batch_number, quantity, price, and product' });
+        }
+
+        const batch = batchMap[item.batch_number];
+        if (!batch) {
+          await t.rollback();
+          return res.status(400).json({ error: `Invalid batch_number: ${item.batch_number} does not exist in PostprocessingData` });
+        }
+
+        const itemQuantity = parseFloat(item.quantity) || 0;
+        const itemPrice = parseFloat(item.price) || 0;
+
+        if (isNaN(itemQuantity) || itemQuantity <= 0 || isNaN(itemPrice) || itemPrice < 0) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Invalid item quantity or price: quantity must be positive, price must be non-negative' });
+        }
+
+        const totalSold = soldMap[item.batch_number] || 0;
+        const availableWeight = batch.weight - totalSold;
+        if (itemQuantity > availableWeight) {
+          await t.rollback();
+          return res.status(400).json({ error: `Insufficient stock for ${item.batch_number}: ${availableWeight.toFixed(2)} kg available, ${itemQuantity} kg requested` });
+        }
+      }
     }
 
-    // Update currentAssign for the new batch
-    await sequelize.query(`
-      UPDATE "ReceivingData"
-      SET currentAssign = currentAssign + :totalQuantity,
-          updatedAt = NOW()
-      WHERE "batchNumber" = :batch_number
-    `, {
-      replacements: { batch_number, totalQuantity },
-      transaction: t,
-    });
-
-    // Update order
+    // Update order with shipping_address and billing_address
     const [updatedOrder] = await sequelize.query(`
       UPDATE "Orders"
       SET customer_id = :customer_id, 
@@ -477,8 +502,9 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
           shipping_method = :shipping_method, 
           driver_details = :driver_details, 
           price = :price, 
-          tax_percentage = :tax_percentage, 
-          batch_number = :batch_number,
+          tax_percentage = :tax_percentage,
+          shipping_address = :shipping_address,
+          billing_address = :billing_address,
           status = :status, 
           updated_at = NOW()
       WHERE order_id = :order_id
@@ -492,7 +518,8 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
         driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
         price: parsedPrice, 
         tax_percentage: parsedTaxPercentage,
-        batch_number,
+        shipping_address,
+        billing_address,
         status: status || 'Pending',
       },
       transaction: t,
@@ -523,14 +550,15 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
         }
 
         await sequelize.query(`
-          INSERT INTO "OrderItems" (order_id, product, quantity, price, created_at)
-          VALUES (:order_id, :product, :quantity, :price, NOW())
+          INSERT INTO "OrderItems" (order_id, product, quantity, price, batch_number, created_at)
+          VALUES (:order_id, :product, :quantity, :price, :batch_number, NOW())
         `, {
           replacements: { 
             order_id, 
             product: item.product, 
             quantity: itemQuantity, 
-            price: itemPrice 
+            price: itemPrice,
+            batch_number: item.batch_number
           },
           transaction: t,
         });
@@ -559,9 +587,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
   }
 });
 
-// --- OrderItems Routes ---
-
-// Get all items for an order
+// --- OrderItems Routes --- (unchanged)
 router.get('/order-items/:order_id', async (req, res) => {
   const { order_id } = req.params;
   try {
@@ -681,9 +707,7 @@ router.delete('/order-items/:order_item_id', async (req, res) => {
   }
 });
 
-// --- Documents Routes ---
-
-// Upload document (SPK, SPM, DO, Surat Jalan, BAST, Order List)
+// --- Documents Routes --- (unchanged)
 router.post('/documents/upload', upload.single('file'), async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -735,9 +759,7 @@ router.get('/documents/:order_id', async (req, res) => {
   }
 });
 
-// --- Payments Routes ---
-
-// Create a new payment record for an order
+// --- Payments Routes --- (unchanged)
 router.post('/payments', async (req, res) => {
   const { order_id, amount, payment_date, notes } = req.body;
 
@@ -848,6 +870,7 @@ router.get('/payments/:order_id', async (req, res) => {
   }
 });
 
+// --- Batches Route --- (unchanged)
 router.get('/batches', async (req, res) => {
   try {
     const batches = await sequelize.query(`
