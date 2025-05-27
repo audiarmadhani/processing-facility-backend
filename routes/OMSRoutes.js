@@ -846,6 +846,7 @@ router.get('/payments/:order_id', async (req, res) => {
 });
 
 // Get available green bean batches with remaining quantities
+// In routes/index.js
 router.get('/batches', async (req, res) => {
   try {
     const batches = await sequelize.query(`
@@ -853,10 +854,12 @@ router.get('/batches', async (req, res) => {
         p."batchNumber",
         p.weight AS produced_weight,
         p.weight - COALESCE(SUM(oi.quantity), 0) AS remaining_quantity,
-        p."createdAt" AS processing_date
+        p."createdAt" AS processing_date,
+        p.quality,
+        p."processingType"
       FROM "PostprocessingData" p
       LEFT JOIN "OrderItems" oi ON p."batchNumber" = oi.batch_number
-      GROUP BY p."batchNumber", p.weight, p."createdAt"
+      GROUP BY p."batchNumber", p.weight, p."createdAt", p.quality, p."processingType"
       HAVING p.weight > COALESCE(SUM(oi.quantity), 0)
       ORDER BY p."createdAt" DESC
     `, {
