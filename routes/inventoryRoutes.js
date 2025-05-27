@@ -42,7 +42,7 @@ router.get('/inventory/green-beans', async (req, res) => {
       SELECT 
         p."batchNumber",
         p."parentBatchNumber",
-        p."type",
+        r."type",
         p."processingType",
         p."weight",
         p."totalBags",
@@ -53,6 +53,7 @@ router.get('/inventory/green-beans', async (req, res) => {
         p."productLine",
         p."referenceNumber"
       FROM "PostprocessingData" p
+      LEFT JOIN "ReceivingData" r on p."parentBatchNumber" = r."batchNumber"
       ORDER BY p."storedDate" DESC;
     `);
     res.json(rows);
