@@ -130,7 +130,7 @@ router.post('/drivers', async (req, res) => {
 
 // --- Orders Routes ---
 
-// Get all orders with associated items (unchanged, assuming Orders_v includes shipping_address and billing_address)
+// Get all orders with associated items (unchanged)
 router.get('/orders', async (req, res) => {
   try {
     const orders = await sequelize.query(`
@@ -156,7 +156,7 @@ router.get('/orders', async (req, res) => {
   }
 });
 
-// Get a specific order with associated items (unchanged, assuming Orders_v includes shipping_address and billing_address)
+// Get a specific order with associated items (unchanged)
 router.get('/orders/:order_id', async (req, res) => {
   const { order_id } = req.params;
   try {
@@ -233,11 +233,13 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
     }
 
     // Validate items and check stock availability
-    const batchNumbers = [...new Set(items.map(item => item.batch_number))]; // Unique batch numbers
+    const batchNumbers = [...new Set(items.map(item => item.batch_number))];
     const batchData = await sequelize.query(`
-      SELECT "batchNumber", weight
-      FROM "PostprocessingData"
-      WHERE "batchNumber" IN (:batch_numbers)
+      SELECT p."batchNumber", p.weight, COALESCE(SUM(oi.quantity), 0) as total_sold
+      FROM "PostprocessingData" p
+      LEFT JOIN "OrderItems" oi ON p."batchNumber" = oi.batch_number
+      WHERE p."batchNumber" IN (:batch_numbers)
+      GROUP BY p."batchNumber", p.weight
     `, {
       replacements: { batch_numbers: batchNumbers },
       type: sequelize.QueryTypes.SELECT,
@@ -246,24 +248,10 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
 
     const batchMap = {};
     batchData.forEach(batch => {
-      batchMap[batch.batchNumber] = { weight: batch.weight };
-    });
-
-    // Calculate total sold quantity per batch from OrderItems
-    const soldQuantities = await sequelize.query(`
-      SELECT batch_number, COALESCE(SUM(quantity), 0) as total_sold
-      FROM "OrderItems"
-      WHERE batch_number IN (:batch_numbers)
-      GROUP BY batch_number
-    `, {
-      replacements: { batch_numbers: batchNumbers },
-      type: sequelize.QueryTypes.SELECT,
-      transaction: t,
-    });
-
-    const soldMap = {};
-    soldQuantities.forEach(sold => {
-      soldMap[sold.batch_number] = parseFloat(sold.total_sold) || 0;
+      batchMap[batch.batchNumber] = {
+        weight: parseFloat(batch.weight) || 0,
+        totalSold: parseFloat(batch.total_sold) || 0,
+      };
     });
 
     // Validate each item
@@ -288,15 +276,14 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
       }
 
       // Calculate available stock
-      const totalSold = soldMap[item.batch_number] || 0;
-      const availableWeight = batch.weight - totalSold;
+      const availableWeight = batch.weight - batch.totalSold;
       if (itemQuantity > availableWeight) {
         await t.rollback();
         return res.status(400).json({ error: `Insufficient stock for ${item.batch_number}: ${availableWeight.toFixed(2)} kg available, ${itemQuantity} kg requested` });
       }
     }
 
-    // Create the order with shipping_address and billing_address
+    // Create the order
     const [order] = await sequelize.query(`
       INSERT INTO "Orders" (customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, shipping_address, billing_address, created_at, updated_at, status)
       VALUES (:customer_id, :driver_id, :shipping_method, :driver_details, :price, :tax_percentage, :shipping_address, :billing_address, NOW(), NOW(), :status)
@@ -435,34 +422,23 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
     if (items.length > 0) {
       const batchNumbers = [...new Set(items.map(item => item.batch_number))];
       const batchData = await sequelize.query(`
-        SELECT "batchNumber", weight
-        FROM "PostprocessingData"
-        WHERE "batchNumber" IN (:batch_numbers)
-      `, {
-        replacements: { batch_numbers: batchNumbers },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t,
-      });
-
-      const batchMap = {};
-      batchData.forEach(batch => {
-        batchMap[batch.batchNumber] = { weight: batch.weight };
-      });
-
-      const soldQuantities = await sequelize.query(`
-        SELECT batch_number, COALESCE(SUM(quantity), 0) as total_sold
-        FROM "OrderItems"
-        WHERE batch_number IN (:batch_numbers) AND order_id != :order_id
-        GROUP BY batch_number
+        SELECT p."batchNumber", p.weight, COALESCE(SUM(oi.quantity), 0) as total_sold
+        FROM "PostprocessingData" p
+        LEFT JOIN "OrderItems" oi ON p."batchNumber" = oi.batch_number AND oi.order_id != :order_id
+        WHERE p."batchNumber" IN (:batch_numbers)
+        GROUP BY p."batchNumber", p.weight
       `, {
         replacements: { batch_numbers: batchNumbers, order_id },
         type: sequelize.QueryTypes.SELECT,
         transaction: t,
       });
 
-      const soldMap = {};
-      soldQuantities.forEach(sold => {
-        soldMap[sold.batch_number] = parseFloat(sold.total_sold) || 0;
+      const batchMap = {};
+      batchData.forEach(batch => {
+        batchMap[batch.batchNumber] = {
+          weight: parseFloat(batch.weight) || 0,
+          totalSold: parseFloat(batch.total_sold) || 0,
+        };
       });
 
       for (const item of items) {
@@ -485,8 +461,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
           return res.status(400).json({ error: 'Invalid item quantity or price: quantity must be positive, price must be non-negative' });
         }
 
-        const totalSold = soldMap[item.batch_number] || 0;
-        const availableWeight = batch.weight - totalSold;
+        const availableWeight = batch.weight - batch.totalSold;
         if (itemQuantity > availableWeight) {
           await t.rollback();
           return res.status(400).json({ error: `Insufficient stock for ${item.batch_number}: ${availableWeight.toFixed(2)} kg available, ${itemQuantity} kg requested` });
@@ -494,7 +469,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       }
     }
 
-    // Update order with shipping_address and billing_address
+    // Update order
     const [updatedOrder] = await sequelize.query(`
       UPDATE "Orders"
       SET customer_id = :customer_id, 
@@ -870,14 +845,20 @@ router.get('/payments/:order_id', async (req, res) => {
   }
 });
 
-// --- Batches Route --- (unchanged)
+// Get available green bean batches with remaining quantities
 router.get('/batches', async (req, res) => {
   try {
     const batches = await sequelize.query(`
-      SELECT "batchNumber", weight, currentAssign, "farmerName", type, "receivingDate"
-      FROM "ReceivingData"
-      WHERE weight > currentAssign
-      ORDER BY "receivingDate" DESC
+      SELECT 
+        p."batchNumber",
+        p.weight AS produced_weight,
+        p.weight - COALESCE(SUM(oi.quantity), 0) AS remaining_quantity,
+        p."createdAt" AS processing_date
+      FROM "PostprocessingData" p
+      LEFT JOIN "OrderItems" oi ON p."batchNumber" = oi.batch_number
+      GROUP BY p."batchNumber", p.weight, p."createdAt"
+      HAVING p.weight > COALESCE(SUM(oi.quantity), 0)
+      ORDER BY p."createdAt" DESC
     `, {
       type: sequelize.QueryTypes.SELECT,
     });
