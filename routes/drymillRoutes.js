@@ -44,6 +44,99 @@ router.get('/reference-mappings', async (req, res) => {
   }
 });
 
+// GET route for dry mill grades by batch number
+router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
+  const { batchNumber } = req.params;
+
+  try {
+    // Check if batch is a sub-batch
+    const [subBatch] = await sequelize.query(`
+      SELECT "batchNumber", "parentBatchNumber", "quality"
+      FROM "PostprocessingData"
+      WHERE "batchNumber" = :batchNumber
+      LIMIT 1
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    let grades;
+    let relevantBatchNumber = batchNumber;
+
+    if (subBatch && subBatch.parentBatchNumber) {
+      // Sub-batch: fetch only the specific grade
+      relevantBatchNumber = subBatch.parentBatchNumber;
+      grades = await sequelize.query(`
+        SELECT 
+          dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
+          ARRAY_AGG(bd.weight ORDER BY bd.bag_number) AS bagWeights
+        FROM "DryMillGrades" dg
+        LEFT JOIN "BagDetails" bd ON dg."subBatchId" = bd.grade_id
+        WHERE dg."batchNumber" = :parentBatchNumber
+        AND dg.grade = :quality
+        GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored
+      `, {
+        replacements: { parentBatchNumber: subBatch.parentBatchNumber, quality: subBatch.quality },
+        type: sequelize.QueryTypes.SELECT
+      });
+    } else {
+      // Parent batch: fetch all grades
+      grades = await sequelize.query(`
+        SELECT 
+          dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
+          ARRAY_AGG(bd.weight ORDER BY bd.bag_number) AS bagWeights
+        FROM "DryMillGrades" dg
+        LEFT JOIN "BagDetails" bd ON dg."subBatchId" = bd.grade_id
+        WHERE dg."batchNumber" = :batchNumber
+        GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored
+      `, {
+        replacements: { batchNumber },
+        type: sequelize.QueryTypes.SELECT
+      });
+    }
+
+    const formattedGrades = grades.map(g => ({
+      subBatchId: g.subBatchId,
+      grade: g.grade,
+      weight: g.weight || 0,
+      bagWeights: g.bagWeights && g.bagWeights[0] !== null ? g.bagWeights.map(w => w.toString()) : [],
+      bagged_at: g.bagged_at ? g.bagged_at.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      is_stored: g.is_stored || false,
+      tempSequence: '0001' // Placeholder, as sequence is managed in /split
+    }));
+
+    if (formattedGrades.length === 0 && subBatch && subBatch.quality) {
+      // Default for sub-batch if no grades exist
+      formattedGrades.push({
+        subBatchId: `${relevantBatchNumber}-${subBatch.quality.replace(/\s+/g, '')}`,
+        grade: subBatch.quality,
+        weight: 0,
+        bagWeights: [],
+        bagged_at: new Date().toISOString().slice(0, 10),
+        is_stored: false,
+        tempSequence: '0001'
+      });
+    } else if (formattedGrades.length === 0) {
+      // Default for parent batch
+      const defaultGrades = ['Specialty Grade', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4'];
+      formattedGrades.push(...defaultGrades.map(grade => ({
+        subBatchId: `${relevantBatchNumber}-${grade.replace(/\s+/g, '')}`,
+        grade,
+        weight: 0,
+        bagWeights: [],
+        bagged_at: new Date().toISOString().slice(0, 10),
+        is_stored: false,
+        tempSequence: '0001'
+      })));
+    }
+
+    res.status(200).json(formattedGrades);
+  } catch (error) {
+    console.error(`Error fetching grades for batch ${batchNumber}:`, error);
+    res.status(500).json({ error: 'Failed to fetch grades', details: error.message });
+  }
+});
+
 // POST route for manual green bean splitting, weighing, and bagging
 router.post('/dry-mill/:batchNumber/split', async (req, res) => {
   const { batchNumber } = req.params;
@@ -285,6 +378,123 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     if (t) await t.rollback();
     console.error('Error saving green bean splits:', error);
     res.status(500).json({ error: 'Failed to save green bean splits', details: error.message });
+  }
+});
+
+// POST route to update bags for a specific grade (sub-batch)
+router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
+  const { batchNumber } = req.params;
+  const { grade, bagWeights, bagged_at } = req.body;
+
+  if (!batchNumber || !grade || !Array.isArray(bagWeights)) {
+    return res.status(400).json({ error: 'Batch number, grade, and bag weights are required.' });
+  }
+
+  let t;
+  try {
+    t = await sequelize.transaction();
+
+    // Verify sub-batch exists
+    const [subBatch] = await sequelize.query(`
+      SELECT "parentBatchNumber", "quality"
+      FROM "PostprocessingData"
+      WHERE "batchNumber" = :batchNumber
+      AND "quality" = :grade
+      LIMIT 1
+    `, {
+      replacements: { batchNumber, grade },
+      transaction: t,
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    if (!subBatch) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Sub-batch not found or grade does not match.' });
+    }
+
+    const parentBatchNumber = subBatch.parentBatchNumber;
+    const subBatchId = `${parentBatchNumber}-${grade.replace(/\s+/g, '')}`;
+
+    // Validate weights
+    const weights = bagWeights.map(w => {
+      const weightNum = parseFloat(w);
+      if (isNaN(weightNum) || weightNum <= 0) {
+        throw new Error(`Invalid weight for grade ${grade}: must be a positive number.`);
+      }
+      return weightNum;
+    });
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+    const baggedAtValue = bagged_at || new Date().toISOString().slice(0, 10);
+
+    // Delete existing bags
+    await sequelize.query(`
+      DELETE FROM "BagDetails"
+      WHERE grade_id = :subBatchId
+    `, {
+      replacements: { subBatchId },
+      transaction: t
+    });
+
+    // Update or insert DryMillGrades
+    await sequelize.query(`
+      INSERT INTO "DryMillGrades" ("batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "is_stored")
+      VALUES (:parentBatchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, FALSE)
+      ON CONFLICT ("subBatchId")
+      DO UPDATE SET
+        weight = :weight,
+        bagged_at = :bagged_at,
+        is_stored = FALSE
+    `, {
+      replacements: {
+        parentBatchNumber,
+        subBatchId,
+        grade,
+        weight: totalWeight,
+        bagged_at: baggedAtValue
+      },
+      transaction: t,
+      type: sequelize.QueryTypes.INSERT
+    });
+
+    // Insert new bags
+    for (let i = 0; i < weights.length; i++) {
+      await sequelize.query(`
+        INSERT INTO "BagDetails" (grade_id, bag_number, weight, bagged_at, is_stored)
+        VALUES (:gradeId, :bagNumber, :weight, :baggedAt, FALSE)
+      `, {
+        replacements: {
+          gradeId: subBatchId,
+          bagNumber: i + 1,
+          weight: weights[i],
+          baggedAt: baggedAtValue
+        },
+        transaction: t,
+        type: sequelize.QueryTypes.INSERT
+      });
+    }
+
+    // Update PostprocessingData
+    await sequelize.query(`
+      UPDATE "PostprocessingData"
+      SET weight = :weight, "totalBags" = :totalBags, "updatedAt" = NOW()
+      WHERE "batchNumber" = :batchNumber
+    `, {
+      replacements: {
+        batchNumber,
+        weight: totalWeight,
+        totalBags: weights.length
+      },
+      transaction: t,
+      type: sequelize.QueryTypes.UPDATE
+    });
+
+    await t.commit();
+
+    res.status(200).json({ message: 'Bags updated successfully', grade, weight: totalWeight, bagWeights: weights });
+  } catch (error) {
+    if (t) await t.rollback();
+    console.error(`Error updating bags for batch ${batchNumber}:`, error);
+    res.status(500).json({ error: 'Failed to update bags', details: error.message });
   }
 });
 
