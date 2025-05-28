@@ -78,10 +78,10 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       grades = await sequelize.query(`
         SELECT 
           dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
-          ARRAY_AGG(bd.weight ORDER BY bd.bag_number) FILTER (WHERE bd.weight IS NOT NULL) AS bagWeights,
+          ARRAY_AGG(bd.weight) AS bagWeights,
           COALESCE(dg.temp_sequence, '0001') AS temp_sequence
         FROM "DryMillGrades" dg
-        LEFT JOIN "BagDetails" bd ON dg."subBatchId" = bd.grade_id
+        LEFT JOIN "BagDetails" bd ON LOWER(dg."subBatchId") = LOWER(bd.grade_id)
         WHERE dg."batchNumber" = :parentBatchNumber
           AND LOWER(dg.grade) = LOWER(:quality)
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored, dg.temp_sequence
@@ -89,22 +89,58 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         replacements: { parentBatchNumber: subBatch.parentBatchNumber, quality: subBatch.quality },
         type: sequelize.QueryTypes.SELECT
       });
+
+      // Fallback: If bagWeights is empty, query BagDetails directly
+      for (let grade of grades) {
+        if (!grade.bagWeights || grade.bagWeights.length === 0 || grade.bagWeights[0] === null) {
+          console.log(`No bagWeights for subBatchId: ${grade.subBatchId}, querying BagDetails directly`);
+          const bagDetails = await sequelize.query(`
+            SELECT weight
+            FROM "BagDetails"
+            WHERE LOWER(grade_id) = LOWER(:subBatchId)
+            ORDER BY bag_number
+          `, {
+            replacements: { subBatchId: grade.subBatchId },
+            type: sequelize.QueryTypes.SELECT
+          });
+          grade.bagWeights = bagDetails.map(bd => bd.weight).filter(w => w !== null);
+          console.log(`Direct BagDetails result for ${grade.subBatchId}:`, grade.bagWeights);
+        }
+      }
     } else {
       // Parent batch: fetch all grades
       console.log('Parent batch query params:', { batchNumber });
       grades = await sequelize.query(`
         SELECT 
           dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
-          ARRAY_AGG(bd.weight ORDER BY bd.bag_number) FILTER (WHERE bd.weight IS NOT NULL) AS bagWeights,
+          ARRAY_AGG(bd.weight) AS bagWeights,
           COALESCE(dg.temp_sequence, '0001') AS temp_sequence
         FROM "DryMillGrades" dg
-        LEFT JOIN "BagDetails" bd ON dg."subBatchId" = bd.grade_id
+        LEFT JOIN "BagDetails" bd ON LOWER(dg."subBatchId") = LOWER(bd.grade_id)
         WHERE dg."batchNumber" = :batchNumber
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored, dg.temp_sequence
       `, {
         replacements: { batchNumber },
         type: sequelize.QueryTypes.SELECT
       });
+
+      // Fallback for parent batch
+      for (let grade of grades) {
+        if (!grade.bagWeights || grade.bagWeights.length === 0 || grade.bagWeights[0] === null) {
+          console.log(`No bagWeights for subBatchId: ${grade.subBatchId}, querying BagDetails directly`);
+          const bagDetails = await sequelize.query(`
+            SELECT weight
+            FROM "BagDetails"
+            WHERE LOWER(grade_id) = LOWER(:subBatchId)
+            ORDER BY bag_number
+          `, {
+            replacements: { subBatchId: grade.subBatchId },
+            type: sequelize.QueryTypes.SELECT
+          });
+          grade.bagWeights = bagDetails.map(bd => bd.weight).filter(w => w !== null);
+          console.log(`Direct BagDetails result for ${grade.subBatchId}:`, grade.bagWeights);
+        }
+      }
     }
 
     console.log('Grades query result:', grades); // Debug log
@@ -113,7 +149,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       subBatchId: g.subBatchId,
       grade: g.grade,
       weight: g.weight ? parseFloat(g.weight).toFixed(2) : '0.00',
-      bagWeights: Array.isArray(g.bagWeights) && g.bagWeights.length > 0 ? g.bagWeights.map(w => String(w)) : [],
+      bagWeights: Array.isArray(g.bagWeights) && g.bagWeights.length > 0 && g.bagWeights[0] !== null ? g.bagWeights.map(w => String(w)) : [],
       bagged_at: g.bagged_at ? new Date(g.bagged_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
       is_stored: g.is_stored || false,
       tempSequence: g.temp_sequence || '0001'
