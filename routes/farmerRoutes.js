@@ -6,13 +6,55 @@ const sequelize = require('../config/database');
 router.post('/farmer', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { farmerName, desa, kecamatan, kabupaten, farmerAddress, bankAccount, bankName, farmerLandArea, farmerContact, latitude, longitude, farmType, notes, farmVarieties, isContract } = req.body;
+    const {
+      farmerName, desa, kecamatan, kabupaten, farmerAddress,
+      bankAccount, bankName, farmerLandArea, farmerContact,
+      latitude, longitude, farmType, notes, farmVarieties,
+      contractType, broker, paymentMethod
+    } = req.body;
+
+    // Validate required fields
+    if (!farmerName || !farmerAddress || !farmerContact || !farmerLandArea ||
+        !farmType || !contractType) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Validate bank details for bank transfer methods
+    if (['Bank Transfer to Farmer', 'Bank Transfer to Broker'].includes(paymentMethod) &&
+        (!bankAccount || !bankName)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Bank account and bank name are required for bank transfer methods' });
+    }
 
     // Save the farmer data
-    const [farmerData] = await sequelize.query(
-      'INSERT INTO "Farmers" ("farmerName", desa, kecamatan, kabupaten, "farmerAddress", "bankAccount", "bankName", "farmerLandArea", "farmerContact", "latitude", "longitude", "farmType", "notes", "farmVarieties", "isContract") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    await sequelize.query(
+      `INSERT INTO "Farmers" (
+        "farmerName", desa, kecamatan, kabupaten, "farmerAddress",
+        "bankAccount", "bankName", "farmerLandArea", "farmerContact",
+        latitude, longitude, "farmType", notes, "farmVarieties",
+        "contractType", broker, "paymentMethod"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       {
-        replacements: [farmerName, desa, kecamatan, kabupaten, farmerAddress, bankAccount, bankName, farmerLandArea, farmerContact, latitude, longitude, farmType, notes, farmVarieties, isContract],
+        replacements: [
+          farmerName.trim(),
+          desa || null,
+          kecamatan || null,
+          kabupaten || null,
+          farmerAddress.trim(),
+          bankAccount ? bankAccount.trim() : null,
+          bankName ? bankName.trim() : null,
+          farmerLandArea.trim(),
+          farmerContact.trim(),
+          latitude ? parseFloat(latitude) : null,
+          longitude ? parseFloat(longitude) : null,
+          farmType,
+          notes || null,
+          farmVarieties ? farmVarieties.trim() : null,
+          contractType,
+          broker || null,
+          paymentMethod || null
+        ],
         transaction: t,
       }
     );
@@ -23,7 +65,6 @@ router.post('/farmer', async (req, res) => {
     // Respond with success
     res.status(201).json({
       message: `Farmer ${farmerName} created successfully`,
-      farmerData: farmerData[0], // Return the created record
     });
   } catch (err) {
     // Rollback transaction on error
@@ -51,7 +92,6 @@ router.get('/farmer', async (req, res) => {
 
 // Route to get farmer data by farmer name
 router.get('/farmer/:farmerName', async (req, res) => {
-  
   const { farmerName } = req.params;
 
   console.log('Received request for Farmer Name:', farmerName);
