@@ -6,10 +6,10 @@ const sequelize = require('../config/database');
 router.post('/preprocessing', async (req, res) => {
   let t;
   try {
-    const { batchNumber, bagsProcessed, processingDate, producer, productLine, processingType, quality, createdBy } = req.body;
+    const { batchNumber, bagsProcessed, processingDate, producer, productLine, processingType, quality, createdBy, notes } = req.body;
 
-    if (!batchNumber || bagsProcessed === undefined || !producer || !productLine || !processingType || !quality ) {
-      return res.status(400).json({ error: 'Batch number, bags processed, producer, product line, processing type, quality are required.' });
+    if (!batchNumber || bagsProcessed === undefined || !producer || !productLine || !processingType || !quality) {
+      return res.status(400).json({ error: 'Batch number, bags processed, producer, product line, processing type, and quality are required.' });
     }
 
     t = await sequelize.transaction();
@@ -20,10 +20,25 @@ router.post('/preprocessing', async (req, res) => {
 
     // Insert data into PreprocessingData table
     const [preprocessingData] = await sequelize.query(
-      `INSERT INTO "PreprocessingData" ("batchNumber", "bagsProcessed", "processingDate", "producer", "productLine", "processingType", "quality", "createdAt", "updatedAt", "createdBy") 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      `INSERT INTO "PreprocessingData" (
+        "batchNumber", "bagsProcessed", "processingDate", "producer", 
+        "productLine", "processingType", "quality", "createdAt", 
+        "updatedAt", "createdBy", notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       {
-        replacements: [batchNumber, bagsProcessed, formattedProcessingDate, producer, productLine, processingType, quality, now, now, createdBy],
+        replacements: [
+          batchNumber.trim(),
+          bagsProcessed,
+          formattedProcessingDate,
+          producer,
+          productLine,
+          processingType,
+          quality,
+          now,
+          now,
+          createdBy,
+          notes || null
+        ],
         transaction: t,
       }
     );
