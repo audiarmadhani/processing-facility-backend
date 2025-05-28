@@ -27,7 +27,7 @@ router.post('/drying-measurement', async (req, res) => {
   try {
     const [result] = await sequelize.query(`
       INSERT INTO "DryingMeasurements" ("batchNumber", moisture, measurement_date, created_at)
-      VALUES (:batchNumber, :moisture, NOW(), NOW())
+      VALUES (:batchNumber, :moisture, :measurement_date, NOW())
       RETURNING *;
     `, {
       replacements: { batchNumber, moisture },
