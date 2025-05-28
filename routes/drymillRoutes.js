@@ -50,7 +50,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
 
   try {
     // Check if batch is a sub-batch
-    const [subBatch] = await sequelize.query(`
+    const subBatchQuery = await sequelize.query(`
       SELECT "batchNumber", "parentBatchNumber", "quality"
       FROM "PostprocessingData"
       WHERE "batchNumber" = :batchNumber
@@ -59,7 +59,9 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       replacements: { batchNumber },
       type: sequelize.QueryTypes.SELECT
     });
-
+    
+    const subBatch = subBatchQuery[0];
+    console.log('Raw subBatch query result:', subBatchQuery); // Debug log
     console.log('subBatch:', subBatch); // Debug log
 
     let grades;
@@ -70,7 +72,8 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       relevantBatchNumber = subBatch.parentBatchNumber;
       console.log('Sub-batch query params:', {
         parentBatchNumber: subBatch.parentBatchNumber,
-        quality: subBatch.quality
+        quality: subBatch.quality,
+        batchNumber
       });
       grades = await sequelize.query(`
         SELECT 
@@ -80,14 +83,14 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         FROM "DryMillGrades" dg
         LEFT JOIN "BagDetails" bd ON dg."subBatchId" = bd.grade_id
         WHERE dg."batchNumber" = :parentBatchNumber
-          AND dg.grade = :quality
+          AND LOWER(dg.grade) = LOWER(:quality)
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored, dg.temp_sequence
       `, {
         replacements: { parentBatchNumber: subBatch.parentBatchNumber, quality: subBatch.quality },
         type: sequelize.QueryTypes.SELECT
       });
     } else {
-      // Parent batch or no sub-batch found: fetch all grades
+      // Parent batch: fetch all grades
       console.log('Parent batch query params:', { batchNumber });
       grades = await sequelize.query(`
         SELECT 
@@ -116,31 +119,34 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       tempSequence: g.temp_sequence || '0001'
     }));
 
-    if (formattedGrades.length === 0 && subBatch && subBatch.quality) {
-      // Default for sub-batch if no grades exist
-      console.log('Creating default sub-batch grade:', { batchNumber, quality: subBatch.quality });
-      formattedGrades.push({
-        subBatchId: `${batchNumber}-${subBatch.quality.replace(/\s+/g, '-')}`,
-        grade: subBatch.quality,
-        weight: '0.00',
-        bagWeights: [],
-        bagged_at: new Date().toISOString().split('T')[0],
-        is_stored: false,
-        tempSequence: '0001'
-      });
-    } else if (formattedGrades.length === 0 && (!subBatch || !subBatch.parentBatchNumber)) {
-      // Default for parent batch
-      console.log('Creating default parent batch grades:', { relevantBatchNumber });
-      const defaultGrades = ['Specialty Grade', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4'];
-      formattedGrades.push(...defaultGrades.map(grade => ({
-        subBatchId: `${relevantBatchNumber}-${grade.replace(/\s+/g, '-')}`,
-        grade,
-        weight: '0.00',
-        bagWeights: [],
-        bagged_at: new Date().toISOString().split('T')[0],
-        is_stored: false,
-        tempSequence: '0001'
-      })));
+    if (formattedGrades.length === 0) {
+      if (subBatch && subBatch.quality && subBatch.parentBatchNumber) {
+        // Default for sub-batch
+        console.log('Creating default sub-batch grade:', { batchNumber, quality: subBatch.quality });
+        const subBatchId = `${subBatch.parentBatchNumber}-${subBatch.quality.replace(/\s+/g, '-')}`;
+        formattedGrades.push({
+          subBatchId,
+          grade: subBatch.quality,
+          weight: '0.00',
+          bagWeights: [],
+          bagged_at: new Date().toISOString().split('T')[0],
+          is_stored: false,
+          tempSequence: '0001'
+        });
+      } else {
+        // Default for parent batch
+        console.log('Creating default parent batch grades:', { relevantBatchNumber });
+        const defaultGrades = ['Specialty Grade', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4'];
+        formattedGrades.push(...defaultGrades.map(grade => ({
+          subBatchId: `${relevantBatchNumber}-${grade.replace(/\s+/g, '-')}`,
+          grade,
+          weight: '0.00',
+          bagWeights: [],
+          bagged_at: new Date().toISOString().split('T')[0],
+          is_stored: false,
+          tempSequence: '0001'
+        })));
+      }
     }
 
     res.status(200).json(formattedGrades);
