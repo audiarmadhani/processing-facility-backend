@@ -77,7 +77,8 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
           AND LOWER(TRIM(dg.grade)) = LOWER(TRIM(:quality))
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored, dg.temp_sequence
       `, {
-        replacements: { parentBatch: subBatch.batchNumber, quality: subBatch.quality },
+        replacements: { parentBatchNumber: subBatch.parentBatchNumber, quality: subBatch.quality },
+        type: sequelize.QueryTypes.SELECT
       });
     } else {
       // Parent batch: fetch all grades
@@ -85,31 +86,31 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         SELECT 
           dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
           ARRAY_AGG(bd.weight ORDER BY bd.bag_number) FILTER (WHERE bd.weight IS NOT NULL) AS bagWeights,
-          COALESCE(dg.sequence_sequence, '0001') AS temp_sequence
+          COALESCE(dg.temp_sequence, '0001') AS temp_sequence
         FROM "DryMillGrades" dg
-        LEFT JOIN "BatchDetails" bd ON dg."subBatchId" = bd.batch_id
+        LEFT JOIN "BagDetails" bd ON dg."subBatchId" = bd.grade_id
         WHERE dg."batchNumber" = :batchNumber
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored, dg.temp_sequence
       `, {
         replacements: { batchNumber },
-        type: sequelize.queryTypes.SELECT
+        type: sequelize.QueryTypes.SELECT
       });
     }
 
     const formattedGrades = grades.map(g => ({
       subBatchId: g.subBatchId,
       grade: g.grade,
-      weight: g.weight ? parseFloat(g.weight).toFixed(2) : '0.00', // Ensure string format
-      bagWeights: Array.isArray(g.bagWeights) ? g.bagWeights.map(w => String(w)) : [], // Map to strings
+      weight: g.weight ? parseFloat(g.weight).toFixed(2) : '0.00',
+      bagWeights: Array.isArray(g.bagWeights) ? g.bagWeights.map(w => String(w)) : [],
       bagged_at: g.bagged_at ? new Date(g.bagged_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
       is_stored: g.is_stored || false,
-      tempSequence: g.tempSequence || '0001',
+      tempSequence: g.temp_sequence || '0001'
     }));
 
     if (formattedGrades.length === 0 && subBatch && subBatch.quality) {
       // Default for sub-batch if no grades exist
       formattedGrades.push({
-        subBatchId: `${batchNumber}-${subBatch.quality.replace(/\s+/g, '')}`,
+        subBatchId: `${batchNumber}-${subBatch.quality.replace(/\s+/g, '-')}`,
         grade: subBatch.quality.trim(),
         weight: '0.00',
         bagWeights: [],
@@ -136,8 +137,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
     console.error(`Error fetching grades for batch ${batchNumber}:`, {
       message: error.message,
       stack: error.stack,
-      batchNumber,
-      subBatch
+      batchNumber
     });
     res.status(500).json({ error: 'Failed to fetch grades', details: error.message });
   }
