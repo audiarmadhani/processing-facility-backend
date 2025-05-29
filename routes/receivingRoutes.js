@@ -149,11 +149,12 @@ router.post('/receiving', async (req, res) => {
 router.get('/receiving', async (req, res) => {
   try {
     const [allRows] = await sequelize.query(
-      `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a;`
+      `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc", b."contractType" FROM "ReceivingData" a LEFT JOIN "Farmers" b on a."farmerID" = b."farmerID";`
     );
 
     const [todayData] = await sequelize.query(
-      `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc" FROM "ReceivingData" a 
+      `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc", b."contractType" FROM "ReceivingData" a 
+       LEFT JOIN "Farmers" b on a."farmerID" = b."farmerID"
        WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') 
        AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") 
        ORDER BY "receivingDate";`
@@ -181,9 +182,11 @@ router.get('/receiving/:batchNumber', async (req, res) => {
       )
       SELECT 
         a.*, DATE("receivingDate") as "receivingDateTrunc", 
-        "qcDateTrunc"
+        "qcDateTrunc",
+        c."contractType"
       FROM "ReceivingData" a 
       LEFT JOIN qc b ON a."batchNumber" = b."batchNumber" 
+      LEFT JOIN "Farmers" c on a."farmerID" = c."farmerID"
       WHERE LOWER(a."batchNumber") = LOWER(:batchNumber);
       `,
       {
@@ -222,9 +225,11 @@ router.get('/receivingrfid/:rfid', async (req, res) => {
       )
       SELECT 
         a.*, DATE("receivingDate") as "receivingDateTrunc", 
-        "qcDateTrunc"
+        "qcDateTrunc",
+        c."contractType"
       FROM "ReceivingData" a 
       LEFT JOIN qc b ON a."batchNumber" = b."batchNumber" 
+      LEFT JOIN "Farmers" c on a."farmerID" = c."farmerID"
       WHERE UPPER(a."rfid") = UPPER(:rfid)
       AND "currentAssign" = 1;
       `,
