@@ -111,32 +111,32 @@ router.post('/receiving', async (req, res) => {
       }
     );
 
-    // Add to cherry inventory
-    await sequelize.query(
-      `INSERT INTO "CherryInventoryStatus" ("batchNumber", status, "enteredAt", "createdAt", "updatedAt", "createdBy", "updatedBy")
-       VALUES (:batchNumber, 'Stored', :enteredAt, NOW(), NOW(), :createdBy, :updatedBy)
-       RETURNING *`,
-      {
-        replacements: {
-          batchNumber,
-          enteredAt: currentDate,
-          createdBy,
-          updatedBy
-        },
-        transaction: t,
-        type: sequelize.QueryTypes.INSERT
-      }
-    );
+    // // Add to cherry inventory
+    // await sequelize.query(
+    //   `INSERT INTO "CherryInventoryStatus" ("batchNumber", status, "enteredAt", "createdAt", "updatedAt", "createdBy", "updatedBy")
+    //    VALUES (:batchNumber, 'Stored', :enteredAt, NOW(), NOW(), :createdBy, :updatedBy)
+    //    RETURNING *`,
+    //   {
+    //     replacements: {
+    //       batchNumber,
+    //       enteredAt: currentDate,
+    //       createdBy,
+    //       updatedBy
+    //     },
+    //     transaction: t,
+    //     type: sequelize.QueryTypes.INSERT
+    //   }
+    // );
 
-    await sequelize.query(
-      `INSERT INTO "CherryInventoryMovements" ("batchNumber", "movementType", "movedAt", "createdBy")
-       VALUES (:batchNumber, 'Entry', NOW(), :createdBy)`,
-      {
-        replacements: { batchNumber, createdBy },
-        transaction: t,
-        type: sequelize.QueryTypes.INSERT
-      }
-    );
+    // await sequelize.query(
+    //   `INSERT INTO "CherryInventoryMovements" ("batchNumber", "movementType", "movedAt", "createdBy")
+    //    VALUES (:batchNumber, 'Entry', NOW(), :createdBy)`,
+    //   {
+    //     replacements: { batchNumber, createdBy },
+    //     transaction: t,
+    //     type: sequelize.QueryTypes.INSERT
+    //   }
+    // );
 
     await t.commit();
     res.status(201).json({
