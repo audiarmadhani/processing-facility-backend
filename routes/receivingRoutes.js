@@ -6,7 +6,7 @@ const sequelize = require('../config/database');
 router.post('/receiving', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { farmerID, farmerName, weight, totalBags, notes, type, bagPayload, createdBy, updatedBy, rfid } = req.body;
+    const { farmerID, farmerName, weight, totalBags, notes, type, brix, bagPayload, createdBy, updatedBy, rfid } = req.body;
 
     // Basic validation
     if (!farmerID || !farmerName || weight === undefined || !totalBags || !type || !createdBy || !updatedBy) {
@@ -16,6 +16,10 @@ router.post('/receiving', async (req, res) => {
     if (!rfid) {
       await t.rollback();
       return res.status(400).json({ error: 'RFID tag is required.' });
+    }
+    if (brix !== undefined && (typeof brix !== 'number' || brix < 0)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Brix must be a non-negative number.' });
     }
 
     // Retrieve or initialize the latest batch number
@@ -55,10 +59,10 @@ router.post('/receiving', async (req, res) => {
     // Insert ReceivingData
     const [receivingData] = await sequelize.query(`
       INSERT INTO "ReceivingData" (
-        "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type,
+        "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type, brix,
         "receivingDate", "createdAt", "updatedAt", "createdBy", "updatedBy", "rfid", "currentAssign"
       ) VALUES (
-        :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type,
+        :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type, :brix,
         :receivingDate, :createdAt, :updatedAt, :createdBy, :updatedBy, :rfid, :currentAssign
       ) RETURNING *;
     `, {
@@ -70,6 +74,7 @@ router.post('/receiving', async (req, res) => {
         totalBags,
         notes,
         type,
+        brix: brix !== undefined ? brix : null,
         receivingDate: currentDate,
         createdAt: currentDate,
         updatedAt: currentDate,
@@ -149,12 +154,15 @@ router.post('/receiving', async (req, res) => {
 router.get('/receiving', async (req, res) => {
   try {
     const [allRows] = await sequelize.query(
-      `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc", b."contractType" FROM "ReceivingData" a LEFT JOIN "Farmers" b on a."farmerID" = b."farmerID";`
+      `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc", b."contractType" 
+       FROM "ReceivingData" a 
+       LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID";`
     );
 
     const [todayData] = await sequelize.query(
-      `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc", b."contractType" FROM "ReceivingData" a 
-       LEFT JOIN "Farmers" b on a."farmerID" = b."farmerID"
+      `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc", b."contractType" 
+       FROM "ReceivingData" a 
+       LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') 
        AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") 
        ORDER BY "receivingDate";`
@@ -186,7 +194,7 @@ router.get('/receiving/:batchNumber', async (req, res) => {
         c."contractType"
       FROM "ReceivingData" a 
       LEFT JOIN qc b ON a."batchNumber" = b."batchNumber" 
-      LEFT JOIN "Farmers" c on a."farmerID" = c."farmerID"
+      LEFT JOIN "Farmers" c ON a."farmerID" = c."farmerID"
       WHERE LOWER(a."batchNumber") = LOWER(:batchNumber);
       `,
       {
@@ -229,7 +237,7 @@ router.get('/receivingrfid/:rfid', async (req, res) => {
         c."contractType"
       FROM "ReceivingData" a 
       LEFT JOIN qc b ON a."batchNumber" = b."batchNumber" 
-      LEFT JOIN "Farmers" c on a."farmerID" = c."farmerID"
+      LEFT JOIN "Farmers" c ON a."farmerID" = c."farmerID"
       WHERE UPPER(a."rfid") = UPPER(:rfid)
       AND "currentAssign" = 1;
       `,
