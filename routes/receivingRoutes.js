@@ -154,15 +154,17 @@ router.post('/receiving', async (req, res) => {
 router.get('/receiving', async (req, res) => {
   try {
     const [allRows] = await sequelize.query(
-      `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc", b."contractType" 
+      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker
        FROM "ReceivingData" a 
-       LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID";`
+       LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
+       LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber";`
     );
 
     const [todayData] = await sequelize.query(
-      `SELECT a.*, DATE("receivingDate") as "receivingDateTrunc", b."contractType" 
+      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
+       LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
        WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') 
        AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") 
        ORDER BY "receivingDate";`
