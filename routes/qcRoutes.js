@@ -100,7 +100,11 @@ router.get('/qc', async (req, res) => {
             `SELECT * FROM "QCData_v" WHERE DATE("qcDate") = DATE(NOW())`
         );
 
-        res.json({ latestRows, allRows });
+        const [distinctRows] = await sequelize.query(
+            `SELECT * FROM "QCData_vm";`
+        );
+
+        res.json({ latestRows, allRows, distinctRows });
     } catch (err) {
         console.error('Error fetching QC data:', err);
         res.status(500).json({ message: 'Failed to fetch QC data.' });
