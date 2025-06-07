@@ -6,10 +6,10 @@ const sequelize = require('../config/database');
 router.post('/receiving', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { farmerID, farmerName, weight, totalBags, notes, type, brix, bagPayload, createdBy, updatedBy, rfid } = req.body;
+    const { farmerID, farmerName, weight, totalBags, notes, type, producer, brix, bagPayload, createdBy, updatedBy, rfid } = req.body;
 
     // Basic validation
-    if (!farmerID || !farmerName || weight === undefined || !totalBags || !type || !createdBy || !updatedBy) {
+    if (!farmerID || !farmerName || weight === undefined || !totalBags || !type || !producer || !createdBy || !updatedBy) {
       await t.rollback();
       return res.status(400).json({ error: 'Missing required fields.' });
     }
@@ -59,10 +59,10 @@ router.post('/receiving', async (req, res) => {
     // Insert ReceivingData
     const [receivingData] = await sequelize.query(`
       INSERT INTO "ReceivingData" (
-        "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type, brix,
+        "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type, producer, brix,
         "receivingDate", "createdAt", "updatedAt", "createdBy", "updatedBy", "rfid", "currentAssign"
       ) VALUES (
-        :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type, :brix,
+        :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type, :producer, :brix,
         :receivingDate, :createdAt, :updatedAt, :createdBy, :updatedBy, :rfid, :currentAssign
       ) RETURNING *;
     `, {
@@ -74,6 +74,7 @@ router.post('/receiving', async (req, res) => {
         totalBags,
         notes,
         type,
+        producer,
         brix: brix !== undefined ? brix : null,
         receivingDate: currentDate,
         createdAt: currentDate,
@@ -166,7 +167,7 @@ router.get('/receiving', async (req, res) => {
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
        WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') 
-       AND "batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") 
+       AND a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") 
        ORDER BY "receivingDate";`
     );
 
