@@ -158,7 +158,8 @@ router.get('/receiving', async (req, res) => {
       `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
-       LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber";`
+       LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
+       ORDER BY "receivingDate" DESC;`
     );
 
     const [todayData] = await sequelize.query(
@@ -168,7 +169,7 @@ router.get('/receiving', async (req, res) => {
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
        WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') 
        AND a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") 
-       ORDER BY "receivingDate";`
+       ORDER BY "receivingDate" DESC;`
     );
 
     res.json({ allRows, todayData });
