@@ -12,32 +12,6 @@ router.post('/transport', async (req, res) => {
       harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility
     } = req.body;
 
-    // Generate invoice numbers based on provided costs
-    const invoiceNumbers = {};
-    const invoiceTypes = [
-      { type: 'shipping', suffix: '-S', condition: cost || (transportCostFarmToCollection || transportCostCollectionToFacility) },
-      { type: 'loading', suffix: '-L', condition: loadingWorkerCount && loadingWorkerCostPerPerson },
-      { type: 'unloading', suffix: '-U', condition: unloadingWorkerCount && unloadingWorkerCostPerPerson },
-      { type: 'harvesting', suffix: '-H', condition: harvestWorkerCount && harvestWorkerCostPerPerson }
-    ];
-
-    for (const { type, suffix, condition } of invoiceTypes) {
-      if (condition) {
-        const invoiceNumber = `${batchNumber}${suffix}`;
-        await sequelize.query(
-          `
-          INSERT INTO "InvoiceData" ("batchNumber", "invoiceNumber", "invoiceType", "createdAt")
-          VALUES (?, ?, ?, NOW())
-          `,
-          {
-            replacements: [batchNumber, invoiceNumber, type],
-            transaction: t
-          }
-        );
-        invoiceNumbers[type] = invoiceNumber;
-      }
-    }
-
     // Insert transport data
     const [transportData] = await sequelize.query(
       `
@@ -81,7 +55,9 @@ router.post('/transport', async (req, res) => {
 
     await sequelize.query(
       `
-      INSERT INTO "PaymentData" ("farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid")
+      INSERT INTO "PaymentData" (
+        "farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid"
+      )
       VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
       {
@@ -96,8 +72,7 @@ router.post('/transport', async (req, res) => {
     await t.commit();
     res.status(201).json({ 
       message: 'Transport data and payment created successfully', 
-      transportData: transportData[0],
-      invoiceNumbers
+      transportData: transportData[0]
     });
   } catch (err) {
     await t.rollback();
@@ -119,21 +94,7 @@ router.get('/transport', async (req, res) => {
          COALESCE(a."transportCostCollectionToFacility", 0)) AS "totalCost"
       FROM "TransportData" a ORDER BY "createdAt" DESC
     `);
-
-    // Fetch invoice numbers for each transport record
-    const transportDataWithInvoices = await Promise.all(allTransportData.map(async (row) => {
-      const [invoices] = await sequelize.query(
-        `SELECT "invoiceType", "invoiceNumber" FROM "InvoiceData" WHERE "batchNumber" = ?`,
-        { replacements: [row.batchNumber] }
-      );
-      const invoiceNumbers = invoices.reduce((acc, inv) => ({
-        ...acc,
-        [inv.invoiceType]: inv.invoiceNumber
-      }), {});
-      return { ...row, invoiceNumbers };
-    }));
-
-    res.json(transportDataWithInvoices);
+    res.json(allTransportData);
   } catch (err) {
     console.error('Error fetching transport data:', err);
     res.status(500).json({ message: 'Failed to fetch transport data.' });
@@ -154,39 +115,14 @@ router.get('/transport/:batchNumber', async (req, res) => {
       return res.status(404).json({ message: 'No transport data found for this batch number.' });
     }
 
-    // Fetch invoice numbers
-    const [invoices] = await sequelize.query(
-      `SELECT "invoiceType", "invoiceNumber" FROM "InvoiceData" WHERE "batchNumber" = ?`,
-      { replacements: [batchNumber.trim()] }
-    );
-    const invoiceNumbers = invoices.reduce((acc, inv) => ({
-      ...acc,
-      [inv.invoiceType]: inv.invoiceNumber
-    }), {});
-
-    const transportData = rows.map(row => ({ ...row, invoiceNumbers }));
-    res.json(transportData);
+    res.json(rows);
   } catch (err) {
     console.error('Error fetching transport data by batch number:', err);
     res.status(500).json({ message: 'Failed to fetch transport data by batch number.' });
   }
 });
 
-// Route to get invoice data by batch number
-router.get('/invoices/:batchNumber', async (req, res) => {
-  const { batchNumber } = req.params;
-  try {
-    const [invoices] = await sequelize.query(
-      `SELECT * FROM "InvoiceData" WHERE "batchNumber" = ? ORDER BY "createdAt" DESC`,
-      { replacements: [batchNumber.trim()] }
-    );
-    res.json(invoices);
-  } catch (err) {
-    console.error('Error fetching invoices:', err);
-    res.status(500).json({ message: 'Failed to fetch invoices.' });
-  }
-});
-
+// Route to get farmer contract type
 router.get('/farmerid/:farmerId', async (req, res) => {
   const { farmerId } = req.params;
   try {
@@ -196,6 +132,7 @@ router.get('/farmerid/:farmerId', async (req, res) => {
     if (farmer.length === 0) return res.status(404).json({ message: 'Farmer not found' });
     res.json(farmer[0]);
   } catch (err) {
+    console.error('Error fetching farmer:', err);
     res.status(500).json({ message: 'Failed to fetch farmer' });
   }
 });
