@@ -2,6 +2,30 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 
+// Route to get and increment invoice number
+router.get('/invoice-number', async (req, res) => {
+  try {
+    const result = await sequelize.transaction(async (t) => {
+      // Lock the row and increment sequence
+      const [sequence] = await sequelize.query(
+        `UPDATE "InvoiceSequence" SET "sequence" = "sequence" + 1, "updatedAt" = CURRENT_TIMESTAMP
+         WHERE "id" = 1 RETURNING "sequence"`,
+        { transaction: t }
+      );
+      if (!sequence[0]) {
+        throw new Error('Invoice sequence not found');
+      }
+      // Format as 4-digit string (e.g., '0001')
+      const invoiceNo = `000${sequence[0].sequence}`.slice(-4);
+      return invoiceNo;
+    });
+    res.json({ invoiceNo: result });
+  } catch (err) {
+    console.error('Error fetching invoice number:', err);
+    res.status(500).json({ error: 'Failed to fetch invoice number', details: err.message });
+  }
+});
+
 // Route for creating transport data
 router.post('/transport', async (req, res) => {
   const t = await sequelize.transaction();
@@ -9,7 +33,8 @@ router.post('/transport', async (req, res) => {
     const {
       batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
       loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
-      harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility, createdAt
+      harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility,
+      invoiceNo, createdAt
     } = req.body;
 
     const [transportData] = await sequelize.query(
@@ -18,15 +43,17 @@ router.post('/transport', async (req, res) => {
         "batchNumber", "desa", "kecamatan", "kabupaten", "cost", "paidTo", "farmerID", "paymentMethod", 
         "bankAccount", "bankName", "loadingWorkerCount", "loadingWorkerCostPerPerson", 
         "unloadingWorkerCount", "unloadingWorkerCostPerPerson", "harvestWorkerCount", 
-        "harvestWorkerCostPerPerson", "transportCostFarmToCollection", "transportCostCollectionToFacility", "createdAt"
+        "harvestWorkerCostPerPerson", "transportCostFarmToCollection", "transportCostCollectionToFacility", 
+        "invoiceNo", "createdAt"
       ) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) RETURNING *
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) RETURNING *
       `,
       {
         replacements: [
           batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
           loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
-          harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility, createdAt
+          harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility,
+          invoiceNo, createdAt
         ],
         transaction: t,
       }
@@ -45,7 +72,7 @@ router.post('/transport', async (req, res) => {
       totalAmount: totalCost,
       date: new Date().toISOString(),
       paymentMethod,
-      paymentDescription: 'Transport and Manpower Cost',
+      paymentDescription: `Transport and Manpower Cost (Invoice ${invoiceNo})`,
       isPaid: 0
     };
 
