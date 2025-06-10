@@ -32,36 +32,6 @@ router.post('/transport', async (req, res) => {
       }
     );
 
-    // const totalCost = Number(cost || 0) + 
-    //   Number(loadingWorkerCount || 0) * Number(loadingWorkerCostPerPerson || 0) +
-    //   Number(unloadingWorkerCount || 0) * Number(unloadingWorkerCostPerPerson || 0) +
-    //   Number(harvestWorkerCount || 0) * Number(harvestWorkerCostPerPerson || 0) +
-    //   Number(transportCostFarmToCollection || 0) +
-    //   Number(transportCostCollectionToFacility || 0);
-
-    // const paymentPayload = {
-    //   farmerName: paidTo,
-    //   farmerID,
-    //   totalAmount: totalCost,
-    //   date: new Date().toISOString(),
-    //   paymentMethod,
-    //   paymentDescription: 'Transport and Manpower Cost',
-    //   isPaid: 0
-    // };
-
-    // await sequelize.query(
-    //   `
-    //   INSERT INTO "PaymentData" ("farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid")
-    //   VALUES (?, ?, ?, ?, ?, ?, ?)
-    //   `,
-    //   {
-    //     replacements: [
-    //       paymentPayload.farmerName, paymentPayload.farmerID, paymentPayload.totalAmount, paymentPayload.date,
-    //       paymentPayload.paymentMethod, paymentPayload.paymentDescription, paymentPayload.isPaid
-    //     ],
-    //     transaction: t,
-    //   }
-    // );
 
     await t.commit();
     res.status(201).json({ message: 'Transport data and payment created successfully', transportData: transportData[0] });
