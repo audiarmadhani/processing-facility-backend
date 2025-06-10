@@ -113,7 +113,7 @@ router.get('/transport/:batchNumber', async (req, res) => {
   }
 });
 
-router.get('/farmer/:farmerId', async (req, res) => {
+router.get('/farmerid/:farmerId', async (req, res) => {
   const { farmerId } = req.params;
   try {
     const [farmer] = await sequelize.query('SELECT "contractType" FROM "Farmers" WHERE "farmerID" = ?', {
