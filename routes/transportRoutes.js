@@ -52,7 +52,7 @@ router.post('/transport', async (req, res) => {
     await sequelize.query(
       `
       INSERT INTO "PaymentData" ("farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid")
-      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
       {
         replacements: [
