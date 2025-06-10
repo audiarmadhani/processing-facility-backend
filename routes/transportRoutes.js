@@ -113,4 +113,17 @@ router.get('/transport/:batchNumber', async (req, res) => {
   }
 });
 
+router.get('/farmer/:farmerId', async (req, res) => {
+  const { farmerId } = req.params;
+  try {
+    const [farmer] = await sequelize.query('SELECT "contractType" FROM "Farmers" WHERE "farmerID" = ?', {
+      replacements: [farmerId]
+    });
+    if (farmer.length === 0) return res.status(404).json({ message: 'Farmer not found' });
+    res.json(farmer[0]);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch farmer' });
+  }
+});
+
 module.exports = router;
