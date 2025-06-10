@@ -17,9 +17,9 @@ router.get('/drying-data', async (req, res) => {
 });
 
 router.post('/drying-measurement', async (req, res) => {
-  const { batchNumber, moisture } = req.body;
-  if (!batchNumber || moisture === undefined) {
-    return res.status(400).json({ error: 'batchNumber and moisture are required.' });
+  const { batchNumber, moisture, measurement_date } = req.body;
+  if (!batchNumber || moisture === undefined || !measurement_date) {
+    return res.status(400).json({ error: 'batchNumber, moisture, and measurement date are required.' });
   }
   if (typeof moisture !== 'number' || moisture < 0 || moisture > 100) {
     return res.status(400).json({ error: 'Moisture must be a number between 0 and 100.' });
