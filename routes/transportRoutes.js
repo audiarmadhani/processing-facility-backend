@@ -7,40 +7,65 @@ router.post('/transport', async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const {
-      batchNumber,
-      desa,
-      kecamatan,
-      kabupaten,
-      cost,
-      paidTo,
-      farmerID,
-      paymentMethod,
-      bankAccount,
-      bankName,
+      batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
+      loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
+      harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility
     } = req.body;
 
-    // Save the transport data
     const [transportData] = await sequelize.query(
       `
-      INSERT INTO "TransportData" ("batchNumber", "desa", "kecamatan", "kabupaten", "cost", "paidTo", "farmerID", "paymentMethod", "bankAccount", "bankName", "createdAt") 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) RETURNING *
+      INSERT INTO "TransportData" (
+        "batchNumber", "desa", "kecamatan", "kabupaten", "cost", "paidTo", "farmerID", "paymentMethod", 
+        "bankAccount", "bankName", "loadingWorkerCount", "loadingWorkerCostPerPerson", 
+        "unloadingWorkerCount", "unloadingWorkerCostPerPerson", "harvestWorkerCount", 
+        "harvestWorkerCostPerPerson", "transportCostFarmToCollection", "transportCostCollectionToFacility", "createdAt"
+      ) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) RETURNING *
       `,
       {
-        replacements: [batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName],
+        replacements: [
+          batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
+          loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
+          harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility
+        ],
         transaction: t,
       }
     );
 
-    // Commit the transaction
-    await t.commit();
+    const totalCost = Number(cost || 0) + 
+      Number(loadingWorkerCount || 0) * Number(loadingWorkerCostPerPerson || 0) +
+      Number(unloadingWorkerCount || 0) * Number(unloadingWorkerCostPerPerson || 0) +
+      Number(harvestWorkerCount || 0) * Number(harvestWorkerCostPerPerson || 0) +
+      Number(transportCostFarmToCollection || 0) +
+      Number(transportCostCollectionToFacility || 0);
 
-    // Respond with success
-    res.status(201).json({
-      message: 'Transport data created successfully',
-      transportData: transportData[0], // Return the created record
-    });
+    const paymentPayload = {
+      farmerName: paidTo,
+      farmerID,
+      totalAmount: totalCost,
+      date: new Date().toISOString(),
+      paymentMethod,
+      paymentDescription: 'Transport and Manpower Cost',
+      isPaid: 0
+    };
+
+    await sequelize.query(
+      `
+      INSERT INTO "PaymentData" ("farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid", "createdAt")
+      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+      `,
+      {
+        replacements: [
+          paymentPayload.farmerName, paymentPayload.farmerID, paymentPayload.totalAmount, paymentPayload.date,
+          paymentPayload.paymentMethod, paymentPayload.paymentDescription, paymentPayload.isPaid
+        ],
+        transaction: t,
+      }
+    );
+
+    await t.commit();
+    res.status(201).json({ message: 'Transport data and payment created successfully', transportData: transportData[0] });
   } catch (err) {
-    // Rollback transaction on error
     await t.rollback();
     console.error('Error creating transport data:', err);
     res.status(500).json({ error: 'Server error', details: err.message });
@@ -50,7 +75,16 @@ router.post('/transport', async (req, res) => {
 // Route for fetching all transport data
 router.get('/transport', async (req, res) => {
   try {
-    const [allTransportData] = await sequelize.query('SELECT a.*, DATE("createdAt") "createdAtTrunc" FROM "TransportData" a ORDER BY "createdAt" DESC');
+    const [allTransportData] = await sequelize.query(`
+      SELECT a.*, DATE("createdAt") "createdAtTrunc",
+        (COALESCE(a.cost, 0) +
+         COALESCE(a."loadingWorkerCount", 0) * COALESCE(a."loadingWorkerCostPerPerson", 0) +
+         COALESCE(a."unloadingWorkerCount", 0) * COALESCE(a."unloadingWorkerCostPerPerson", 0) +
+         COALESCE(a."harvestWorkerCount", 0) * COALESCE(a."harvestWorkerCostPerPerson", 0) +
+         COALESCE(a."transportCostFarmToCollection", 0) +
+         COALESCE(a."transportCostCollectionToFacility", 0)) AS "totalCost"
+      FROM "TransportData" a ORDER BY "createdAt" DESC
+    `);
     res.json(allTransportData);
   } catch (err) {
     console.error('Error fetching transport data:', err);
