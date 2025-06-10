@@ -30,7 +30,7 @@ router.post('/drying-measurement', async (req, res) => {
       VALUES (:batchNumber, :moisture, :measurement_date, NOW())
       RETURNING *;
     `, {
-      replacements: { batchNumber, moisture },
+      replacements: { batchNumber, moisture, measurement_date },
       type: sequelize.QueryTypes.INSERT,
     });
     res.status(201).json({ message: 'Moisture measurement saved', measurement: result[0] });
