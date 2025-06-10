@@ -9,18 +9,16 @@ router.post('/transport', async (req, res) => {
     const {
       batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
       loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
-      harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility
+      harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility, createdAt
     } = req.body;
 
-    // Insert transport data
     const [transportData] = await sequelize.query(
       `
       INSERT INTO "TransportData" (
         "batchNumber", "desa", "kecamatan", "kabupaten", "cost", "paidTo", "farmerID", "paymentMethod", 
         "bankAccount", "bankName", "loadingWorkerCount", "loadingWorkerCostPerPerson", 
         "unloadingWorkerCount", "unloadingWorkerCostPerPerson", "harvestWorkerCount", 
-        "harvestWorkerCostPerPerson", "transportCostFarmToCollection", "transportCostCollectionToFacility", 
-        "createdAt"
+        "harvestWorkerCostPerPerson", "transportCostFarmToCollection", "transportCostCollectionToFacility", "createdAt"
       ) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) RETURNING *
       `,
@@ -28,13 +26,12 @@ router.post('/transport', async (req, res) => {
         replacements: [
           batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
           loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
-          harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility
+          harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility, createdAt
         ],
         transaction: t,
       }
     );
 
-    // Calculate total cost
     const totalCost = Number(cost || 0) + 
       Number(loadingWorkerCount || 0) * Number(loadingWorkerCostPerPerson || 0) +
       Number(unloadingWorkerCount || 0) * Number(unloadingWorkerCostPerPerson || 0) +
@@ -42,7 +39,6 @@ router.post('/transport', async (req, res) => {
       Number(transportCostFarmToCollection || 0) +
       Number(transportCostCollectionToFacility || 0);
 
-    // Insert payment data
     const paymentPayload = {
       farmerName: paidTo,
       farmerID,
@@ -55,9 +51,7 @@ router.post('/transport', async (req, res) => {
 
     await sequelize.query(
       `
-      INSERT INTO "PaymentData" (
-        "farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid"
-      )
+      INSERT INTO "PaymentData" ("farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid")
       VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
       {
@@ -70,10 +64,7 @@ router.post('/transport', async (req, res) => {
     );
 
     await t.commit();
-    res.status(201).json({ 
-      message: 'Transport data and payment created successfully', 
-      transportData: transportData[0]
-    });
+    res.status(201).json({ message: 'Transport data and payment created successfully', transportData: transportData[0] });
   } catch (err) {
     await t.rollback();
     console.error('Error creating transport data:', err);
@@ -122,7 +113,6 @@ router.get('/transport/:batchNumber', async (req, res) => {
   }
 });
 
-// Route to get farmer contract type
 router.get('/farmerid/:farmerId', async (req, res) => {
   const { farmerId } = req.params;
   try {
@@ -132,7 +122,6 @@ router.get('/farmerid/:farmerId', async (req, res) => {
     if (farmer.length === 0) return res.status(404).json({ message: 'Farmer not found' });
     res.json(farmer[0]);
   } catch (err) {
-    console.error('Error fetching farmer:', err);
     res.status(500).json({ message: 'Failed to fetch farmer' });
   }
 });
