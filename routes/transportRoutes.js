@@ -9,7 +9,7 @@ router.post('/transport', async (req, res) => {
     const {
       batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
       loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
-      harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility
+      harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility, createdAt
     } = req.body;
 
     const [transportData] = await sequelize.query(
@@ -26,7 +26,7 @@ router.post('/transport', async (req, res) => {
         replacements: [
           batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
           loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
-          harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility
+          harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility, createdAt
         ],
         transaction: t,
       }
@@ -51,7 +51,7 @@ router.post('/transport', async (req, res) => {
 
     await sequelize.query(
       `
-      INSERT INTO "PaymentData" ("farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid", "createdAt")
+      INSERT INTO "PaymentData" ("farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid")
       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
       `,
       {
