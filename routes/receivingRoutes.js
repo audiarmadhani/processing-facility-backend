@@ -172,7 +172,16 @@ router.get('/receiving', async (req, res) => {
        ORDER BY "receivingDate" DESC;`
     );
 
-    res.json({ allRows, todayData });
+    const [noTransportData] = await sequelize.query(
+      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker
+       FROM "ReceivingData" a 
+       LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
+       LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
+       WHERE a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") 
+       ORDER BY "batchNumber" DESC;`
+    );
+
+    res.json({ allRows, todayData, noTransportData });
   } catch (err) {
     console.error('Error fetching Receiving data:', err);
     res.status(500).json({ message: 'Failed to fetch Receiving data.' });
