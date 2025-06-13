@@ -64,7 +64,9 @@ const getOrCreateSubFolder = async (subFolderName, parentFolderId) => {
 };
 
 router.post('/upload-invoice', upload.single('file'), async (req, res) => {
+  let tempFilePath = null;
   try {
+    console.log('Received upload request:', req.body, req.file);
     const { batchNumber, invoiceType } = req.body;
     const file = req.file;
 
@@ -72,19 +74,24 @@ router.post('/upload-invoice', upload.single('file'), async (req, res) => {
       return res.status(400).json({ message: 'Missing required fields: batchNumber, invoiceType, or file' });
     }
 
-    const parentFolderId = '1ZCai9GarLHaJwnlB6T9z_d5QYLqsr_p4'; // Parent folder ID
-    const subFolderId = folderIds[invoiceType.toLowerCase()] || await getOrCreateSubFolder(invoiceType.charAt(0).toUpperCase() + invoiceType.slice(1), parentFolderId);
+    tempFilePath = file.path; // Store path for cleanup
 
-    // Check for existing file
-    const fileName = file.originalname; // e.g., 2025-06-12-0003-S.pdf
+    const parentFolderId = '1ZCai9GarLHaJwnlB6T9z_d5QYLqsr_p4';
+    const subFolderId = folderIds[invoiceType.toLowerCase()] || await getOrCreateSubFolder(invoiceType.charAt(0).toUpperCase() + invoiceType.slice(1), parentFolderId);
+    console.log('Using subFolderId:', subFolderId);
+
+    const fileName = file.originalname;
+    console.log(`Searching for existing file: ${fileName}`);
     const searchResponse = await drive.files.list({
       q: `name='${fileName}' and '${subFolderId}' in parents and trashed=false`,
       fields: 'files(id, name)',
     });
+    console.log('File search result:', searchResponse.data.files);
 
     const existingFile = searchResponse.data.files[0];
     let fileId;
     let updated = false;
+    let webViewLink;
 
     const media = {
       mimeType: 'application/pdf',
@@ -92,17 +99,17 @@ router.post('/upload-invoice', upload.single('file'), async (req, res) => {
     };
 
     if (existingFile) {
-      // Replace existing file
+      console.log(`Updating existing file: ${fileName}, ID: ${existingFile.id}`);
       const updateResponse = await drive.files.update({
         fileId: existingFile.id,
         media,
         fields: 'id, name, webViewLink',
       });
       fileId = updateResponse.data.id;
+      webViewLink = updateResponse.data.webViewLink;
       updated = true;
-      console.log(`Replaced file ${fileName} with ID ${fileId}`);
     } else {
-      // Upload new file
+      console.log(`Uploading new file: ${fileName}`);
       const fileMetadata = {
         name: fileName,
         parents: [subFolderId],
@@ -113,22 +120,32 @@ router.post('/upload-invoice', upload.single('file'), async (req, res) => {
         fields: 'id, name, webViewLink',
       });
       fileId = createResponse.data.id;
-      console.log(`Uploaded new file ${fileName} with ID ${fileId}`);
+      webViewLink = createResponse.data.webViewLink;
     }
 
-    // Clean up temporary file
-    fs.unlinkSync(file.path);
+    // Clean up temporary file if it exists
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+      console.log(`Deleted temp file: ${tempFilePath}`);
+    }
+    tempFilePath = null; // Prevent double cleanup
+
+    console.log(`Invoice ${fileName} ${updated ? 'updated' : 'uploaded'} successfully`);
 
     res.status(200).json({
       message: `Invoice ${updated ? 'updated' : 'uploaded'} successfully`,
       fileId,
       fileName,
-      webViewLink: existingFile ? updateResponse?.data.webViewLink : createResponse?.data.webViewLink,
+      webViewLink,
       updated,
     });
   } catch (err) {
     console.error('Error uploading invoice:', err);
-    if (req.file) fs.unlinkSync(req.file.path);
+    // Clean up only if file exists and hasn't been deleted
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+      console.log(`Deleted temp file on error: ${tempFilePath}`);
+    }
     res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
