@@ -155,7 +155,7 @@ router.post('/receiving', async (req, res) => {
 router.get('/receiving', async (req, res) => {
   try {
     const [allRows] = await sequelize.query(
-      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker
+      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
@@ -163,7 +163,7 @@ router.get('/receiving', async (req, res) => {
     );
 
     const [todayData] = await sequelize.query(
-      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker
+      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
@@ -173,7 +173,7 @@ router.get('/receiving', async (req, res) => {
     );
 
     const [noTransportData] = await sequelize.query(
-      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker
+      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
@@ -204,7 +204,8 @@ router.get('/receiving/:batchNumber', async (req, res) => {
       SELECT 
         a.*, DATE("receivingDate") as "receivingDateTrunc", 
         "qcDateTrunc",
-        c."contractType"
+        c."contractType",
+        c."farmVarieties"
       FROM "ReceivingData" a 
       LEFT JOIN qc b ON a."batchNumber" = b."batchNumber" 
       LEFT JOIN "Farmers" c ON a."farmerID" = c."farmerID"
@@ -247,7 +248,8 @@ router.get('/receivingrfid/:rfid', async (req, res) => {
       SELECT 
         a.*, DATE("receivingDate") as "receivingDateTrunc", 
         "qcDateTrunc",
-        c."contractType"
+        c."contractType",
+        c."farmVarieties"
       FROM "ReceivingData" a 
       LEFT JOIN qc b ON a."batchNumber" = b."batchNumber" 
       LEFT JOIN "Farmers" c ON a."farmerID" = c."farmerID"
