@@ -73,12 +73,31 @@ router.get('/shipper', async (req, res) => {
     const [allRows] = await sequelize.query('SELECT * FROM "Shippers" ORDER BY "registrationDate" ASC');
     const [latestRows] = await sequelize.query('SELECT * FROM "Shippers" ORDER BY "registrationDate" DESC, "farmerID" DESC LIMIT 1');
     
-    res.json({ latestRows, allRows, arabicaFarmers, robustaFarmers });
+    res.json({ latestRows, allRows });
   } catch (err) {
     console.error('Error fetching shipper data:', err);
     res.status(500).json({ message: 'Failed to fetch shipper data.' });
   }
 });
+
+// Route for fetching all farmer data
+router.get('/contact', async (req, res) => {
+    try {
+      // Fetch all records for filtering purposes
+      const [allRows] = await sequelize.query(`
+        SELECT * FROM (
+            SELECT "shipperID" as "ID", "shipperName" as name, "shipperAddress" as address, desa, kecamatan, kabupaten, "shipperContact" as contact, "bankAccount", "bankName", "bankAccountName", "paymentMethod", "registrationDate", notes from "Shippers"
+            UNION ALL
+            SELECT "farmerID" as "ID", "farmerName" as name, "farmerAddress" as address, desa, kecamatan, kabupaten, "farmerContact" as contact, "bankAccount", "bankName", "bankAccountName", "paymentMethod", "registrationDate", notes from "Farmers"
+        ) a ORDER BY "registrationDate" ASC
+        `);
+      
+      res.json({ allRows });
+    } catch (err) {
+      console.error('Error fetching shipper data:', err);
+      res.status(500).json({ message: 'Failed to fetch shipper data.' });
+    }
+  });
 
 // Route to get farmer data by farmer name
 router.get('/shipper/:shipperName', async (req, res) => {
