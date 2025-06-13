@@ -69,40 +69,67 @@ router.post('/upload-invoice', upload.single('file'), async (req, res) => {
     const file = req.file;
 
     if (!file || !batchNumber || !invoiceType) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ message: 'Missing required fields: batchNumber, invoiceType, or file' });
     }
 
-    const parentFolderId = '1ZCai9GarLHaJwnlB6T9z_d5QYLqsr_p4'; // Replace with your Google Drive parent folder ID
-    const subFolderId = folderIds[invoiceType] || await getOrCreateSubFolder(invoiceType.charAt(0).toUpperCase() + invoiceType.slice(1), parentFolderId);
+    const parentFolderId = '1ZCai9GarLHaJwnlB6T9z_d5QYLqsr_p4'; // Parent folder ID
+    const subFolderId = folderIds[invoiceType.toLowerCase()] || await getOrCreateSubFolder(invoiceType.charAt(0).toUpperCase() + invoiceType.slice(1), parentFolderId);
 
-    const fileMetadata = {
-      name: file.originalname,
-      parents: [subFolderId],
-    };
+    // Check for existing file
+    const fileName = file.originalname; // e.g., 2025-06-12-0003-S.pdf
+    const searchResponse = await drive.files.list({
+      q: `name='${fileName}' and '${subFolderId}' in parents and trashed=false`,
+      fields: 'files(id, name)',
+    });
+
+    const existingFile = searchResponse.data.files[0];
+    let fileId;
+    let updated = false;
 
     const media = {
       mimeType: 'application/pdf',
       body: fs.createReadStream(file.path),
     };
 
-    const uploadedFile = await drive.files.create({
-      resource: fileMetadata,
-      media,
-      fields: 'id, name, webViewLink, webContentLink',
-    });
+    if (existingFile) {
+      // Replace existing file
+      const updateResponse = await drive.files.update({
+        fileId: existingFile.id,
+        media,
+        fields: 'id, name, webViewLink',
+      });
+      fileId = updateResponse.data.id;
+      updated = true;
+      console.log(`Replaced file ${fileName} with ID ${fileId}`);
+    } else {
+      // Upload new file
+      const fileMetadata = {
+        name: fileName,
+        parents: [subFolderId],
+      };
+      const createResponse = await drive.files.create({
+        resource: fileMetadata,
+        media,
+        fields: 'id, name, webViewLink',
+      });
+      fileId = createResponse.data.id;
+      console.log(`Uploaded new file ${fileName} with ID ${fileId}`);
+    }
 
+    // Clean up temporary file
     fs.unlinkSync(file.path);
 
     res.status(200).json({
-      message: 'Invoice uploaded successfully',
-      fileId: uploadedFile.data.id,
-      fileName: uploadedFile.data.name,
-      webViewLink: uploadedFile.data.webViewLink,
+      message: `Invoice ${updated ? 'updated' : 'uploaded'} successfully`,
+      fileId,
+      fileName,
+      webViewLink: existingFile ? updateResponse?.data.webViewLink : createResponse?.data.webViewLink,
+      updated,
     });
   } catch (err) {
     console.error('Error uploading invoice:', err);
     if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ error: 'Server error', details: err.message });
+    res.status(500).json({ message: 'Server error', details: err.message });
   }
 });
 
