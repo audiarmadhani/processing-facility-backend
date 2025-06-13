@@ -23,6 +23,7 @@ const paymentRoutes = require('./routes/paymentRoutes')
 const expensesRoutes = require('./routes/expensesRoutes')
 const postprocessingQCRoutes = require('./routes/postprocessingQCRoutes')
 const uploadImageRoutes = require('./routes/uploadImageRoutes')
+const uploadInvoiceRoutes = require('./routes/uploadInvoiceRoutes')
 const calendarEventRoutes = require('./routes/calendarEventRoutes')
 const rfidRoutes = require('./routes/rfidRoutes')
 const wetmillRoutes = require('./routes/wetmillRoutes')
@@ -78,6 +79,7 @@ const apiRoutes = [
   expensesRoutes,
   postprocessingQCRoutes,
   uploadImageRoutes,
+  uploadInvoiceRoutes,
   calendarEventRoutes,
   rfidRoutes,
   wetmillRoutes,
