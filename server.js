@@ -14,6 +14,7 @@ const latestBatchRoute = require('./routes/latestBatchRoute');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const farmerRoutes = require('./routes/farmerRoutes');
+const shipperRoutes = require('./routes/shipperRoutes');
 const userRoutes = require('./routes/userRoutes');
 const targetRoutes = require('./routes/targetMetricsRoutes');
 const databaseRoutes = require('./routes/databaseRoutes')
@@ -70,6 +71,7 @@ const apiRoutes = [
   dashboardRoutes,
   uploadRoutes,
   farmerRoutes,
+  shipperRoutes,
   userRoutes,
   targetRoutes,
   databaseRoutes,
