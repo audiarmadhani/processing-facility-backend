@@ -27,7 +27,9 @@
     "sequelize": "^6.37.5",
     "sequelize-auto": "^0.8.8",
     "sqlite": "^5.1.1",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "validator": "^13.15.15",
+    "winston": "^3.17.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
