@@ -728,7 +728,8 @@ router.get('/dry-mill-data', async (req, res) => {
         pp."productLine",
         pp."producer",
         rd."type",
-        rd."weight" AS "cherry_weight",
+        pp."weightProcessed" AS "cherry_weight",
+        rd.weight AS total_weight,
         rd."totalBags",
         rd."farmerName",
         NULL AS "notes",
@@ -737,7 +738,20 @@ router.get('/dry-mill-data', async (req, res) => {
         NULL AS "storedDate",
         NULL AS "parentBatchNumber"
       FROM "DryMillData" dm
-      JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber"
+      LEFT JOIN (
+        SELECT 
+          "batchNumber",
+          "productLine", 
+          "processingType", 
+          producer, 
+          sum("weightProcessed") as "weightProcessed" 
+        FROM "PreprocessingData" 
+        GROUP BY
+          "batchNumber",
+          "productLine", 
+          "processingType", 
+          producer
+        ) pp ON dm."batchNumber" = pp."batchNumber"
       JOIN "ReceivingData" rd ON dm."batchNumber" = rd."batchNumber"
       ORDER BY dm."batchNumber" DESC;
     `;
