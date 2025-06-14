@@ -87,7 +87,7 @@ router.get('/reference-mappings', async (req, res) => {
 // GET route for dry mill grades by batch number
 router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
-  const { processingType } = req.query;
+  let { processingType } = req.query;
 
   if (!batchNumber || !processingType) {
     logger.warn('Missing required parameters', { batchNumber, processingType });
@@ -98,10 +98,13 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
   try {
     t = await sequelize.transaction();
 
-    // Validate processingType
-    const [validProcessingType] = await sequelize.query(`
-      SELECT "processingType"
-      FROM "PreprocessingData"
+    // Normalize processingType (optional, for robustness)
+    processingType = processingType.replace(/\+/g, ' ').trim();
+
+    // Check if batchNumber is a sub-batch
+    const [subBatch] = await sequelize.query(`
+      SELECT "batchNumber", "parentBatchNumber", "quality", "processingType"
+      FROM "PostprocessingData"
       WHERE "batchNumber" = :batchNumber
       AND "processingType" = :processingType
       LIMIT 1
@@ -111,29 +114,37 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       transaction: t
     });
 
+    let validProcessingType;
+
+    if (subBatch && subBatch.parentBatchNumber) {
+      // Sub-batch: Validate processingType in PostprocessingData
+      validProcessingType = subBatch;
+    } else {
+      // Parent batch: Validate processingType in PreprocessingData
+      [validProcessingType] = await sequelize.query(`
+        SELECT "processingType"
+        FROM "PreprocessingData"
+        WHERE "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
+        LIMIT 1
+      `, {
+        replacements: { batchNumber, processingType },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      });
+    }
+
     if (!validProcessingType) {
       await t.rollback();
       logger.warn('Invalid processing type', { batchNumber, processingType });
       return res.status(400).json({ error: 'Invalid processing type for this batch.' });
     }
 
-    // Check if batch is a sub-batch
-    const [subBatch] = await sequelize.query(`
-      SELECT "batchNumber", "parentBatchNumber", "quality", "processingType"
-      FROM "PostprocessingData"
-      WHERE "batchNumber" = :batchNumber AND "processingType" = :processingType
-      LIMIT 1
-    `, {
-      replacements: { batchNumber, processingType },
-      type: sequelize.QueryTypes.SELECT,
-      transaction: t
-    });
-
     let grades;
     let relevantBatchNumber = batchNumber;
 
     if (subBatch && subBatch.parentBatchNumber && subBatch.quality) {
-      // Sub-batch: fetch only the specific grade
+      // Sub-batch: Fetch only the specific grade
       relevantBatchNumber = subBatch.parentBatchNumber;
       grades = await sequelize.query(`
         SELECT 
@@ -169,7 +180,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         }
       }
     } else {
-      // Parent batch: fetch all grades
+      // Parent batch: Fetch all grades
       grades = await sequelize.query(`
         SELECT 
           dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
