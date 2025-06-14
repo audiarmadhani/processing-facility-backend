@@ -892,7 +892,7 @@ router.get('/dry-mill-data', async (req, res) => {
         pp."productLine",
         pp."producer",
         rd."type",
-        pp."weightProcessed" AS "cherry_weight",
+        SUM(pp."weightProcessed") AS "cherry_weight",
         rd.weight AS total_weight,
         rd."totalBags",
         rd."farmerName",
@@ -911,12 +911,11 @@ router.get('/dry-mill-data', async (req, res) => {
           "productLine", 
           producer, 
           "processingType",
-          SUM("weightProcessed") AS "weightProcessed"
+          "weightProcessed"
         FROM "PreprocessingData"
-        GROUP BY "batchNumber", "productLine", producer, "processingType"
       ) pp ON dm."batchNumber" = pp."batchNumber"
       JOIN "ReceivingData" rd ON dm."batchNumber" = rd."batchNumber"
-      GROUP BY dm."batchNumber", pp."productLine", pp."producer", rd."type", pp."weightProcessed",
+      GROUP BY dm."batchNumber", pp."productLine", pp."producer", rd."type",
                rd.weight, rd."totalBags", rd."farmerName", dm.entered_at, dm.exited_at, dm.created_at
       ORDER BY dm."batchNumber" DESC
     `;
@@ -981,7 +980,7 @@ router.get('/dry-mill-data', async (req, res) => {
         productLine: batch.productLine,
         producer: batch.producer,
         type: batch.type,
-        cherry_weight: batch.cherry_weight,
+        cherry_weight: batch.cherry_weight ? parseFloat(batch.cherry_weight).toFixed(2) : '0.00',
         total_weight: batch.total_weight,
         totalBags: batch.totalBags,
         farmerName: batch.farmerName,
