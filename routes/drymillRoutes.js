@@ -47,22 +47,27 @@ router.get('/reference-mappings', async (req, res) => {
 // GET route for dry mill grades by batch number
 router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
+  const { processingType } = req.query;
+
+  if (!processingType) {
+    return res.status(400).json({ error: 'processingType query parameter is required.' });
+  }
 
   try {
     // Check if batch is a sub-batch
     const subBatchQuery = await sequelize.query(`
-      SELECT "batchNumber", "parentBatchNumber", "quality"
+      SELECT "batchNumber", "parentBatchNumber", "quality", "processingType"
       FROM "PostprocessingData"
-      WHERE "batchNumber" = :batchNumber
+      WHERE "batchNumber" = :batchNumber AND "processingType" = :processingType
       LIMIT 1
     `, {
-      replacements: { batchNumber },
+      replacements: { batchNumber, processingType },
       type: sequelize.QueryTypes.SELECT
     });
     
     const subBatch = subBatchQuery[0];
-    console.log('Raw subBatch query result:', subBatchQuery); // Debug log
-    console.log('subBatch:', subBatch); // Debug log
+    console.log('Raw subBatch query result:', subBatchQuery);
+    console.log('subBatch:', subBatch);
 
     let grades;
     let relevantBatchNumber = batchNumber;
@@ -73,7 +78,8 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       console.log('Sub-batch query params:', {
         parentBatchNumber: subBatch.parentBatchNumber,
         quality: subBatch.quality,
-        batchNumber
+        batchNumber,
+        processingType
       });
       grades = await sequelize.query(`
         SELECT 
@@ -84,9 +90,10 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         LEFT JOIN "BagDetails" bd ON LOWER(dg."subBatchId") = LOWER(bd.grade_id)
         WHERE dg."batchNumber" = :parentBatchNumber
           AND LOWER(dg.grade) = LOWER(:quality)
+          AND dg.processing_type = :processingType
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored, dg.temp_sequence
       `, {
-        replacements: { parentBatchNumber: subBatch.parentBatchNumber, quality: subBatch.quality },
+        replacements: { parentBatchNumber: subBatch.parentBatchNumber, quality: subBatch.quality, processingType },
         type: sequelize.QueryTypes.SELECT
       });
 
@@ -109,7 +116,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       }
     } else {
       // Parent batch: fetch all grades
-      console.log('Parent batch query params:', { batchNumber });
+      console.log('Parent batch query params:', { batchNumber, processingType });
       grades = await sequelize.query(`
         SELECT 
           dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
@@ -118,9 +125,10 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         FROM "DryMillGrades" dg
         LEFT JOIN "BagDetails" bd ON LOWER(dg."subBatchId") = LOWER(bd.grade_id)
         WHERE dg."batchNumber" = :batchNumber
+          AND dg.processing_type = :processingType
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored, dg.temp_sequence
       `, {
-        replacements: { batchNumber },
+        replacements: { batchNumber, processingType },
         type: sequelize.QueryTypes.SELECT
       });
 
@@ -143,7 +151,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       }
     }
 
-    console.log('Grades query result:', grades); // Debug log
+    console.log('Grades query result:', grades);
 
     const formattedGrades = grades.map(g => ({
       subBatchId: g.subBatchId,
@@ -157,8 +165,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
 
     if (formattedGrades.length === 0) {
       if (subBatch && subBatch.quality && subBatch.parentBatchNumber) {
-        // Default for sub-batch
-        console.log('Creating default sub-batch grade:', { batchNumber, quality: subBatch.quality });
+        console.log('Creating default sub-batch grade:', { batchNumber, quality: subBatch.quality, processingType });
         const subBatchId = `${subBatch.parentBatchNumber}-${subBatch.quality.replace(/\s+/g, '-')}`;
         formattedGrades.push({
           subBatchId,
@@ -170,8 +177,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
           tempSequence: '0001'
         });
       } else {
-        // Default for parent batch
-        console.log('Creating default parent batch grades:', { relevantBatchNumber });
+        console.log('Creating default parent batch grades:', { relevantBatchNumber, processingType });
         const defaultGrades = ['Specialty Grade', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4'];
         formattedGrades.push(...defaultGrades.map(grade => ({
           subBatchId: `${relevantBatchNumber}-${grade.replace(/\s+/g, '-')}`,
@@ -190,7 +196,8 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
     console.error(`Error fetching grades for batch ${batchNumber}:`, {
       message: error.message,
       stack: error.stack,
-      batchNumber
+      batchNumber,
+      processingType
     });
     res.status(500).json({ error: 'Failed to fetch grades', details: error.message });
   }
@@ -199,10 +206,10 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
 // POST route for manual green bean splitting, weighing, and bagging
 router.post('/dry-mill/:batchNumber/split', async (req, res) => {
   const { batchNumber } = req.params;
-  const { grades } = req.body;
+  const { grades, processingType } = req.body;
 
-  if (!batchNumber || !grades || !Array.isArray(grades) || grades.length === 0) {
-    return res.status(400).json({ error: 'Batch number and valid grades are required.' });
+  if (!batchNumber || !grades || !Array.isArray(grades) || grades.length === 0 || !processingType) {
+    return res.status(400).json({ error: 'Batch number, valid grades, and processingType are required.' });
   }
 
   const validGrades = grades.filter(g => Array.isArray(g.bagWeights) && g.bagWeights.length > 0);
@@ -220,31 +227,32 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber"
       JOIN "ReceivingData" rd ON dm."batchNumber" = rd."batchNumber"
       WHERE dm."batchNumber" = :batchNumber
+      AND dm.processing_type = :processingType
       AND dm."entered_at" IS NOT NULL
       LIMIT 1;
-    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT });
+    `, { replacements: { batchNumber, processingType }, transaction: t, type: sequelize.QueryTypes.SELECT });
 
     if (!dryMillEntry) {
       await t.rollback();
-      return res.status(400).json({ error: 'Batch must be entered into dry mill first or metadata not found.' });
+      return res.status(400).json({ error: 'Batch must be entered into dry mill first or metadata not found for the specified processingType.' });
     }
 
     const parentBatch = dryMillEntry;
 
     await sequelize.query(`
       DELETE FROM "BagDetails"
-      WHERE grade_id IN (SELECT "subBatchId" FROM "DryMillGrades" WHERE "batchNumber" = :batchNumber)
-    `, { replacements: { batchNumber }, transaction: t });
+      WHERE grade_id IN (SELECT "subBatchId" FROM "DryMillGrades" WHERE "batchNumber" = :batchNumber AND processing_type = :processingType)
+    `, { replacements: { batchNumber, processingType }, transaction: t });
 
     await sequelize.query(`
       DELETE FROM "DryMillGrades"
-      WHERE "batchNumber" = :batchNumber
-    `, { replacements: { batchNumber }, transaction: t });
+      WHERE "batchNumber" = :batchNumber AND processing_type = :processingType
+    `, { replacements: { batchNumber, processingType }, transaction: t });
 
     await sequelize.query(`
       DELETE FROM "PostprocessingData"
-      WHERE "parentBatchNumber" = :batchNumber
-    `, { replacements: { batchNumber }, transaction: t });
+      WHERE "parentBatchNumber" = :batchNumber AND "processingType" = :processingType
+    `, { replacements: { batchNumber, processingType }, transaction: t });
 
     const results = [];
     const subBatches = [];
@@ -311,15 +319,16 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       const formattedSequence = String(sequenceNumber).padStart(4, '0');
 
       await sequelize.query(`
-        INSERT INTO "DryMillGrades" ("batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "is_stored")
-        VALUES (:batchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, FALSE)
+        INSERT INTO "DryMillGrades" ("batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "is_stored", processing_type)
+        VALUES (:batchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, FALSE, :processingType)
       `, { 
         replacements: { 
           batchNumber, 
           subBatchId, 
           grade, 
           weight: totalWeight, 
-          bagged_at: baggedAtValue 
+          bagged_at: baggedAtValue,
+          processingType
         }, 
         transaction: t,
         type: sequelize.QueryTypes.INSERT 
@@ -443,10 +452,10 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 // POST route to update bags for a specific grade (sub-batch)
 router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
   const { batchNumber } = req.params;
-  const { grade, bagWeights, bagged_at } = req.body;
+  const { grade, bagWeights, bagged_at, processingType } = req.body;
 
-  if (!batchNumber || !grade || !Array.isArray(bagWeights)) {
-    return res.status(400).json({ error: 'Batch number, grade, and bag weights are required.' });
+  if (!batchNumber || !grade || !Array.isArray(bagWeights) || !processingType) {
+    return res.status(400).json({ error: 'Batch number, grade, bag weights, and processingType are required.' });
   }
 
   let t;
@@ -455,20 +464,21 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
 
     // Verify sub-batch exists
     const [subBatch] = await sequelize.query(`
-      SELECT "parentBatchNumber", "quality"
+      SELECT "parentBatchNumber", "quality", "processingType"
       FROM "PostprocessingData"
       WHERE "batchNumber" = :batchNumber
       AND "quality" = :grade
+      AND "processingType" = :processingType
       LIMIT 1
     `, {
-      replacements: { batchNumber, grade },
+      replacements: { batchNumber, grade, processingType },
       transaction: t,
       type: sequelize.QueryTypes.SELECT
     });
 
     if (!subBatch) {
       await t.rollback();
-      return res.status(404).json({ error: 'Sub-batch not found or grade does not match.' });
+      return res.status(404).json({ error: 'Sub-batch not found or grade/processingType does not match.' });
     }
 
     const parentBatchNumber = subBatch.parentBatchNumber;
@@ -496,20 +506,22 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
 
     // Update or insert DryMillGrades
     await sequelize.query(`
-      INSERT INTO "DryMillGrades" ("batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "is_stored")
-      VALUES (:parentBatchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, FALSE)
+      INSERT INTO "DryMillGrades" ("batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "is_stored", processing_type)
+      VALUES (:parentBatchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, FALSE, :processingType)
       ON CONFLICT ("subBatchId")
       DO UPDATE SET
         weight = :weight,
         bagged_at = :bagged_at,
-        is_stored = FALSE
+        is_stored = FALSE,
+        processing_type = :processingType
     `, {
       replacements: {
         parentBatchNumber,
         subBatchId,
         grade,
         weight: totalWeight,
-        bagged_at: baggedAtValue
+        bagged_at: baggedAtValue,
+        processingType
       },
       transaction: t,
       type: sequelize.QueryTypes.INSERT
@@ -536,12 +548,13 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
     await sequelize.query(`
       UPDATE "PostprocessingData"
       SET weight = :weight, "totalBags" = :totalBags, "updatedAt" = NOW()
-      WHERE "batchNumber" = :batchNumber
+      WHERE "batchNumber" = :batchNumber AND "processingType" = :processingType
     `, {
       replacements: {
         batchNumber,
         weight: totalWeight,
-        totalBags: weights.length
+        totalBags: weights.length,
+        processingType
       },
       transaction: t,
       type: sequelize.QueryTypes.UPDATE
@@ -560,10 +573,10 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
 // POST route to complete a batch
 router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
   const { batchNumber } = req.params;
-  const { createdBy, updatedBy } = req.body;
+  const { createdBy, updatedBy, processingType } = req.body;
 
-  if (!batchNumber) {
-    return res.status(400).json({ error: 'Batch number is required.' });
+  if (!batchNumber || !processingType) {
+    return res.status(400).json({ error: 'Batch number and processingType are required.' });
   }
   if (!createdBy || !updatedBy) {
     return res.status(400).json({ error: 'createdBy and updatedBy are required for inventory operations.' });
@@ -576,21 +589,23 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
     const [dryMillEntry] = await sequelize.query(`
       SELECT "entered_at", "exited_at" FROM "DryMillData" 
       WHERE "batchNumber" = :batchNumber 
+      AND processing_type = :processingType
       AND "entered_at" IS NOT NULL 
       AND "exited_at" IS NULL 
       LIMIT 1;
-    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT });
+    `, { replacements: { batchNumber, processingType }, transaction: t, type: sequelize.QueryTypes.SELECT });
 
     if (!dryMillEntry) {
       await t.rollback();
-      return res.status(400).json({ error: 'Batch is not in dry mill or already processed.' });
+      return res.status(400).json({ error: 'Batch is not in dry mill or already processed for the specified processingType.' });
     }
 
     const [splits] = await sequelize.query(`
       SELECT COUNT(*) AS total, SUM(CASE WHEN weight IS NOT NULL AND bagged_at IS NOT NULL THEN 1 ELSE 0 END) AS completed
       FROM "DryMillGrades" 
-      WHERE "batchNumber" = :batchNumber;
-    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT });
+      WHERE "batchNumber" = :batchNumber
+      AND processing_type = :processingType;
+    `, { replacements: { batchNumber, processingType }, transaction: t, type: sequelize.QueryTypes.SELECT });
 
     const splitData = splits.length > 0 ? splits[0] : { total: 0, completed: 0 };
 
@@ -604,10 +619,11 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
       UPDATE "DryMillData" 
       SET exited_at = NOW() 
       WHERE "batchNumber" = :batchNumber 
+      AND processing_type = :processingType
       AND "entered_at" IS NOT NULL 
       AND "exited_at" IS NULL 
       RETURNING *;
-    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
+    `, { replacements: { batchNumber, processingType }, transaction: t, type: sequelize.QueryTypes.UPDATE });
 
     // Update ReceivingData to free the RFID tag
     await sequelize.query(`
@@ -620,22 +636,22 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
     await sequelize.query(`
       UPDATE "DryMillGrades"
       SET "is_stored" = TRUE
-      WHERE "batchNumber" = :batchNumber;
-    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
+      WHERE "batchNumber" = :batchNumber AND processing_type = :processingType;
+    `, { replacements: { batchNumber, processingType }, transaction: t, type: sequelize.QueryTypes.UPDATE });
 
     // Update BagDetails to mark all bags as stored
     await sequelize.query(`
       UPDATE "BagDetails"
       SET is_stored = TRUE
-      WHERE grade_id IN (SELECT "subBatchId" FROM "DryMillGrades" WHERE "batchNumber" = :batchNumber);
-    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
+      WHERE grade_id IN (SELECT "subBatchId" FROM "DryMillGrades" WHERE "batchNumber" = :batchNumber AND processing_type = :processingType);
+    `, { replacements: { batchNumber, processingType }, transaction: t, type: sequelize.QueryTypes.UPDATE });
 
     // Update PostprocessingData to set storedDate for sub-batches
     await sequelize.query(`
       UPDATE "PostprocessingData"
       SET "storedDate" = NOW()
-      WHERE "parentBatchNumber" = :batchNumber;
-    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.UPDATE });
+      WHERE "parentBatchNumber" = :batchNumber AND "processingType" = :processingType;
+    `, { replacements: { batchNumber, processingType }, transaction: t, type: sequelize.QueryTypes.UPDATE });
 
     // Remove cherry batch from CherryInventoryStatus
     const [cherryInventory] = await sequelize.query(
@@ -669,8 +685,8 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
 
     // Add green bean sub-batches to GreenBeansInventoryStatus
     const subBatches = await sequelize.query(
-      `SELECT "batchNumber", "storedDate" FROM "PostprocessingData" WHERE "parentBatchNumber" = :batchNumber`,
-      { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT }
+      `SELECT "batchNumber", "storedDate" FROM "PostprocessingData" WHERE "parentBatchNumber" = :batchNumber AND "processingType" = :processingType`,
+      { replacements: { batchNumber, processingType }, transaction: t, type: sequelize.QueryTypes.SELECT }
     );
 
     for (const subBatch of subBatches) {
@@ -724,7 +740,7 @@ router.get('/dry-mill-data', async (req, res) => {
     const parentBatchesQuery = `
       SELECT 
         dm."batchNumber",
-        pp."processingType",
+        dm.processing_type AS "processingType",
         pp."productLine",
         pp."producer",
         rd."type",
@@ -751,7 +767,7 @@ router.get('/dry-mill-data', async (req, res) => {
           "productLine", 
           "processingType", 
           producer
-        ) pp ON dm."batchNumber" = pp."batchNumber"
+        ) pp ON dm."batchNumber" = pp."batchNumber" AND dm.processing_type = pp."processingType"
       JOIN "ReceivingData" rd ON dm."batchNumber" = rd."batchNumber"
       ORDER BY dm."batchNumber" DESC;
     `;
@@ -783,7 +799,7 @@ router.get('/dry-mill-data', async (req, res) => {
     const postprocessingArray = [...parentBatchesArray, ...subBatchesArray];
 
     const dryMillDataQuery = `
-      SELECT dm."batchNumber", dm.entered_at, dm.exited_at, dm.created_at
+      SELECT dm."batchNumber", dm.processing_type, dm.entered_at, dm.exited_at, dm.created_at
       FROM "DryMillData" dm
       ORDER BY dm.created_at DESC;
     `;
@@ -791,7 +807,7 @@ router.get('/dry-mill-data', async (req, res) => {
     const dryMillDataArray = Array.isArray(dryMillDataResult) ? dryMillDataResult : dryMillDataResult ? [dryMillDataResult] : [];
 
     const dryMillGradesQuery = `
-      SELECT dg."batchNumber", dg."subBatchId", dg.grade, dg.weight, dg.split_at, dg.bagged_at, dg."is_stored"
+      SELECT dg."batchNumber", dg."subBatchId", dg.grade, dg.weight, dg.split_at, dg.bagged_at, dg."is_stored", dg.processing_type
       FROM "DryMillGrades" dg
       ORDER BY dg."batchNumber", dg."subBatchId";
     `;
@@ -799,7 +815,7 @@ router.get('/dry-mill-data', async (req, res) => {
     const dryMillGradesArray = Array.isArray(dryMillGradesResult) ? dryMillGradesResult : dryMillGradesResult ? [dryMillGradesResult] : [];
 
     const bagDetailsQuery = `
-      SELECT bd.*, dg."batchNumber"
+      SELECT bd.*, dg."batchNumber", dg.processing_type
       FROM "BagDetails" bd
       JOIN "DryMillGrades" dg ON bd.grade_id = dg."subBatchId"
       ORDER BY dg."batchNumber", bd.bag_number;
@@ -817,11 +833,12 @@ router.get('/dry-mill-data', async (req, res) => {
 
     const data = postprocessingArray.map(batch => {
       const relevantBatchNumber = batch.parentBatchNumber || batch.batchNumber;
-      const batchDryMillData = dryMillDataArray.filter(data => data.batchNumber === relevantBatchNumber) || [];
+      const relevantProcessingType = batch.processingType;
+      const batchDryMillData = dryMillDataArray.filter(data => data.batchNumber === relevantBatchNumber && data.processing_type === relevantProcessingType) || [];
       const latestEntry = batchDryMillData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
       const status = latestEntry?.exited_at ? 'Processed' : (latestEntry?.entered_at ? 'In Dry Mill' : 'Not Started');
 
-      const storedGrades = dryMillGradesArray.filter(grade => grade.batchNumber === relevantBatchNumber && grade.is_stored);
+      const storedGrades = dryMillGradesArray.filter(grade => grade.batchNumber === relevantBatchNumber && grade.processing_type === relevantProcessingType && grade.is_stored);
       const isStored = storedGrades.length > 0;
 
       return {
@@ -830,9 +847,9 @@ router.get('/dry-mill-data', async (req, res) => {
         dryMillEntered: latestEntry?.entered_at ? new Date(latestEntry.entered_at).toISOString().slice(0, 10) : 'N/A',
         dryMillExited: latestEntry?.exited_at ? new Date(latestEntry.exited_at).toISOString().slice(0, 10) : 'N/A',
         rfid: receivingDataArray.find(r => r.batchNumber === (batch.parentBatchNumber || batch.batchNumber))?.rfid || 'N/A',
-        bagWeights: bagDetailsArray.filter(bag => dryMillGradesArray.some(g => g.subBatchId === bag.grade_id && g.batchNumber === relevantBatchNumber)).map(b => b.weight),
-        green_bean_splits: dryMillGradesArray.filter(g => g.batchNumber === relevantBatchNumber).length > 0 ? 
-          dryMillGradesArray.filter(g => g.batchNumber === relevantBatchNumber).map(g => 
+        bagWeights: bagDetailsArray.filter(bag => dryMillGradesArray.some(g => g.subBatchId === bag.grade_id && g.batchNumber === relevantBatchNumber && g.processing_type === relevantProcessingType)).map(b => b.weight),
+        green_bean_splits: dryMillGradesArray.filter(g => g.batchNumber === relevantBatchNumber && g.processing_type === relevantProcessingType).length > 0 ? 
+          dryMillGradesArray.filter(g => g.batchNumber === relevantBatchNumber && g.processing_type === relevantProcessingType).map(g => 
             `Grade: ${g.grade}, Weight: ${g.weight ? g.weight + ' kg' : 'N/A'}, Split: ${new Date(g.split_at).toISOString().slice(0, 19).replace('T', ' ')}, Bagged: ${g.bagged_at ? new Date(g.bagged_at).toISOString().slice(0, 10) : 'N/A'}, Stored: ${g.is_stored ? 'Yes' : 'No'}`
           ).join('; ') : null,
         isStored,
