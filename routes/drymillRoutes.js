@@ -1001,8 +1001,8 @@ router.get('/dry-mill-data', async (req, res) => {
         COALESCE(pp.quality, 'N/A') AS quality,
         rd.weight AS cherry_weight,
         COALESCE(pp.producer, rd.producer) AS producer,
-        COALESCE(pp."farmerName", rd."farmerName") AS "farmerName",
-        COALESCE(pp."productLine", rd."productLine") AS "productLine",
+        rd."farmerName" AS "farmerName",
+        pp."productLine" AS "productLine",
         pp."processingType",
         pp."referenceNumber",
         CASE
@@ -1014,7 +1014,7 @@ router.get('/dry-mill-data', async (req, res) => {
         COUNT(DISTINCT bd.bag_number) AS totalBags,
         COALESCE(pp.notes, rd.notes) AS notes,
         ARRAY_AGG(bd.weight) FILTER (WHERE bd.weight IS NOT NULL) AS bagWeights,
-        COALESCE(pp."isStored", FALSE) AS "isStored",
+        pp."storedDate" AS "storedDate",
         rd.rfid
       FROM "ReceivingData" rd
       LEFT JOIN "DryMillData" dm ON rd."batchNumber" = dm."batchNumber"
@@ -1029,10 +1029,10 @@ router.get('/dry-mill-data', async (req, res) => {
         rd."batchNumber", pp."batchNumber", pp."parentBatchNumber",
         dm."entered_at", dm."exited_at", pp."storedDate",
         pp.weight, rd.weight, pp.quality,
-        pp.producer, rd.producer, pp."farmerName", rd."farmerName",
-        pp."productLine", rd."productLine", pp."processingType",
+        pp.producer, rd.producer, rd."farmerName",
+        pp."productLine", pp."processingType",
         pp."referenceNumber", pp.notes, rd.notes, rd."type",
-        pp."isStored", rd.rfid
+        pp."storedDate", rd.rfid
       ORDER BY dm."entered_at" DESC
     `, {
       type: sequelize.QueryTypes.SELECT,
