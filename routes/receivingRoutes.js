@@ -188,6 +188,7 @@ router.get('/receiving', async (req, res) => {
       whereClause = `WHERE a."commodityType" = :commodityType`;
     }
 
+    // Fetch allRows
     const [allRows] = await sequelize.query(
       `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
@@ -201,6 +202,7 @@ router.get('/receiving', async (req, res) => {
       }
     );
 
+    // Fetch todayData
     const [todayData] = await sequelize.query(
       `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
@@ -216,6 +218,7 @@ router.get('/receiving', async (req, res) => {
       }
     );
 
+    // Fetch noTransportData
     const [noTransportData] = await sequelize.query(
       `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
@@ -230,10 +233,19 @@ router.get('/receiving', async (req, res) => {
       }
     );
 
-    res.json({ allRows, todayData, noTransportData });
+    // Ensure allRows is an array
+    const formattedAllRows = Array.isArray(allRows) ? allRows : [allRows].filter(Boolean);
+    const formattedTodayData = Array.isArray(todayData) ? todayData : [todayData].filter(Boolean);
+    const formattedNoTransportData = Array.isArray(noTransportData) ? noTransportData : [noTransportData].filter(Boolean);
+
+    res.json({
+      allRows: formattedAllRows,
+      todayData: formattedTodayData,
+      noTransportData: formattedNoTransportData
+    });
   } catch (err) {
     console.error('Error fetching Receiving data:', err);
-    res.status(500).json({ message: 'Failed to fetch Receiving data.' });
+    res.status(500).json({ message: 'Failed to fetch Receiving data.', details: err.message });
   }
 });
 
