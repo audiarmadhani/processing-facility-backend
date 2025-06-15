@@ -149,23 +149,23 @@ router.post('/receiving', async (req, res) => {
       );
     }
 
-    // Add to inventory
-    const inventoryTable = commodityType === 'Green Bean' ? 'GreenBeanInventoryStatus' : 'CherryInventoryStatus';
-    await sequelize.query(
-      `INSERT INTO "${inventoryTable}" ("batchNumber", status, "enteredAt", "createdAt", "updatedAt", "createdBy", "updatedBy")
-       VALUES (:batchNumber, 'Stored', :enteredAt, NOW(), NOW(), :createdBy, :updatedBy)
-       RETURNING *`,
-      {
-        replacements: {
-          batchNumber,
-          enteredAt: currentDate,
-          createdBy,
-          updatedBy
-        },
-        transaction: t,
-        type: sequelize.QueryTypes.INSERT
-      }
-    );
+    // // Add to inventory
+    // const inventoryTable = commodityType === 'Green Bean' ? 'GreenBeanInventoryStatus' : 'CherryInventoryStatus';
+    // await sequelize.query(
+    //   `INSERT INTO "${inventoryTable}" ("batchNumber", status, "enteredAt", "createdAt", "updatedAt", "createdBy", "updatedBy")
+    //    VALUES (:batchNumber, 'Stored', :enteredAt, NOW(), NOW(), :createdBy, :updatedBy)
+    //    RETURNING *`,
+    //   {
+    //     replacements: {
+    //       batchNumber,
+    //       enteredAt: currentDate,
+    //       createdBy,
+    //       updatedBy
+    //     },
+    //     transaction: t,
+    //     type: sequelize.QueryTypes.INSERT
+    //   }
+    // );
 
     await t.commit();
     res.status(201).json({
