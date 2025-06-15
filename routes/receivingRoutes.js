@@ -188,7 +188,6 @@ router.get('/receiving', async (req, res) => {
       whereClause = `WHERE a."commodityType" = :commodityType`;
     }
 
-    // Fetch allRows
     const [allRows] = await sequelize.query(
       `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
@@ -198,11 +197,10 @@ router.get('/receiving', async (req, res) => {
        ORDER BY "receivingDate" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},
-        type: sequelize.QueryTypes.SELECT
+        // type: sequelize.QueryTypes.SELECT
       }
     );
 
-    // Fetch todayData
     const [todayData] = await sequelize.query(
       `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
@@ -214,11 +212,10 @@ router.get('/receiving', async (req, res) => {
        ORDER BY "receivingDate" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},
-        type: sequelize.QueryTypes.SELECT
+        // type: sequelize.QueryTypes.SELECT
       }
     );
 
-    // Fetch noTransportData
     const [noTransportData] = await sequelize.query(
       `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
@@ -229,23 +226,14 @@ router.get('/receiving', async (req, res) => {
        ORDER BY "batchNumber" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},
-        type: sequelize.QueryTypes.SELECT
+        // type: sequelize.QueryTypes.SELECT
       }
     );
 
-    // Ensure allRows is an array
-    const formattedAllRows = Array.isArray(allRows) ? allRows : [allRows].filter(Boolean);
-    const formattedTodayData = Array.isArray(todayData) ? todayData : [todayData].filter(Boolean);
-    const formattedNoTransportData = Array.isArray(noTransportData) ? noTransportData : [noTransportData].filter(Boolean);
-
-    res.json({
-      allRows: formattedAllRows,
-      todayData: formattedTodayData,
-      noTransportData: formattedNoTransportData
-    });
+    res.json({ allRows, todayData, noTransportData });
   } catch (err) {
     console.error('Error fetching Receiving data:', err);
-    res.status(500).json({ message: 'Failed to fetch Receiving data.', details: err.message });
+    res.status(500).json({ message: 'Failed to fetch Receiving data.' });
   }
 });
 
