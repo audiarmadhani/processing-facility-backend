@@ -151,15 +151,159 @@ router.post('/receiving', async (req, res) => {
   }
 });
 
+// Route for creating green bean receiving data
+router.post('/receiving-green-beans', async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { farmerID, farmerName, weight, totalBags, notes, type, producer, processingType, grade, bagPayload, createdBy, updatedBy, rfid } = req.body;
+
+    // Basic validation
+    if (!farmerID || !farmerName || weight === undefined || !totalBags || !type || !producer || !createdBy || !updatedBy || !processingType || !grade) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Missing required fields.' });
+    }
+    if (!rfid) {
+      await t.rollback();
+      return res.status(400).json({ error: 'RFID tag is required.' });
+    }
+
+    // Get current date and format it
+    const currentDate = new Date();
+    const day = String(currentDate.getDate()).padStart(2, '0');
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const year = currentDate.getFullYear();
+    const currentBatchDate = `${year}-${month}-${day}`;
+
+    // Retrieve or initialize the latest green bean batch number with locking
+    let [latestBatchResults] = await sequelize.query(
+      'SELECT latest_green_bean_batch_number FROM latest_gb_batch LIMIT 1 FOR UPDATE',
+      { transaction: t, type: sequelize.QueryTypes.SELECT }
+    );
+
+    let latestBatchNumber = latestBatchResults[0]?.latest_green_bean_batch_number || 'GB-1970-01-01-0000';
+
+    if (!latestBatchResults[0]) {
+      await sequelize.query(
+        'INSERT INTO latest_gb_batch (latest_green_bean_batch_number) VALUES (:initialValue)',
+        { replacements: { initialValue: 'GB-1970-01-01-0000' }, transaction: t, type: sequelize.QueryTypes.INSERT }
+      );
+    }
+
+    // Parse the latest batch number
+    const parts = latestBatchNumber.split('-');
+    const lastBatchDate = parts.slice(1, 4).join('-');
+    const lastSeqNumber = parseInt(parts[3], 10) || 0;
+    const sequenceNumber = (lastBatchDate === currentBatchDate) ? lastSeqNumber + 1 : 1;
+    const batchNumber = `GB-${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
+
+    // Insert ReceivingData
+    const [receivingData] = await sequelize.query(`
+      INSERT INTO "ReceivingData" (
+        "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type, producer,
+        "processingType", "grade", "commodityType", "receivingDate", "createdAt", "updatedAt",
+        "createdBy", "updatedBy", "rfid", "currentAssign"
+      ) VALUES (
+        :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type, :producer,
+        :processingType, :grade, :commodityType, :receivingDate, :createdAt, :updatedAt,
+        :createdBy, :updatedBy, :rfid, :currentAssign
+      ) RETURNING *;
+    `, {
+      replacements: {
+        batchNumber,
+        farmerID,
+        farmerName,
+        weight,
+        totalBags,
+        notes,
+        type,
+        producer,
+        processingType,
+        grade,
+        commodityType: 'Green Bean',
+        receivingDate: currentDate,
+        createdAt: currentDate,
+        updatedAt: currentDate,
+        createdBy,
+        updatedBy,
+        rfid,
+        currentAssign: 1,
+      },
+      transaction: t,
+      type: sequelize.QueryTypes.INSERT
+    });
+
+    // Insert BagData
+    if (Array.isArray(bagPayload) && bagPayload.length > 0) {
+      const bagInsertQuery = `
+        INSERT INTO "BagData" ("batchNumber", "bagNumber", weight, "createdAt", "updatedAt")
+        VALUES ${bagPayload.map(() => '(?, ?, ?, ?, ?)').join(', ')} RETURNING *;
+      `;
+      const bagData = bagPayload.flatMap(bag => [batchNumber, bag.bagNumber, bag.weight, currentDate, currentDate]);
+      await sequelize.query(bagInsertQuery, {
+        replacements: bagData,
+        transaction: t,
+        type: sequelize.QueryTypes.INSERT
+      });
+    }
+
+    // Update latest_gb_batch
+    await sequelize.query(
+      'UPDATE latest_gb_batch SET latest_green_bean_batch_number = :batchNumber',
+      {
+        replacements: { batchNumber },
+        transaction: t,
+        type: sequelize.QueryTypes.UPDATE
+      }
+    );
+
+    // // Add to green bean inventory
+    // await sequelize.query(
+    //   `INSERT INTO "GreenBeansInventoryStatus" ("batchNumber", status, "enteredAt", "createdAt", "updatedAt", "createdBy", "updatedBy")
+    //    VALUES (:batchNumber, 'Stored', :enteredAt, NOW(), NOW(), :createdBy, :updatedBy)
+    //    RETURNING *`,
+    //   {
+    //     replacements: {
+    //       batchNumber,
+    //       enteredAt: currentDate,
+    //       createdBy,
+    //       updatedBy
+    //     },
+    //     transaction: t,
+    //     type: sequelize.QueryTypes.INSERT
+    //   }
+    // );
+
+    await t.commit();
+    res.status(201).json({
+      message: `Batch ${batchNumber} created and stored in inventory successfully`,
+      receivingData: receivingData[0],
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error('Error creating green bean receiving data:', err);
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
 // Route for fetching all Receiving data
 router.get('/receiving', async (req, res) => {
   try {
+    const { commodityType } = req.query;
+    let whereClause = '';
+    if (commodityType) {
+      whereClause = `WHERE a."commodityType" = :commodityType`;
+    }
+
     const [allRows] = await sequelize.query(
       `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
-       ORDER BY "receivingDate" DESC;`
+       ${whereClause}
+       ORDER BY "receivingDate" DESC;`,
+      {
+        replacements: commodityType ? { commodityType } : {},
+      }
     );
 
     const [todayData] = await sequelize.query(
@@ -168,8 +312,12 @@ router.get('/receiving', async (req, res) => {
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
        WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') 
-       AND a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") 
-       ORDER BY "receivingDate" DESC;`
+       AND a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData")
+       ${commodityType ? 'AND a."commodityType" = :commodityType' : ''}
+       ORDER BY "receivingDate" DESC;`,
+      {
+        replacements: commodityType ? { commodityType } : {},
+      }
     );
 
     const [noTransportData] = await sequelize.query(
@@ -177,8 +325,12 @@ router.get('/receiving', async (req, res) => {
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
-       WHERE a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData") 
-       ORDER BY "batchNumber" DESC;`
+       WHERE a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData")
+       ${commodityType ? 'AND a."commodityType" = :commodityType' : ''}
+       ORDER BY "batchNumber" DESC;`,
+      {
+        replacements: commodityType ? { commodityType } : {},
+      }
     );
 
     res.json({ allRows, todayData, noTransportData });
