@@ -79,11 +79,15 @@ router.get('/farmer', async (req, res) => {
   try {
     // Fetch all records for filtering purposes
     const [allRows] = await sequelize.query('SELECT * FROM "Farmers" ORDER BY "registrationDate" ASC');
+    const [farmershipperRows] = await sequelize.query(`
+      SELECT "farmerID", "farmerName", "farmerAddress", "bankAccount", "bankAccountName", "bankName" FROM "Farmers"
+      UNION all
+      SELECT "shipperID", "shipperName", "shipperAddress", "bankAccount", "bankAccountName", "bankName" FROM "Shippers"`);
     const [latestRows] = await sequelize.query('SELECT * FROM "Farmers" ORDER BY "registrationDate" DESC, "farmerID" DESC LIMIT 1');
     const [arabicaFarmers] = await sequelize.query(`SELECT * FROM "Farmers" WHERE "farmType" = 'Arabica' ORDER BY "registrationDate" ASC`);
     const [robustaFarmers] = await sequelize.query(`SELECT * FROM "Farmers" WHERE "farmType" = 'Robusta' ORDER BY "registrationDate" ASC`);
     
-    res.json({ latestRows, allRows, arabicaFarmers, robustaFarmers });
+    res.json({ latestRows, allRows, arabicaFarmers, robustaFarmers, farmershipperRows });
   } catch (err) {
     console.error('Error fetching farmer data:', err);
     res.status(500).json({ message: 'Failed to fetch farmer data.' });
