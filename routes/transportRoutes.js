@@ -9,8 +9,22 @@ router.post('/transport', async (req, res) => {
     const {
       batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
       loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
-      harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility, createdAt
+      harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility
     } = req.body;
+
+    // Basic validation
+    if (!batchNumber || !desa || !kecamatan || !kabupaten || !paidTo || !paymentMethod) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Missing required fields: batchNumber, desa, kecamatan, kabupaten, paidTo, paymentMethod' });
+    }
+
+    // Log replacements for debugging
+    const replacements = [
+      batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
+      loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
+      harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility
+    ];
+    console.log('TransportData Insert Replacements:', replacements);
 
     const [transportData] = await sequelize.query(
       `
@@ -18,16 +32,12 @@ router.post('/transport', async (req, res) => {
         "batchNumber", "desa", "kecamatan", "kabupaten", "cost", "paidTo", "farmerID", "paymentMethod", 
         "bankAccount", "bankName", "loadingWorkerCount", "loadingWorkerCostPerPerson", 
         "unloadingWorkerCount", "unloadingWorkerCostPerPerson", "harvestWorkerCount", 
-        "harvestWorkerCostPerPerson", "transportCostFarmToCollection", "transportCostCollectionToFacility", "createdAt"
+        "harvestWorkerCostPerPerson", "transportCostFarmToCollection", "transportCostCollectionToFacility"
       ) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) RETURNING *
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *
       `,
       {
-        replacements: [
-          batchNumber, desa, kecamatan, kabupaten, cost, paidTo, farmerID, paymentMethod, bankAccount, bankName,
-          loadingWorkerCount, loadingWorkerCostPerPerson, unloadingWorkerCount, unloadingWorkerCostPerPerson,
-          harvestWorkerCount, harvestWorkerCostPerPerson, transportCostFarmToCollection, transportCostCollectionToFacility, createdAt
-        ],
+        replacements,
         transaction: t,
       }
     );
@@ -41,7 +51,7 @@ router.post('/transport', async (req, res) => {
 
     const paymentPayload = {
       farmerName: paidTo,
-      farmerID,
+      farmerID: farmerID || null, // Allow null for shippers
       totalAmount: totalCost,
       date: new Date().toISOString(),
       paymentMethod,
@@ -49,16 +59,20 @@ router.post('/transport', async (req, res) => {
       isPaid: 0
     };
 
+    // Log payment replacements for debugging
+    const paymentReplacements = [
+      paymentPayload.farmerName, paymentPayload.farmerID, paymentPayload.totalAmount, paymentPayload.date,
+      paymentPayload.paymentMethod, paymentPayload.paymentDescription, paymentPayload.isPaid
+    ];
+    console.log('PaymentData Insert Replacements:', paymentReplacements);
+
     await sequelize.query(
       `
       INSERT INTO "PaymentData" ("farmerName", "farmerID", "totalAmount", "date", "paymentMethod", "paymentDescription", "isPaid")
       VALUES (?, ?, ?, ?, ?, ?, ?)
       `,
       {
-        replacements: [
-          paymentPayload.farmerName, paymentPayload.farmerID, paymentPayload.totalAmount, paymentPayload.date,
-          paymentPayload.paymentMethod, paymentPayload.paymentDescription, paymentPayload.isPaid
-        ],
+        replacements: paymentReplacements,
         transaction: t,
       }
     );
