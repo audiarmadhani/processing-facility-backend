@@ -1015,7 +1015,8 @@ router.get('/dry-mill-data', async (req, res) => {
         COALESCE(pp.notes, rd.notes) AS notes,
         ARRAY_AGG(bd.weight) FILTER (WHERE bd.weight IS NOT NULL) AS bagWeights,
         pp."storedDate" AS "storedDate",
-        rd.rfid
+        rd.rfid,
+        fm."farmVarieties"
       FROM "ReceivingData" rd
       LEFT JOIN "DryMillData" dm ON rd."batchNumber" = dm."batchNumber"
       LEFT JOIN "PostprocessingData" pp ON rd."batchNumber" = pp."parentBatchNumber"
@@ -1024,6 +1025,7 @@ router.get('/dry-mill-data', async (req, res) => {
         (pp."batchNumber" IS NOT NULL AND LOWER(dg."subBatchId") = LOWER(CONCAT(pp."parentBatchNumber", '-', REPLACE(pp.quality, ' ', '-')))
         OR (pp."batchNumber" IS NULL AND dg."batchNumber" = rd."batchNumber"))
       LEFT JOIN "BagDetails" bd ON LOWER(dg."subBatchId") = LOWER(bd.grade_id)
+      LEFT JOIN "Farmers" fm on rd."farmerID" = fm."farmerID"
       WHERE dm."entered_at" IS NOT NULL
       GROUP BY 
         rd."batchNumber", pp."batchNumber", pp."parentBatchNumber",
@@ -1032,7 +1034,8 @@ router.get('/dry-mill-data', async (req, res) => {
         pp.producer, rd.producer, rd."farmerName",
         pp."productLine", pp."processingType",
         pp."referenceNumber", pp.notes, rd.notes, rd."type",
-        pp."storedDate", rd.rfid
+        pp."storedDate", rd.rfid,
+        fm."farmVarieties"
       ORDER BY dm."entered_at" DESC
     `, {
       type: sequelize.QueryTypes.SELECT,
