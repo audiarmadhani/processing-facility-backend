@@ -87,7 +87,7 @@ router.get('/greenhouse-latest', async (req, res) => {
       WHERE (device_id, recorded_at) IN (
         SELECT device_id, MAX(recorded_at)
         FROM "GreenhouseData"
-        WHERE device_id IN ('GH_SENSOR_1', 'GH_SENSOR_2', 'GH_SENSOR_3', 'GH_SENSOR_4', 'GH_SENSOR_5')
+        WHERE device_id IN ('GH_SENSOR_1', 'GH_SENSOR_2', 'GH_SENSOR_3', 'GH_SENSOR_4', 'GH_SENSOR_5', 'GH_SENSOR_6')
         GROUP BY device_id
       );
     `, { type: sequelize.QueryTypes.SELECT });
@@ -115,6 +115,63 @@ router.get('/greenhouse-historical/:device_id', async (req, res) => {
   } catch (error) {
     console.error('Error fetching historical greenhouse data:', error);
     res.status(500).json({ error: 'Failed to fetch historical greenhouse data', details: error.message });
+  }
+});
+
+router.post('/move-drying-area', async (req, res) => {
+  const { batchNumber, newDryingArea, rfid } = req.body;
+  if (!batchNumber || !newDryingArea || !rfid) {
+    return res.status(400).json({ error: 'batchNumber, newDryingArea, and rfid are required.' });
+  }
+
+  const validDryingAreas = ["Drying Area 1", "Drying Area 2", "Drying Area 3", "Drying Area 4", "Drying Area 5", "Drying Sun Dry", "Drying Room"];
+  if (!validDryingAreas.includes(newDryingArea)) {
+    return res.status(400).json({ error: 'Invalid drying area.' });
+  }
+
+  const t = await sequelize.transaction();
+  try {
+    // Find the active drying record
+    const [activeRecord] = await sequelize.query(`
+      SELECT id, "dryingArea"
+      FROM "DryingData"
+      WHERE "batchNumber" = :batchNumber AND rfid = :rfid AND exited_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1;
+    `, {
+      replacements: { batchNumber, rfid },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    if (!activeRecord) {
+      await t.rollback();
+      return res.status(404).json({ error: `No active drying record found for batch ${batchNumber}.` });
+    }
+
+    if (activeRecord.dryingArea === newDryingArea) {
+      await t.rollback();
+      return res.status(400).json({ error: `Batch ${batchNumber} is already in ${newDryingArea}.` });
+    }
+
+    // Update the dryingArea
+    await sequelize.query(`
+      UPDATE "DryingData"
+      SET "dryingArea" = :newDryingArea
+      WHERE id = :id
+      RETURNING *;
+    `, {
+      replacements: { id: activeRecord.id, newDryingArea },
+      type: sequelize.QueryTypes.UPDATE,
+      transaction: t,
+    });
+
+    await t.commit();
+    res.status(200).json({ message: `Batch ${batchNumber} moved to ${newDryingArea}` });
+  } catch (error) {
+    await t.rollback();
+    console.error('Error moving drying area:', error);
+    res.status(500).json({ error: 'Failed to move drying area', details: error.message });
   }
 });
 
