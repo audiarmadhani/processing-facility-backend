@@ -388,9 +388,9 @@ router.put('/drying-weight-measurement/:id', async (req, res) => {
   try {
     const [result] = await sequelize.query(`
       UPDATE "DryingWeightMeasurements"
-      SET weight = :weight, measurement_date = :measurement_date, updated_at = NOW()
+      SET weight = :weight, measurement_date = :measurement_date
       WHERE id = :id
-      RETURNING id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at, updated_at
+      RETURNING id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at
     `, {
       replacements: { id, weight, measurement_date },
       type: sequelize.QueryTypes.UPDATE,
@@ -404,34 +404,6 @@ router.put('/drying-weight-measurement/:id', async (req, res) => {
   } catch (error) {
     console.error('Error updating weight measurement:', error);
     res.status(500).json({ error: 'Failed to update weight measurement', details: error.message });
-  }
-});
-
-/**
- * DELETE /drying-weight-measurement/:id
- * Deletes a single weight measurement by ID.
- */
-router.delete('/drying-weight-measurement/:id', async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const [result] = await sequelize.query(`
-      DELETE FROM "DryingWeightMeasurements"
-      WHERE id = :id
-      RETURNING id
-    `, {
-      replacements: { id },
-      type: sequelize.QueryTypes.DELETE,
-    });
-
-    if (!result) {
-      return res.status(404).json({ error: `Weight measurement with id ${id} not found` });
-    }
-
-    res.status(200).json({ message: 'Weight measurement deleted' });
-  } catch (error) {
-    console.error('Error deleting weight measurement:', error);
-    res.status(500).json({ error: 'Failed to delete weight measurement', details: error.message });
   }
 });
 
@@ -452,7 +424,7 @@ router.post('/drying-weight-measurements/delete', async (req, res) => {
   try {
     const deletedCount = await sequelize.query(`
       DELETE FROM "DryingWeightMeasurements"
-      WHERE id = ANY(:ids)
+      WHERE id IN (:ids)
       RETURNING id
     `, {
       replacements: { ids },
