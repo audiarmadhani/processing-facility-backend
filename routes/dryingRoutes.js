@@ -3,16 +3,16 @@ const router = express.Router();
 const sequelize = require('../config/database');
 const rateLimit = require('express-rate-limit');
 
-// Rate limiter: 100 requests per 15 minutes per IP
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per window
-  message: { error: 'Too many requests, please try again later.' },
-  statusCode: 429,
-});
+// // Rate limiter: 100 requests per 15 minutes per IP
+// const apiLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 100, // Limit each IP to 100 requests per window
+//   message: { error: 'Too many requests, please try again later.' },
+//   statusCode: 429,
+// });
 
-// Apply rate limiter to all API endpoints
-router.use(apiLimiter);
+// // Apply rate limiter to all API endpoints
+// router.use(apiLimiter);
 
 /**
  * GET /drying-data
