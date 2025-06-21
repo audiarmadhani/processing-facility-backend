@@ -19,7 +19,7 @@ router.get('/drying-data', async (req, res) => {
 router.post('/drying-measurement', async (req, res) => {
   const { batchNumber, moisture, measurement_date } = req.body;
   if (!batchNumber || moisture === undefined || !measurement_date) {
-    return res.status(400).json({ error: 'batchNumber, moisture, and measurement date are required.' });
+    return res.status(400).json({ error: 'batchNumber, moisture, and measurement_date are required.' });
   }
   if (typeof moisture !== 'number' || moisture < 0 || moisture > 100) {
     return res.status(400).json({ error: 'Moisture must be a number between 0 and 100.' });
@@ -131,7 +131,6 @@ router.post('/move-drying-area', async (req, res) => {
 
   const t = await sequelize.transaction();
   try {
-    // Find the active drying record
     const [activeRecord] = await sequelize.query(`
       SELECT id, "dryingArea"
       FROM "DryingData"
@@ -154,7 +153,6 @@ router.post('/move-drying-area', async (req, res) => {
       return res.status(400).json({ error: `Batch ${batchNumber} is already in ${newDryingArea}.` });
     }
 
-    // Update the dryingArea
     await sequelize.query(`
       UPDATE "DryingData"
       SET "dryingArea" = :newDryingArea
@@ -172,6 +170,49 @@ router.post('/move-drying-area', async (req, res) => {
     await t.rollback();
     console.error('Error moving drying area:', error);
     res.status(500).json({ error: 'Failed to move drying area', details: error.message });
+  }
+});
+
+router.post('/drying-weight-measurement', async (req, res) => {
+  const { batchNumber, processingType, bagNumber, weight, measurement_date } = req.body;
+  if (!batchNumber || !processingType || !bagNumber || weight === undefined || !measurement_date) {
+    return res.status(400).json({ error: 'batchNumber, processingType, bagNumber, weight, and measurement_date are required.' });
+  }
+  if (typeof weight !== 'number' || weight <= 0) {
+    return res.status(400).json({ error: 'Weight must be a positive number.' });
+  }
+  try {
+    const [result] = await sequelize.query(`
+      INSERT INTO "DryingWeightMeasurements" ("batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at)
+      VALUES (:batchNumber, :processingType, :bagNumber, :weight, :measurement_date, NOW())
+      RETURNING *;
+    `, {
+      replacements: { batchNumber, processingType, bagNumber, weight, measurement_date },
+      type: sequelize.QueryTypes.INSERT,
+    });
+    res.status(201).json({ message: 'Weight measurement saved', measurement: result[0] });
+  } catch (error) {
+    console.error('Error saving weight measurement:', error);
+    res.status(500).json({ error: 'Failed to save weight measurement', details: error.message });
+  }
+});
+
+router.get('/drying-weight-measurements/:batchNumber', async (req, res) => {
+  const { batchNumber } = req.params;
+  try {
+    const measurements = await sequelize.query(`
+      SELECT id, "processingType", "bagNumber", weight, measurement_date, created_at
+      FROM "DryingWeightMeasurements"
+      WHERE "batchNumber" = :batchNumber
+      ORDER BY measurement_date DESC, "processingType" ASC, "bagNumber" ASC;
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT,
+    });
+    res.status(200).json(measurements);
+  } catch (error) {
+    console.error('Error fetching weight measurements:', error);
+    res.status(500).json({ error: 'Failed to fetch weight measurements', details: error.message });
   }
 });
 
