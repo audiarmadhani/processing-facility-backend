@@ -292,6 +292,33 @@ router.get('/drying-weight-measurements/:batchNumber', async (req, res) => {
 });
 
 /**
+ * GET /drying-weight-measurements/aggregated
+ * Fetches the latest total weight per batchNumber, summing weights for the most recent measurement date.
+ */
+router.get('/drying-weight-measurements/aggregated', async (req, res) => {
+  try {
+    const data = await sequelize.query(`
+      WITH LatestDates AS (
+        SELECT "batchNumber", MAX(measurement_date) AS max_date
+        FROM "DryingWeightMeasurements"
+        GROUP BY "batchNumber"
+      )
+      SELECT dwm."batchNumber", SUM(dwm.weight) AS total_weight, ld.max_date AS measurement_date
+      FROM "DryingWeightMeasurements" dwm
+      INNER JOIN LatestDates ld
+        ON dwm."batchNumber" = ld."batchNumber" AND dwm.measurement_date = ld.max_date
+      GROUP BY dwm."batchNumber", ld.max_date
+      ORDER BY dwm."batchNumber"
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('Error fetching aggregated weight measurements:', error);
+    res.status(500).json({ error: 'Failed to fetch aggregated weight measurements', details: error.message });
+  }
+});
+
+/**
  * GET /drying-weight-measurements/:batchNumber/:processingType/max-bag-number
  * Fetches the highest bag number for a batch and processing type.
  */
