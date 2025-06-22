@@ -163,7 +163,7 @@ router.get('/greenhouse-historical/:device_id', async (req, res) => {
       SELECT COALESCE(temperature, 0) AS temperature, COALESCE(humidity, 0) AS humidity, recorded_at
       FROM "GreenhouseData"
       WHERE device_id = :device_id
-      AND recorded_at >= NOW() - INTERVAL '1 month'
+      AND recorded_at >= NOW() - INTERVAL '1 week'
       ORDER BY recorded_at ASC
     `, {
       replacements: { device_id },
