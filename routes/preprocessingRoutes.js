@@ -102,6 +102,68 @@ router.patch('/preprocessing/:batchNumber/finish', async (req, res) => {
 
     t = await sequelize.transaction();
 
+    // Check if batch exists in ReceivingData
+    const [batch] = await sequelize.query(
+      `SELECT "batchNumber" FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(?)`,
+      { replacements: [batchNumber.trim()], transaction: t }
+    );
+
+    if (!batch[0]) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Batch not found in receiving data.' });
+    }
+
+    // Check if batch is already finished
+    const [processed] = await sequelize.query(
+      `SELECT MAX(finished) AS finished 
+       FROM "PreprocessingData" 
+       WHERE LOWER("batchNumber") = LOWER(?)`,
+      { replacements: [batchNumber.trim()], transaction: t }
+    );
+
+    if (processed[0].finished) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batch is already marked as finished.' });
+    }
+
+    // Check if preprocessing data exists
+    const [existingRows] = await sequelize.query(
+      `SELECT * FROM "PreprocessingData" WHERE LOWER("batchNumber") = LOWER(?)`,
+      { replacements: [batchNumber.trim()], transaction: t }
+    );
+
+    if (!existingRows.length) {
+      // Insert a dummy preprocessing record
+      const now = new Date();
+      const [dummyRecord] = await sequelize.query(
+        `INSERT INTO "PreprocessingData" (
+          "batchNumber", "weightProcessed", "processingDate", "producer", 
+          "productLine", "processingType", "quality", "createdAt", 
+          "updatedAt", "createdBy", notes, finished
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+        {
+          replacements: [
+            batchNumber.trim(),
+            0, // Zero weight for dummy record
+            now,
+            'Unknown', // Default values
+            'Unknown',
+            'Unknown',
+            'Unknown',
+            now,
+            now,
+            'System', // Default createdBy
+            'Auto-generated for batch completion',
+            true // Mark as finished
+          ],
+          transaction: t,
+        }
+      );
+      await t.commit();
+      return res.json({ message: `Batch ${batchNumber} marked as complete with dummy record.`, data: dummyRecord });
+    }
+
+    // Update existing preprocessing data
     const [result] = await sequelize.query(
       `UPDATE "PreprocessingData" 
        SET finished = true, "updatedAt" = ? 
@@ -114,15 +176,15 @@ router.patch('/preprocessing/:batchNumber/finish', async (req, res) => {
     );
 
     if (!result.length) {
-      throw new Error('No preprocessing data found for the batch or batch already finished.');
+      throw new Error('Failed to update preprocessing data.');
     }
 
     await t.commit();
-    res.json({ message: `Batch ${batchNumber} marked as finished.` });
+    res.json({ message: `Batch ${batchNumber} marked as complete.`, data: result });
   } catch (err) {
     if (t) await t.rollback();
-    console.error('Error marking batch as finished:', err);
-    res.status(500).json({ error: 'Server error', details: err.message });
+    console.error('Error marking batch as complete:', err);
+    res.status(err.message.includes('Batch not found') ? 404 : 500).json({ error: 'Server error', details: err.message });
   }
 });
 
