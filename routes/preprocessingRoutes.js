@@ -30,14 +30,19 @@ router.post('/preprocessing', async (req, res) => {
 
     const totalWeight = parseFloat(batch[0].weight);
     const [processed] = await sequelize.query(
-      `SELECT SUM("weightProcessed") AS "totalWeightProcessed" 
+      `SELECT SUM("weightProcessed") AS "totalWeightProcessed", MAX(finished) AS finished 
        FROM "PreprocessingData" 
        WHERE LOWER("batchNumber") = LOWER(?)`,
       { replacements: [batchNumber.trim()], transaction: t }
     );
 
     const totalWeightProcessed = parseFloat(processed[0].totalWeightProcessed || 0);
+    const isFinished = processed[0].finished || false;
     const weightAvailable = totalWeight - totalWeightProcessed;
+
+    if (isFinished) {
+      throw new Error('Batch is already marked as finished.');
+    }
 
     if (weightProcessed > weightAvailable) {
       throw new Error(`Cannot process ${weightProcessed} kg. Only ${weightAvailable} kg available.`);
@@ -52,8 +57,8 @@ router.post('/preprocessing', async (req, res) => {
       `INSERT INTO "PreprocessingData" (
         "batchNumber", "weightProcessed", "processingDate", "producer", 
         "productLine", "processingType", "quality", "createdAt", 
-        "updatedAt", "createdBy", notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+        "updatedAt", "createdBy", notes, finished
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       {
         replacements: [
           batchNumber.trim(),
@@ -66,7 +71,8 @@ router.post('/preprocessing', async (req, res) => {
           now,
           now,
           createdBy,
-          notes || null
+          notes || null,
+          false
         ],
         transaction: t,
       }
@@ -85,6 +91,41 @@ router.post('/preprocessing', async (req, res) => {
   }
 });
 
+// Route for marking a batch as finished
+router.patch('/preprocessing/:batchNumber/finish', async (req, res) => {
+  let t;
+  try {
+    const { batchNumber } = req.params;
+    if (!batchNumber) {
+      return res.status(400).json({ error: 'Batch number is required.' });
+    }
+
+    t = await sequelize.transaction();
+
+    const [result] = await sequelize.query(
+      `UPDATE "PreprocessingData" 
+       SET finished = true, "updatedAt" = ? 
+       WHERE LOWER("batchNumber") = LOWER(?) 
+       RETURNING *`,
+      {
+        replacements: [new Date(), batchNumber.trim()],
+        transaction: t
+      }
+    );
+
+    if (!result.length) {
+      throw new Error('No preprocessing data found for the batch or batch already finished.');
+    }
+
+    await t.commit();
+    res.json({ message: `Batch ${batchNumber} marked as finished.` });
+  } catch (err) {
+    if (t) await t.rollback();
+    console.error('Error marking batch as finished:', err);
+    res.status(500).json({ error: 'Server error', details: err.message });
+  }
+});
+
 // Route for fetching all preprocessing data
 router.get('/preprocessing', async (req, res) => {
   try {
@@ -92,6 +133,7 @@ router.get('/preprocessing', async (req, res) => {
       `SELECT a.*, DATE("processingDate") "processingDateTrunc" 
        FROM "PreprocessingData" a`
     );
+
     const [latestRows] = await sequelize.query(
       `SELECT a.*, DATE("processingDate") "processingDateTrunc" 
        FROM "PreprocessingData" a 
@@ -115,13 +157,16 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
 
   try {
     const [rows] = await sequelize.query(
-      `SELECT SUM("weightProcessed") AS "totalWeightProcessed" 
+      `SELECT SUM("weightProcessed") AS "totalWeightProcessed", MAX(finished) AS finished 
        FROM "PreprocessingData" 
        WHERE LOWER("batchNumber") = LOWER(?)`,
       { replacements: [batchNumber.trim()] }
     );
 
-    res.json({ totalWeightProcessed: parseFloat(rows[0].totalWeightProcessed || 0) });
+    res.json({
+      totalWeightProcessed: parseFloat(rows[0].totalWeightProcessed || 0),
+      finished: rows[0].finished || false
+    });
   } catch (err) {
     console.error('Error fetching preprocessing data by batch number:', err);
     res.status(500).json({ message: 'Failed to fetch preprocessing data by batch number.' });
