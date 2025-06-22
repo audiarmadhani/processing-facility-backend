@@ -91,12 +91,17 @@ router.post('/preprocessing', async (req, res) => {
   }
 });
 
-// Route for marking a batch as finished
-router.patch('/preprocessing/:batchNumber/finish', async (req, res) => {
+// Route for marking a batch as complete
+router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
   let t;
   try {
+    console.log('Received PUT request for /preprocessing/:batchNumber/finish', {
+      batchNumber: req.params.batchNumber,
+      headers: req.headers,
+    });
     const { batchNumber } = req.params;
     if (!batchNumber) {
+      console.log('Missing batch number');
       return res.status(400).json({ error: 'Batch number is required.' });
     }
 
@@ -107,9 +112,11 @@ router.patch('/preprocessing/:batchNumber/finish', async (req, res) => {
       `SELECT "batchNumber" FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(?)`,
       { replacements: [batchNumber.trim()], transaction: t }
     );
+    console.log('ReceivingData query result:', batch);
 
     if (!batch[0]) {
       await t.rollback();
+      console.log('Batch not found in ReceivingData:', batchNumber);
       return res.status(404).json({ error: 'Batch not found in receiving data.' });
     }
 
@@ -120,9 +127,11 @@ router.patch('/preprocessing/:batchNumber/finish', async (req, res) => {
        WHERE LOWER("batchNumber") = LOWER(?)`,
       { replacements: [batchNumber.trim()], transaction: t }
     );
+    console.log('PreprocessingData finished check:', processed);
 
     if (processed[0].finished) {
       await t.rollback();
+      console.log('Batch already finished:', batchNumber);
       return res.status(400).json({ error: 'Batch is already marked as finished.' });
     }
 
@@ -131,6 +140,7 @@ router.patch('/preprocessing/:batchNumber/finish', async (req, res) => {
       `SELECT * FROM "PreprocessingData" WHERE LOWER("batchNumber") = LOWER(?)`,
       { replacements: [batchNumber.trim()], transaction: t }
     );
+    console.log('PreprocessingData existing rows:', existingRows);
 
     if (!existingRows.length) {
       // Insert a dummy preprocessing record
@@ -144,21 +154,22 @@ router.patch('/preprocessing/:batchNumber/finish', async (req, res) => {
         {
           replacements: [
             batchNumber.trim(),
-            0, // Zero weight for dummy record
+            0,
             now,
-            'Unknown', // Default values
             'Unknown',
             'Unknown',
             'Unknown',
+            'Unknown',
             now,
             now,
-            'System', // Default createdBy
+            'System',
             'Auto-generated for batch completion',
-            true // Mark as finished
+            true
           ],
           transaction: t,
         }
       );
+      console.log('Inserted dummy record:', dummyRecord);
       await t.commit();
       return res.json({ message: `Batch ${batchNumber} marked as complete with dummy record.`, data: dummyRecord });
     }
@@ -174,6 +185,7 @@ router.patch('/preprocessing/:batchNumber/finish', async (req, res) => {
         transaction: t
       }
     );
+    console.log('Update query result:', result);
 
     if (!result.length) {
       throw new Error('Failed to update preprocessing data.');
