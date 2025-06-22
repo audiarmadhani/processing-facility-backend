@@ -30,7 +30,7 @@ router.post('/preprocessing', async (req, res) => {
 
     const totalWeight = parseFloat(batch[0].weight);
     const [processed] = await sequelize.query(
-      `SELECT SUM("weightProcessed") AS "totalWeightProcessed", MAX(finished) AS finished 
+      `SELECT SUM("weightProcessed") AS "totalWeightProcessed", COALESCE(BOOL_OR(finished), FALSE) AS finished 
        FROM "PreprocessingData" 
        WHERE LOWER("batchNumber") = LOWER(?)`,
       { replacements: [batchNumber.trim()], transaction: t }
@@ -122,7 +122,7 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 
     // Check if batch is already finished
     const [processed] = await sequelize.query(
-      `SELECT MAX(finished) AS finished 
+      `SELECT COALESCE(BOOL_OR(finished), FALSE) AS finished 
        FROM "PreprocessingData" 
        WHERE LOWER("batchNumber") = LOWER(?)`,
       { replacements: [batchNumber.trim()], transaction: t }
@@ -231,7 +231,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
 
   try {
     const [rows] = await sequelize.query(
-      `SELECT SUM("weightProcessed") AS "totalWeightProcessed", MAX(finished) AS finished 
+      `SELECT SUM("weightProcessed") AS "totalWeightProcessed", COALESCE(BOOL_OR(finished), FALSE) AS finished 
        FROM "PreprocessingData" 
        WHERE LOWER("batchNumber") = LOWER(?)`,
       { replacements: [batchNumber.trim()] }
