@@ -38,7 +38,17 @@ router.get('/wetmill-data', async (req, res) => {
            FROM "PreprocessingData" p 
            WHERE p."batchNumber" = w."batchNumber" AND p."referenceNumber" IS NOT NULL),
           '{}'
-        ) AS "referenceNumbers"
+        ) AS "referenceNumbers",
+        COALESCE(
+          (SELECT json_agg(json_build_object(
+            'processingType', p."processingType",
+            'lotNumber', p."lotNumber",
+            'referenceNumber', p."referenceNumber"
+          ))
+          FROM "PreprocessingData" p 
+          WHERE p."batchNumber" = w."batchNumber"),
+          '[]'
+        ) AS "lotMapping"
       FROM "WetMillData" w
       ORDER BY w.created_at DESC;
     `, {
@@ -204,7 +214,17 @@ router.get('/wetmill-weight-measurements/:batchNumber', async (req, res) => {
            FROM "PreprocessingData" p 
            WHERE p."batchNumber" = w."batchNumber" AND p."referenceNumber" IS NOT NULL),
           '{}'
-        ) AS "referenceNumbers"
+        ) AS "referenceNumbers",
+        COALESCE(
+          (SELECT json_agg(json_build_object(
+            'processingType', p."processingType",
+            'lotNumber', p."lotNumber",
+            'referenceNumber', p."referenceNumber"
+          ))
+          FROM "PreprocessingData" p 
+          WHERE p."batchNumber" = w."batchNumber"),
+          '[]'
+        ) AS "lotMapping"
       FROM "WetMillWeightMeasurements" w
       WHERE w."batchNumber" = :batchNumber
       ORDER BY w.measurement_date DESC, w.created_at DESC
