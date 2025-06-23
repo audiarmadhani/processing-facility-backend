@@ -16,14 +16,31 @@ router.use(apiLimiter);
 
 /**
  * GET /wetmill-data
- * Fetches all wet mill scan data (RFID scans).
+ * Fetches all wet mill scan data (RFID scans) with lotNumber and referenceNumber from PreprocessingData.
  */
 router.get('/wetmill-data', async (req, res) => {
   try {
     const data = await sequelize.query(`
-      SELECT rfid, "batchNumber", entered_at, exited_at, created_at
-      FROM "WetMillData"
-      ORDER BY created_at DESC;
+      SELECT 
+        w.rfid, 
+        w."batchNumber", 
+        w.entered_at, 
+        w.exited_at, 
+        w.created_at,
+        COALESCE(
+          (SELECT array_agg(DISTINCT p."lotNumber") 
+           FROM "PreprocessingData" p 
+           WHERE p."batchNumber" = w."batchNumber"),
+          '{}'
+        ) AS "lotNumbers",
+        COALESCE(
+          (SELECT array_agg(DISTINCT p."referenceNumber") 
+           FROM "PreprocessingData" p 
+           WHERE p."batchNumber" = w."batchNumber" AND p."referenceNumber" IS NOT NULL),
+          '{}'
+        ) AS "referenceNumbers"
+      FROM "WetMillData" w
+      ORDER BY w.created_at DESC;
     `, {
       type: sequelize.QueryTypes.SELECT,
     });
@@ -161,17 +178,36 @@ router.post('/wetmill-weight-measurements/delete', async (req, res) => {
 
 /**
  * GET /wetmill-weight-measurements/:batchNumber
- * Fetches all weight measurements for a specific batch.
+ * Fetches all weight measurements for a specific batch with lotNumber and referenceNumber.
  */
 router.get('/wetmill-weight-measurements/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
 
   try {
     const data = await sequelize.query(`
-      SELECT id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at
-      FROM "WetMillWeightMeasurements"
-      WHERE "batchNumber" = :batchNumber
-      ORDER BY measurement_date DESC, created_at DESC
+      SELECT 
+        w.id, 
+        w."batchNumber", 
+        w."processingType", 
+        w."bagNumber", 
+        w.weight, 
+        w.measurement_date, 
+        w.created_at,
+        COALESCE(
+          (SELECT array_agg(DISTINCT p."lotNumber") 
+           FROM "PreprocessingData" p 
+           WHERE p."batchNumber" = w."batchNumber"),
+          '{}'
+        ) AS "lotNumbers",
+        COALESCE(
+          (SELECT array_agg(DISTINCT p."referenceNumber") 
+           FROM "PreprocessingData" p 
+           WHERE p."batchNumber" = w."batchNumber" AND p."referenceNumber" IS NOT NULL),
+          '{}'
+        ) AS "referenceNumbers"
+      FROM "WetMillWeightMeasurements" w
+      WHERE w."batchNumber" = :batchNumber
+      ORDER BY w.measurement_date DESC, w.created_at DESC
     `, {
       replacements: { batchNumber },
       type: sequelize.QueryTypes.SELECT,
