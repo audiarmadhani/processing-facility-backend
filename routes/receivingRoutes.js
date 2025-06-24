@@ -251,7 +251,7 @@ router.get('/receiving', async (req, res) => {
     }
 
     const [allRows] = await sequelize.query(
-      `SELECT a.*, a."receivingDate" AT TIME ZONE 'Asia/Makassar' as "receivingDate",
+      `SELECT a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
        b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
@@ -264,7 +264,7 @@ router.get('/receiving', async (req, res) => {
     );
 
     const [todayData] = await sequelize.query(
-      `SELECT a.*, a."receivingDate" AT TIME ZONE 'Asia/Makassar' as "receivingDate",
+      `SELECT a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
        b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
@@ -279,7 +279,7 @@ router.get('/receiving', async (req, res) => {
     );
 
     const [noTransportData] = await sequelize.query(
-      `SELECT a.*, a."receivingDate" AT TIME ZONE 'Asia/Makassar' as "receivingDate",
+      `SELECT a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
        b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
@@ -308,12 +308,12 @@ router.get('/receiving/:batchNumber', async (req, res) => {
     const [rows] = await sequelize.query(
       `
       WITH qc AS (
-        SELECT "batchNumber", MIN("qcDate" AT TIME ZONE 'Asia/Makassar') AS "qcDate"
+        SELECT "batchNumber", MIN("qcDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') AS "qcDate"
         FROM "QCData"
         GROUP BY "batchNumber"
       )
       SELECT 
-        a.*, a."receivingDate" AT TIME ZONE 'Asia/Makassar' as "receivingDate",
+        a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
         b."qcDate",
         c."contractType",
         c."farmVarieties"
@@ -352,12 +352,12 @@ router.get('/receivingrfid/:rfid', async (req, res) => {
     const [rows] = await sequelize.query(
       `
       WITH qc AS (
-        SELECT "batchNumber", MIN("qcDate" AT TIME ZONE 'Asia/Makassar') AS "qcDate"
+        SELECT "batchNumber", MIN("qcDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') AS "qcDate"
         FROM "QCData"
         GROUP BY "batchNumber"
       )
       SELECT 
-        a.*, a."receivingDate" AT TIME ZONE 'Asia/Makassar' as "receivingDate",
+        a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
         b."qcDate",
         c."contractType",
         c."farmVarieties"
