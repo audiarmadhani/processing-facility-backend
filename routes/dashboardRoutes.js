@@ -1748,5 +1748,74 @@ router.get('/land-targets', async (req, res) => {
       }
 });
 
+router.get('/heqa-targets', async (req, res) => {
+    try {
+        const { timeframe = 'this_month' } = req.query;
+
+        let currentStartDate, currentEndDate, previousStartDate, previousEndDate;
+        try {
+        const dateRanges = getDateRanges(timeframe);
+        [currentStartDate, currentEndDate] = dateRanges.currentRange;
+        [previousStartDate, previousEndDate] = dateRanges.previousRange || [];
+        } catch (error) {
+        return res.status(400).json({ message: error.message });
+        }
+
+        // Format dates for SQL queries
+        const formattedCurrentStartDate = currentStartDate.toISOString().split('T')[0];
+        const formattedCurrentEndDate = currentEndDate.toISOString().split('T')[0];
+        const formattedPreviousStartDate = previousStartDate?.toISOString().split('T')[0];
+        const formattedPreviousEndDate = previousEndDate?.toISOString().split('T')[0];
+
+        const heqaTargetQuery = `
+            WITH target AS (
+            SELECT
+                40000 as "cherryTarget",
+                40000/5 as "gbTarget",
+                'Regional Lot' as "productLine"
+
+            UNION ALL
+
+            SELECT
+                20000 as "cherryTarget",
+                20000/5 as "gbTarget",
+                'Other Lot' as "productLine"
+            )
+
+            , base as (
+            SELECT 
+                CASE WHEN a."productLine" = 'Regional Lot' THEN 'Regional Lot' ELSE 'Other Lot' END AS "productLine",
+                SUM("weightProcessed") as "weightProcessed" 
+            FROM "PreprocessingData" a
+            LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+            WHERE a.producer = 'HQ' 
+            GROUP BY CASE WHEN a."productLine" = 'Regional Lot' THEN 'Regional Lot' ELSE 'Other Lot' END
+            )
+
+            SELECT
+            a."productLine",
+            a."weightProcessed" as "cherryNow",
+            FLOOR(a."weightProcessed"/5) as "projectedGB",
+            b."cherryTarget",
+            b."gbTarget",
+            FLOOR(a."weightProcessed" - b."cherryTarget") AS "cherryDeficit",
+            FLOOR((a."weightProcessed" - b."cherryTarget")/(DATE '2025-08-15' - CURRENT_DATE)) as "cherryperdTarget"
+            FROM base a
+            LEFT JOIN target b on a."productLine" = b."productLine";
+            `;
+
+        const [heqaTargetResult] = await sequelize.query(heqaTargetQuery);
+        const heqaTarget = heqaTargetResult || [];
+
+        // Return the metrics
+        res.json({
+            heqaTarget,
+        });
+    } catch (err) {
+    console.error('Error fetching heqa target:', err);
+    res.status(500).json({ message: 'Failed to fetch heqa target.' });
+      }
+});
+
  
 module.exports = router;
