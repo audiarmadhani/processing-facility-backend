@@ -257,7 +257,7 @@ router.get('/receiving', async (req, res) => {
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
        ${whereClause}
-       ORDER BY "receivingDate" DESC;`,
+       ORDER BY a."receivingDate" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},
       }
@@ -272,7 +272,7 @@ router.get('/receiving', async (req, res) => {
        WHERE TO_CHAR("receivingDate" AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') = TO_CHAR(NOW() AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') 
        AND a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData")
        ${commodityType ? 'AND a."commodityType" = :commodityType' : ''}
-       ORDER BY "receivingDate" DESC;`,
+       ORDER BY a."receivingDate" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},
       }
@@ -286,7 +286,7 @@ router.get('/receiving', async (req, res) => {
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
        WHERE a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData")
        ${commodityType ? 'AND a."commodityType" = :commodityType' : ''}
-       ORDER BY "batchNumber" DESC;`,
+       ORDER BY a."batchNumber" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},
       }
