@@ -112,33 +112,6 @@ router.post('/receiving', async (req, res) => {
       }
     );
 
-    // // Add to cherry inventory
-    // await sequelize.query(
-    //   `INSERT INTO "CherryInventoryStatus" ("batchNumber", status, "enteredAt", "createdAt", "updatedAt", "createdBy", "updatedBy")
-    //    VALUES (:batchNumber, 'Stored', :enteredAt, NOW(), NOW(), :createdBy, :updatedBy)
-    //    RETURNING *`,
-    //   {
-    //     replacements: {
-    //       batchNumber,
-    //       enteredAt: currentDate,
-    //       createdBy,
-    //       updatedBy
-    //     },
-    //     transaction: t,
-    //     type: sequelize.QueryTypes.INSERT
-    //   }
-    // );
-
-    // await sequelize.query(
-    //   `INSERT INTO "CherryInventoryMovements" ("batchNumber", "movementType", "movedAt", "createdBy")
-    //    VALUES (:batchNumber, 'Entry', NOW(), :createdBy)`,
-    //   {
-    //     replacements: { batchNumber, createdBy },
-    //     transaction: t,
-    //     type: sequelize.QueryTypes.INSERT
-    //   }
-    // );
-
     await t.commit();
     res.status(201).json({
       message: `Batch ${batchNumber} created and stored in inventory successfully`,
@@ -256,23 +229,6 @@ router.post('/receiving-green-beans', async (req, res) => {
       }
     );
 
-    // // Add to green bean inventory
-    // await sequelize.query(
-    //   `INSERT INTO "GreenBeansInventoryStatus" ("batchNumber", status, "enteredAt", "createdAt", "updatedAt", "createdBy", "updatedBy")
-    //    VALUES (:batchNumber, 'Stored', :enteredAt, NOW(), NOW(), :createdBy, :updatedBy)
-    //    RETURNING *`,
-    //   {
-    //     replacements: {
-    //       batchNumber,
-    //       enteredAt: currentDate,
-    //       createdBy,
-    //       updatedBy
-    //     },
-    //     transaction: t,
-    //     type: sequelize.QueryTypes.INSERT
-    //   }
-    // );
-
     await t.commit();
     res.status(201).json({
       message: `Batch ${batchNumber} created and stored in inventory successfully`,
@@ -295,7 +251,8 @@ router.get('/receiving', async (req, res) => {
     }
 
     const [allRows] = await sequelize.query(
-      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
+      `SELECT a.*, a."receivingDate" AT TIME ZONE 'Asia/Makassar' as "receivingDate",
+       b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
@@ -307,11 +264,12 @@ router.get('/receiving', async (req, res) => {
     );
 
     const [todayData] = await sequelize.query(
-      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
+      `SELECT a.*, a."receivingDate" AT TIME ZONE 'Asia/Makassar' as "receivingDate",
+       b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
-       WHERE TO_CHAR("receivingDate", 'YYYY-MM-DD') = TO_CHAR(NOW(), 'YYYY-MM-DD') 
+       WHERE TO_CHAR("receivingDate" AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') = TO_CHAR(NOW() AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') 
        AND a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData")
        ${commodityType ? 'AND a."commodityType" = :commodityType' : ''}
        ORDER BY "receivingDate" DESC;`,
@@ -321,7 +279,8 @@ router.get('/receiving', async (req, res) => {
     );
 
     const [noTransportData] = await sequelize.query(
-      `SELECT a.*, DATE(a."receivingDate") as "receivingDateTrunc", b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
+      `SELECT a.*, a."receivingDate" AT TIME ZONE 'Asia/Makassar' as "receivingDate",
+       b."contractType", c.total_price, c.price, b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", SUM(total_price) total_price, MAX(price) price FROM "QCData_v" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
@@ -349,13 +308,13 @@ router.get('/receiving/:batchNumber', async (req, res) => {
     const [rows] = await sequelize.query(
       `
       WITH qc AS (
-        SELECT "batchNumber", MIN(DATE("qcDate")) AS "qcDateTrunc"
+        SELECT "batchNumber", MIN("qcDate" AT TIME ZONE 'Asia/Makassar') AS "qcDate"
         FROM "QCData"
         GROUP BY "batchNumber"
       )
       SELECT 
-        a.*, DATE("receivingDate") as "receivingDateTrunc", 
-        "qcDateTrunc",
+        a.*, a."receivingDate" AT TIME ZONE 'Asia/Makassar' as "receivingDate",
+        b."qcDate",
         c."contractType",
         c."farmVarieties"
       FROM "ReceivingData" a 
@@ -393,13 +352,13 @@ router.get('/receivingrfid/:rfid', async (req, res) => {
     const [rows] = await sequelize.query(
       `
       WITH qc AS (
-        SELECT "batchNumber", MIN(DATE("qcDate")) AS "qcDateTrunc"
+        SELECT "batchNumber", MIN("qcDate" AT TIME ZONE 'Asia/Makassar') AS "qcDate"
         FROM "QCData"
         GROUP BY "batchNumber"
       )
       SELECT 
-        a.*, DATE("receivingDate") as "receivingDateTrunc", 
-        "qcDateTrunc",
+        a.*, a."receivingDate" AT TIME ZONE 'Asia/Makassar' as "receivingDate",
+        b."qcDate",
         c."contractType",
         c."farmVarieties"
       FROM "ReceivingData" a 
