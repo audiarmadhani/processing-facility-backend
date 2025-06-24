@@ -480,14 +480,14 @@ router.get('/dashboard-metrics', async (req, res) => {
                 WHERE "Date" + INTERVAL '1 day' <= CURRENT_DATE -- Stop at today's date
             ),
             RDA AS (
-                SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS "TotalPriceThisMonth"
+                SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", SUM(COALESCE(price, 0)*COALESCE(weight, 0)) AS "TotalPriceThisMonth"
                 FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Arabica'
                 GROUP BY DATE("receivingDate")::TIMESTAMP
             ),
             RDB AS (
-                SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS "TotalPriceLastMonth"
+                SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", SUM(COALESCE(price, 0)*COALESCE(weight, 0)) AS "TotalPriceLastMonth"
                 FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND type = 'Arabica'
@@ -510,14 +510,14 @@ router.get('/dashboard-metrics', async (req, res) => {
                 WHERE "Date" + INTERVAL '1 day' <= CURRENT_DATE -- Stop at today's date
             ),
             RDA AS (
-                SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS "TotalPriceThisMonth"
+                SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", SUM(COALESCE(price, 0)*COALESCE(weight, 0)) AS "TotalPriceThisMonth"
                 FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Robusta'
                 GROUP BY DATE("receivingDate")::TIMESTAMP
             ),
             RDB AS (
-                SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", COALESCE(SUM(price), 0)*COALESCE(SUM(weight), 0) AS "TotalPriceLastMonth"
+                SELECT DATE("receivingDate")::TIMESTAMP AS "receivingDate", SUM(COALESCE(price, 0)*COALESCE(weight, 0)) AS "TotalPriceLastMonth"
                 FROM "QCData_v" 
                 WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND type = 'Robusta'
@@ -1352,17 +1352,17 @@ router.get('/dashboard-metrics', async (req, res) => {
         const [arabicaProductionMoMResult] = await sequelize.query(arabicaProductionMoMQuery);
         const [robustaProductionMoMResult] = await sequelize.query(robustaProductionMoMQuery);
 
-				const [arabicaCherryQualitybyDateResult] = await sequelize.query(arabicaCherryQualitybyDateQuery);
+        const [arabicaCherryQualitybyDateResult] = await sequelize.query(arabicaCherryQualitybyDateQuery);
         const [robustaCherryQualitybyDateResult] = await sequelize.query(robustaCherryQualitybyDateQuery);
 
-				const [arabicaFarmersContributionResult] = await sequelize.query(arabicaFarmersContributionQuery);
+        const [arabicaFarmersContributionResult] = await sequelize.query(arabicaFarmersContributionQuery);
         const [robustaFarmersContributionResult] = await sequelize.query(robustaFarmersContributionQuery);
 
-				const [arabicaSankeyResult] = await sequelize.query(arabicaSankeyQuery);
+        const [arabicaSankeyResult] = await sequelize.query(arabicaSankeyQuery);
         const [robustaSankeyResult] = await sequelize.query(robustaSankeyQuery);
 
-				const [arabicaAchievementResult] = await sequelize.query(arabicaAchievementQuery);
-        const [robustaAchievementResult] = await sequelize.query(robustaAchievementQuery);
+        const [arabicaAchievementResult] = await sequelize.query(arabicaAchievementQuery);
+        const [robustaAchievementResult] = await sequelize.query(robustaAchievementQuery); 
  
  
         // Extract the relevant values from query results
@@ -1529,5 +1529,171 @@ router.get('/dashboard-metrics', async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch dashboard metrics.' });
       }
 });
+
+
+router.get('/arabica-targets', async (req, res) => {
+    try {
+        const { timeframe = 'this_month' } = req.query;
+
+        let currentStartDate, currentEndDate, previousStartDate, previousEndDate;
+        try {
+        const dateRanges = getDateRanges(timeframe);
+        [currentStartDate, currentEndDate] = dateRanges.currentRange;
+        [previousStartDate, previousEndDate] = dateRanges.previousRange || [];
+        } catch (error) {
+        return res.status(400).json({ message: error.message });
+        }
+
+        // Format dates for SQL queries
+        const formattedCurrentStartDate = currentStartDate.toISOString().split('T')[0];
+        const formattedCurrentEndDate = currentEndDate.toISOString().split('T')[0];
+        const formattedPreviousStartDate = previousStartDate?.toISOString().split('T')[0];
+        const formattedPreviousEndDate = previousEndDate?.toISOString().split('T')[0];
+
+        const arabicaTargetQuery = `
+            WITH target AS (
+            SELECT
+                'Arabica' as type,
+                260000 as "cherryTarget",
+                260000/6 as "gbTarget",
+                'Washed' as "processingType"
+
+            UNION ALL
+
+            SELECT
+                'Arabica' as type,
+                120000 as "cherryTarget",
+                120000/6 as "gbTarget",
+                'Natural' as "processingType"
+
+            UNION ALL
+
+            SELECT
+                'Robusta' as type,
+                134820 as "cherryTarget",
+                134820/4 as "gbTarget",
+                'Natural' as "processingType"
+            )
+
+            , base as (
+            SELECT 
+                b.type,
+                a."processingType", 
+                SUM("weightProcessed") as "weightProcessed" 
+            FROM "PreprocessingData" a
+            LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+            WHERE a.producer = 'BTM' 
+            GROUP BY b.type, a."processingType"
+            )
+
+            SELECT
+            a."processingType",
+            a.type,
+            a."weightProcessed" as "cherryNow",
+            FLOOR(CASE WHEN a.type = 'Arabica' THEN a."weightProcessed"/6 ELSE a."weightProcessed"/4 END) as "projectedGB",
+            b."cherryTarget",
+            b."gbTarget",
+            FLOOR(a."weightProcessed" - b."cherryTarget") AS "cherryDeficit",
+            FLOOR((a."weightProcessed" - b."cherryTarget")/(DATE '2025-08-15' - CURRENT_DATE)) as "cherryperdTarget"
+            FROM base a
+            LEFT JOIN target b on a.type = b.type and a."processingType" = b."processingType"
+            WHERE a.type = 'Arabica';
+            `;
+
+        const [arabicaTargetResult] = await sequelize.query(arabicaTargetQuery);
+        const arabicaTarget = arabicaTargetResult || [];
+
+        // Return the metrics
+        res.json({
+            arabicaTarget,
+        });
+    } catch (err) {
+    console.error('Error fetching arabica target:', err);
+    res.status(500).json({ message: 'Failed to fetch arabica target.' });
+      }
+});
+
+router.get('/robusta-targets', async (req, res) => {
+    try {
+        const { timeframe = 'this_month' } = req.query;
+
+        let currentStartDate, currentEndDate, previousStartDate, previousEndDate;
+        try {
+        const dateRanges = getDateRanges(timeframe);
+        [currentStartDate, currentEndDate] = dateRanges.currentRange;
+        [previousStartDate, previousEndDate] = dateRanges.previousRange || [];
+        } catch (error) {
+        return res.status(400).json({ message: error.message });
+        }
+
+        // Format dates for SQL queries
+        const formattedCurrentStartDate = currentStartDate.toISOString().split('T')[0];
+        const formattedCurrentEndDate = currentEndDate.toISOString().split('T')[0];
+        const formattedPreviousStartDate = previousStartDate?.toISOString().split('T')[0];
+        const formattedPreviousEndDate = previousEndDate?.toISOString().split('T')[0];
+
+        const arabicaTargetQuery = `
+            WITH target AS (
+            SELECT
+                'Arabica' as type,
+                260000 as "cherryTarget",
+                260000/6 as "gbTarget",
+                'Washed' as "processingType"
+
+            UNION ALL
+
+            SELECT
+                'Arabica' as type,
+                120000 as "cherryTarget",
+                120000/6 as "gbTarget",
+                'Natural' as "processingType"
+
+            UNION ALL
+
+            SELECT
+                'Robusta' as type,
+                134820 as "cherryTarget",
+                134820/4 as "gbTarget",
+                'Natural' as "processingType"
+            )
+
+            , base as (
+            SELECT 
+                b.type,
+                a."processingType", 
+                SUM("weightProcessed") as "weightProcessed" 
+            FROM "PreprocessingData" a
+            LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
+            WHERE a.producer = 'BTM' 
+            GROUP BY b.type, a."processingType"
+            )
+
+            SELECT
+            a."processingType",
+            a.type,
+            a."weightProcessed" as "cherryNow",
+            FLOOR(CASE WHEN a.type = 'Arabica' THEN a."weightProcessed"/6 ELSE a."weightProcessed"/4 END) as "projectedGB",
+            b."cherryTarget",
+            b."gbTarget",
+            FLOOR(a."weightProcessed" - b."cherryTarget") AS "cherryDeficit",
+            FLOOR((a."weightProcessed" - b."cherryTarget")/(DATE '2025-08-15' - CURRENT_DATE)) as "cherryperdTarget"
+            FROM base a
+            LEFT JOIN target b on a.type = b.type and a."processingType" = b."processingType"
+            WHERE a.type = 'Robusta';
+            `;
+
+        const [robustaTargetResult] = await sequelize.query(robustaTargetQuery);
+        const robustaTarget = robustaTargetResult || [];
+
+        // Return the metrics
+        res.json({
+            robustaTarget,
+        });
+    } catch (err) {
+    console.error('Error fetching robusta target:', err);
+    res.status(500).json({ message: 'Failed to fetch robusta target.' });
+      }
+});
+
  
 module.exports = router;
