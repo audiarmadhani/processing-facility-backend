@@ -1695,5 +1695,58 @@ router.get('/robusta-targets', async (req, res) => {
       }
 });
 
+router.get('/land-targets', async (req, res) => {
+    try {
+        const { timeframe = 'this_month' } = req.query;
+
+        let currentStartDate, currentEndDate, previousStartDate, previousEndDate;
+        try {
+        const dateRanges = getDateRanges(timeframe);
+        [currentStartDate, currentEndDate] = dateRanges.currentRange;
+        [previousStartDate, previousEndDate] = dateRanges.previousRange || [];
+        } catch (error) {
+        return res.status(400).json({ message: error.message });
+        }
+
+        // Format dates for SQL queries
+        const formattedCurrentStartDate = currentStartDate.toISOString().split('T')[0];
+        const formattedCurrentEndDate = currentEndDate.toISOString().split('T')[0];
+        const formattedPreviousStartDate = previousStartDate?.toISOString().split('T')[0];
+        const formattedPreviousEndDate = previousEndDate?.toISOString().split('T')[0];
+
+        const landTargetQuery = `
+            SELECT 
+                a."farmerName",
+                a."brokerName",
+                a."askingPrice" as "contractValue",
+                a."cherryEstimate",
+                a."gbEstimate",
+                COALESCE(SUM(c.weight),0) as currentCherryTotal,
+                COALESCE(SUM(c.weight),0) - a."cherryEstimate" as difference
+            FROM "LandContract" a
+            LEFT JOIN "Farmers" b on a."farmerName" = b."farmerName"
+            LEFT JOIN "ReceivingData" c on b."farmerID" = c."farmerID"
+            GROUP BY 
+                a."farmerName",
+                a."brokerName",
+                a."askingPrice",
+                a."cherryEstimate",
+                a."gbEstimate"
+            ORDER BY "brokerName", "askingPrice";
+            `;
+
+        const [landTargetResult] = await sequelize.query(landTargetQuery);
+        const landTarget = landTargetResult || [];
+
+        // Return the metrics
+        res.json({
+            landTarget,
+        });
+    } catch (err) {
+    console.error('Error fetching land target:', err);
+    res.status(500).json({ message: 'Failed to fetch land target.' });
+      }
+});
+
  
 module.exports = router;
