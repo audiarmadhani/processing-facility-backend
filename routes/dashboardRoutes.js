@@ -1632,7 +1632,7 @@ router.get('/robusta-targets', async (req, res) => {
         const formattedPreviousStartDate = previousStartDate?.toISOString().split('T')[0];
         const formattedPreviousEndDate = previousEndDate?.toISOString().split('T')[0];
 
-        const arabicaTargetQuery = `
+        const robustaTargetQuery = `
             WITH target AS (
             SELECT
                 'Arabica' as type,
