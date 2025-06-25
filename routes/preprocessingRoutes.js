@@ -3,6 +3,14 @@ const router = express.Router();
 const sequelize = require('../config/database');
 const validator = require('validator');
 const winston = require('winston');
+const cors = require('cors');
+
+// Configure CORS
+router.use(cors({
+  origin: ['https://kopifabriek-platform.vercel.app', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // Configure Winston logger
 const logger = winston.createLogger({
@@ -50,7 +58,8 @@ router.post('/preprocessing', async (req, res) => {
       return res.status(400).json({ error: 'Batch number, weight processed, producer, product line, processing type, and quality are required.' });
     }
 
-    if (isNaN(weightProcessed) || weightProcessed <= 0) {
+    const parsedWeight = parseFloat(weightProcessed.toString().replace(',', '.'));
+    if (isNaN(parsedWeight) || parsedWeight <= 0) {
       logger.warn('Invalid weight processed', { batchNumber, weightProcessed, user: createdBy || 'unknown' });
       return res.status(400).json({ error: 'Weight processed must be a positive number.' });
     }
@@ -59,7 +68,7 @@ router.post('/preprocessing', async (req, res) => {
 
     // Check available weight and retrieve type
     const [batch] = await sequelize.query(
-      `SELECT weight, "type", "farmerName" FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+      `SELECT weight, "type", "farmerName", "receivingDate", "qcDate" FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
@@ -70,7 +79,8 @@ router.post('/preprocessing', async (req, res) => {
     }
 
     const totalWeight = parseFloat(batch.weight);
-    const batchType = batch.type; // Retrieve type (Arabica or Robusta)
+    const batchType = batch.type;
+
     const [processed] = await sequelize.query(
       `SELECT SUM("weightProcessed") AS totalWeightProcessed, COALESCE(BOOL_OR(finished), FALSE) AS finished 
        FROM "PreprocessingData" 
@@ -88,39 +98,37 @@ router.post('/preprocessing', async (req, res) => {
       throw new Error('Batch is already marked as finished.');
     }
 
-    if (weightProcessed > weightAvailable) {
+    if (parsedWeight > weightAvailable) {
       await t.rollback();
-      logger.warn('Insufficient weight available', { batchNumber, weightProcessed, weightAvailable, user: createdBy || 'unknown' });
-      throw new Error(`Cannot process ${weightProcessed} kg. Only ${weightAvailable} kg available.`);
+      logger.warn('Insufficient weight available', { batchNumber, weightProcessed: parsedWeight, weightAvailable, user: createdBy || 'unknown' });
+      throw new Error(`Cannot process ${parsedWeight} kg. Only ${weightAvailable} kg available.`);
     }
 
-    // Fetch product line and processing type abbreviations
+    // Fetch product line and processing type abbreviations (case-insensitive)
     const [productLineEntry] = await sequelize.query(
-      `SELECT abbreviation FROM "ProductLines" WHERE "productLine" = :productLine LIMIT 1`,
+      `SELECT abbreviation FROM "ProductLines" WHERE LOWER("productLine") = LOWER(:productLine) LIMIT 1`,
       { replacements: { productLine }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
     const [processingTypeEntry] = await sequelize.query(
-      `SELECT "processingType" FROM "ProcessingTypes" WHERE abbreviation = :processingType LIMIT 1`, // Changed to select processingType
+      `SELECT "processingType" FROM "ProcessingTypes" WHERE LOWER(abbreviation) = LOWER(:processingType) LIMIT 1`,
       { replacements: { processingType }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
     if (!productLineEntry || !processingTypeEntry) {
       await t.rollback();
       logger.warn('Invalid product line or processing type', { batchNumber, productLine, processingType, user: createdBy || 'unknown' });
-      throw new Error('Invalid product line or processing type.');
+      throw new Error('Invalid product line or processing type. Ensure they exist in the database.');
     }
 
     const productLineAbbreviation = productLineEntry.abbreviation;
-    const processingTypeAbbreviation = processingTypeEntry.processingType; // Use processingType (e.g., N, W, CMN)
-    const currentYear = processingDate ? new Date(processingDate).getFullYear().toString().slice(-2) : new Date().getFullYear().toString().slice(-2); // Use processingDate if provided
+    const processingTypeAbbreviation = processingTypeEntry.processingType;
+    const currentYear = processingDate ? new Date(processingDate).getFullYear().toString().slice(-2) : new Date().getFullYear().toString().slice(-2);
 
     let lotNumber, referenceNumber;
 
     if (producer === 'HQ') {
-      // Generate lot number for HQ: HQ{Year}{ProductLineAbbreviation}-{ProcessingTypeAbbreviation}-{SequentialNumber}
       const batchPrefix = `HQ${currentYear}${productLineAbbreviation}-${processingTypeAbbreviation}`;
-      
       let sequenceNumber = 1;
       const [sequenceResult] = await sequelize.query(
         `SELECT sequence FROM "LotNumberSequences" 
@@ -141,7 +149,6 @@ router.post('/preprocessing', async (req, res) => {
       const formattedSequence = sequenceNumber.toString().padStart(4, '0');
       lotNumber = `${batchPrefix}-${formattedSequence}`;
 
-      // Update LotNumberSequences
       await sequelize.query(
         `INSERT INTO "LotNumberSequences" (
           producer, productLine, processingType, year, sequence
@@ -157,13 +164,12 @@ router.post('/preprocessing', async (req, res) => {
         }
       );
 
-      // Fetch reference number for HQ
       const [referenceResult] = await sequelize.query(
         `SELECT "referenceNumber" FROM "ReferenceMappings_duplicate"
-         WHERE "productLine" = :productLine
-         AND "processingType" = :processingType
-         AND "producer" = :producer
-         AND "type" = :type
+         WHERE LOWER("productLine") = LOWER(:productLine)
+         AND LOWER("processingType") = LOWER(:processingType)
+         AND LOWER("producer") = LOWER(:producer)
+         AND LOWER("type") = LOWER(:type)
          LIMIT 1`,
         {
           replacements: { productLine, processingType, producer, type: batchType },
@@ -180,21 +186,18 @@ router.post('/preprocessing', async (req, res) => {
 
       referenceNumber = referenceResult.referenceNumber;
     } else if (producer === 'BTM') {
-      // Generate lot number for BTM: ID-BTM-{Type}-{ProcessingTypeAbbreviation}
       const typeAbbreviation = batchType === 'Arabica' ? 'A' : 'R';
       lotNumber = `ID-BTM-${typeAbbreviation}-${processingTypeAbbreviation}`;
-      referenceNumber = null; // BTM does not use reference numbers
+      referenceNumber = null;
     } else {
       await t.rollback();
       logger.warn('Invalid producer', { batchNumber, producer, user: createdBy || 'unknown' });
       throw new Error('Invalid producer.');
     }
 
-    // Format date
     const now = new Date();
     const formattedProcessingDate = processingDate ? new Date(processingDate) : now;
 
-    // Insert data into PreprocessingData table
     const [preprocessingData] = await sequelize.query(
       `INSERT INTO "PreprocessingData" (
         "batchNumber", "weightProcessed", "processingDate", "producer", 
@@ -209,7 +212,7 @@ router.post('/preprocessing', async (req, res) => {
       {
         replacements: {
           batchNumber: batchNumber.trim(),
-          weightProcessed,
+          weightProcessed: parsedWeight,
           processingDate: formattedProcessingDate,
           producer,
           productLine,
@@ -232,7 +235,7 @@ router.post('/preprocessing', async (req, res) => {
     logger.info('Preprocessing data created successfully', { batchNumber, lotNumber, referenceNumber, user: createdBy || 'unknown' });
     res.status(201).json({
       message: 'Preprocessing data created successfully.',
-      preprocessingData,
+      preprocessingData: [preprocessingData],
     });
   } catch (err) {
     if (t) await t.rollback();
@@ -246,7 +249,7 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
   let t;
   try {
     const { batchNumber } = req.params;
-    const { createdBy } = req.body; // Added to log user
+    const { createdBy } = req.body;
     if (!batchNumber) {
       logger.warn('Missing batch number', { user: createdBy || 'unknown' });
       return res.status(400).json({ error: 'Batch number is required.' });
@@ -254,7 +257,6 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 
     t = await sequelize.transaction();
 
-    // Check if batch exists in ReceivingData and get type
     const [batch] = await sequelize.query(
       `SELECT "batchNumber", "type" FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
@@ -268,7 +270,6 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 
     const batchType = batch.type;
 
-    // Check if batch is already finished
     const [processed] = await sequelize.query(
       `SELECT COALESCE(BOOL_OR(finished), FALSE) AS finished 
        FROM "PreprocessingData" 
@@ -282,35 +283,32 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
       return res.status(400).json({ error: 'Batch is already marked as finished.' });
     }
 
-    // Check if preprocessing data exists
-    const [existingRows] = await sequelize.query(
+    const existingRows = await sequelize.query(
       `SELECT * FROM "PreprocessingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
-    if (!existingRows.length) {
-      // Insert a dummy preprocessing record with valid lotNumber and referenceNumber
+    if (existingRows.length === 0) {
       const now = new Date();
-      const defaultProductLine = 'Unknown';
-      const defaultProcessingType = 'Unknown';
-      const defaultProducer = 'Unknown';
-      const defaultQuality = 'Unknown';
+      const defaultProductLine = 'Commercial Lot';
+      const defaultProcessingType = 'Natural';
+      const defaultProducer = 'BTM';
+      const defaultQuality = 'G2';
 
-      // Fetch default product line and processing type abbreviations
       const [productLineEntry] = await sequelize.query(
-        `SELECT abbreviation FROM "ProductLines" WHERE "productLine" = :productLine LIMIT 1`,
+        `SELECT abbreviation FROM "ProductLines" WHERE LOWER("productLine") = LOWER(:productLine) LIMIT 1`,
         { replacements: { productLine: defaultProductLine }, type: sequelize.QueryTypes.SELECT, transaction: t }
       );
 
       const [processingTypeEntry] = await sequelize.query(
-        `SELECT "processingType" FROM "ProcessingTypes" WHERE abbreviation = :processingType LIMIT 1`,
+        `SELECT processingType FROM "ProcessingTypes" WHERE LOWER(abbreviation) = LOWER(:processingType) LIMIT 1`,
         { replacements: { processingType: defaultProcessingType }, type: sequelize.QueryTypes.SELECT, transaction: t }
       );
 
       let dummyLotNumber, dummyReferenceNumber;
 
       if (defaultProducer === 'HQ') {
-        const currentYear = now.getFullYear().toString().slice(-2);
+        const currentYear = now.getFullYear();
         const productLineAbbreviation = productLineEntry?.abbreviation || 'UN';
         const processingTypeAbbreviation = processingTypeEntry?.processingType || 'UN';
         const batchPrefix = `HQ${currentYear}${productLineAbbreviation}-${processingTypeAbbreviation}`;
@@ -352,10 +350,10 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 
         const [referenceResult] = await sequelize.query(
           `SELECT "referenceNumber" FROM "ReferenceMappings_duplicate"
-           WHERE "productLine" = :productLine
-           AND "processingType" = :processingType
-           AND "producer" = :producer
-           AND "type" = :type
+           WHERE LOWER("productLine") = LOWER(:productLine)
+           AND LOWER("processingType") = LOWER(:processingType)
+           AND LOWER("producer") = LOWER(:producer)
+           AND LOWER("type") = LOWER(:type)
            LIMIT 1`,
           {
             replacements: { productLine: defaultProductLine, processingType: defaultProcessingType, producer: defaultProducer, type: batchType },
@@ -366,9 +364,8 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 
         dummyReferenceNumber = referenceResult?.referenceNumber || null;
       } else {
-        // Assume BTM or unknown producer
         const typeAbbreviation = batchType === 'Arabica' ? 'A' : 'R';
-        const processingTypeAbbreviation = processingTypeEntry?.processingType || 'UN';
+        const processingTypeAbbreviation = processingTypeEntry?.processingType || 'N/A';
         dummyLotNumber = `ID-BTM-${typeAbbreviation}-${processingTypeAbbreviation}`;
         dummyReferenceNumber = null;
       }
@@ -378,12 +375,13 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
           "batchNumber", "weightProcessed", "processingDate", "producer", 
           "productLine", "processingType", "quality", "lotNumber", "referenceNumber",
           "createdAt", "updatedAt", "createdBy", notes, finished
-        ) VALUES (
+        )
+        VALUES (
           :batchNumber, :weightProcessed, :processingDate, :producer, 
           :productLine, :processingType, :quality, :lotNumber, :referenceNumber,
           :createdAt, :updatedAt, :createdBy, :notes, :finished
-        ) 
-        RETURNING *`,
+      ) 
+      RETURNING *`,
         {
           replacements: {
             batchNumber: batchNumber.trim(),
@@ -410,8 +408,7 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
       return res.json({ message: `Batch ${batchNumber} marked as complete with dummy record.`, data: dummyRecord });
     }
 
-    // Update existing preprocessing data
-    const [result] = await sequelize.query(
+    const result = await sequelize.query(
       `UPDATE "PreprocessingData" 
        SET finished = true, "updatedAt" = :updatedAt 
        WHERE LOWER("batchNumber") = LOWER(:batchNumber) 
@@ -423,40 +420,43 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
       }
     );
 
-    if (!result.length) {
+    if (result.length === 0) {
       await t.rollback();
-      logger.warn('Failed to update preprocessing data', { batchNumber, user: createdBy || 'unknown' });
+      logger.warn('Failed to update preprocessing data', { batchNumber, user: createdBy });
       throw new Error('Failed to update preprocessing data.');
     }
 
     await t.commit();
-    logger.info('Batch marked as complete', { batchNumber, user: createdBy || 'unknown' });
+    logger.info('Batch marked as complete', { batchNumber, batchType, user: createdBy || 'unknown' });
     res.json({ message: `Batch ${batchNumber} marked as complete.`, data: result });
   } catch (err) {
     if (t) await t.rollback();
     logger.error('Error marking batch as complete', { batchNumber, error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
-    res.status(err.message.includes('Batch not found') ? 404 : 500).json({ error: 'Server error', details: err.message });
+    res.status(err.message.includes('not found') ? 404 : 500).json({ error: 'Server error', details: err.message });
   }
 });
 
 // Route for fetching all preprocessing data
 router.get('/preprocessing', async (req, res) => {
   try {
-    const [allRows] = await sequelize.query(
-      `SELECT a.*, DATE("processingDate") "processingDateTrunc" 
-       FROM "PreprocessingData" a`
+    const allRows = await sequelize.query(
+      `SELECT a.*, DATE_FORMAT("processingDate", '%Y-%m-%d') AS "processingDateTrunc" 
+       FROM "PreprocessingData" a
+       ORDER BY "processingDate" DESC`,
+      { type: sequelize.QueryTypes.SELECT }
     );
 
     const [latestRows] = await sequelize.query(
-      `SELECT a.*, DATE("processingDate") "processingDateTrunc" 
+      `SELECT a.*, DATE_FORMAT("processingDate", '%Y-%m-%d') AS "processingDateTrunc" 
        FROM "PreprocessingData" a 
-       ORDER BY a."processingDate" DESC LIMIT 1`
+       ORDER BY "processingDate" DESC LIMIT 1`,
+      { type: sequelize.QueryTypes.SELECT }
     );
 
-    res.json({ latestRows, allRows });
+    res.json({ latestRows: latestRows ? [latestRows] : [], allRows });
   } catch (err) {
-    console.error('Error fetching preprocessing data:', err);
-    res.status(500).json({ message: 'Failed to fetch preprocessing data.' });
+    logger.error('Error fetching preprocessing data', { error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
+    res.status(500).json({ message: 'Failed to fetch preprocessing data.', details: err.message });
   }
 });
 
@@ -470,26 +470,26 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
   }
 
   try {
-    const [rows] = await sequelize.query(
+    const rows = await sequelize.query(
       `SELECT "batchNumber", "weightProcessed", "processingDate", "producer", 
               "productLine", "processingType", "quality", "lotNumber", "referenceNumber", 
               finished, notes, "createdAt", "updatedAt", "createdBy",
-              SUM("weightProcessed") OVER (PARTITION BY "batchNumber") AS "totalWeightProcessed",
+              SUM("weightProcessed") OVER (PARTITION BY "batchNumber") AS totalWeightProcessed,
               COALESCE(BOOL_OR(finished), FALSE) AS batch_finished
        FROM "PreprocessingData" 
-       WHERE LOWER("batchNumber") = LOWER('2025-06-23-0003')
-       GROUP BY "batchNumber", "weightProcessed", "processingDate", "producer", 
-              "productLine", "processingType", "quality", "lotNumber", "referenceNumber", 
-              finished, notes, "createdAt", "updatedAt", "createdBy"`,
-      { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
+       WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+      { 
+        replacements: { batchNumber: batchNumber.trim() }, 
+        type: sequelize.QueryTypes.SELECT 
+      }
     );
 
-    if (!rows.length) {
+    if (rows.length === 0) {
       logger.warn('No preprocessing data found for batch', { batchNumber, user: req.body.createdBy || 'unknown' });
       return res.status(404).json({ error: 'No preprocessing data found for this batch number.' });
     }
 
-    logger.info('Fetched preprocessing data by batch number', { batchNumber, user: req.body.createdBy || 'unknown' });
+    logger.info('Fetched preprocessing data by batch number', { batchNumber, user: rows[0]?.createdBy || 'unknown' });
     res.json({
       totalWeightProcessed: parseFloat(rows[0].totalWeightProcessed || 0),
       finished: rows[0].batch_finished,
@@ -497,7 +497,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
     });
   } catch (err) {
     logger.error('Error fetching preprocessing data by batch number', { batchNumber, error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
-    res.status(500).json({ message: 'Failed to fetch preprocessing data by batch number.' });
+    res.status(500).json({ message: 'Failed to fetch preprocessing data by batch number.', details: err.message });
   }
 });
 
