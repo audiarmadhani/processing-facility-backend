@@ -473,13 +473,18 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
 
   try {
     const rows = await sequelize.query(
-      `SELECT "batchNumber", "weightProcessed", "processingDate", "producer", 
-              "productLine", "processingType", "quality", "lotNumber", "referenceNumber", 
-              finished, notes, "createdAt", "updatedAt", "createdBy",
-              SUM("weightProcessed") OVER (PARTITION BY "batchNumber") AS totalWeightProcessed,
-              COALESCE(BOOL_OR(finished), FALSE) AS batch_finished
+      `SELECT 
+        "batchNumber", "weightProcessed", "processingDate", "producer", 
+        "productLine", "processingType", "quality", "lotNumber", "referenceNumber", 
+        finished, notes, "createdAt", "updatedAt", "createdBy",
+        SUM("weightProcessed") OVER (PARTITION BY "batchNumber") AS totalWeightProcessed,
+        COALESCE(BOOL_OR(finished), FALSE) AS batch_finished
        FROM "PreprocessingData" 
-       WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
+       GROUP BY 
+        "batchNumber", "weightProcessed", "processingDate", "producer", 
+        "productLine", "processingType", "quality", "lotNumber", "referenceNumber", 
+        finished, notes, "createdAt", "updatedAt", "createdBy"`,
       { 
         replacements: { batchNumber: batchNumber.trim() }, 
         type: sequelize.QueryTypes.SELECT 
