@@ -375,13 +375,12 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
           "batchNumber", "weightProcessed", "processingDate", "producer", 
           "productLine", "processingType", "quality", "lotNumber", "referenceNumber",
           "createdAt", "updatedAt", "createdBy", notes, finished
-        )
-        VALUES (
+        ) VALUES (
           :batchNumber, :weightProcessed, :processingDate, :producer, 
           :productLine, :processingType, :quality, :lotNumber, :referenceNumber,
           :createdAt, :updatedAt, :createdBy, :notes, :finished
-      ) 
-      RETURNING *`,
+        ) 
+        RETURNING *`,
         {
           replacements: {
             batchNumber: batchNumber.trim(),
@@ -416,7 +415,7 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
       {
         replacements: { updatedAt: new Date(), batchNumber: batchNumber.trim() },
         type: sequelize.QueryTypes.SELECT,
-        transaction: t
+        transaction: transaction
       }
     );
 
@@ -427,11 +426,11 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
     }
 
     await t.commit();
-    logger.info('Batch marked as complete', { batchNumber, batchType, user: createdBy || 'unknown' });
+    logger.info('Batch marked as complete', { batchNumber, batchType, user: createdBy || 'complete' });
     res.json({ message: `Batch ${batchNumber} marked as complete.`, data: result });
   } catch (err) {
     if (t) await t.rollback();
-    logger.error('Error marking batch as complete', { batchNumber, error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
+    logger.error('Error marking batch as complete', { batchNumber, error: err.message, stack: err.stack, user: req.body.createdBy || 'complete' });
     res.status(err.message.includes('not found') ? 404 : 500).json({ error: 'Server error', details: err.message });
   }
 });
@@ -440,20 +439,23 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 router.get('/preprocessing', async (req, res) => {
   try {
     const allRows = await sequelize.query(
-      `SELECT a.*, DATE_FORMAT("processingDate", '%Y-%m-%d') AS "processingDateTrunc" 
+      `SELECT a.*, TO_CHAR("processingDate", 'YYYY-MM-DD') AS "processingDateTrunc" 
        FROM "PreprocessingData" a
        ORDER BY "processingDate" DESC`,
       { type: sequelize.QueryTypes.SELECT }
     );
 
-    const [latestRows] = await sequelize.query(
-      `SELECT a.*, DATE_FORMAT("processingDate", '%Y-%m-%d') AS "processingDateTrunc" 
+    const latestRows = await sequelize.query(
+      `SELECT a.*, TO_CHAR("processingDate", 'YYYY-MM-DD') AS "processingDateTrunc" 
        FROM "PreprocessingData" a 
        ORDER BY "processingDate" DESC LIMIT 1`,
       { type: sequelize.QueryTypes.SELECT }
     );
 
-    res.json({ latestRows: latestRows ? [latestRows] : [], allRows });
+    res.json({ 
+      latestRows: latestRows.length > 0 ? latestRows : [], 
+      allRows 
+    });
   } catch (err) {
     logger.error('Error fetching preprocessing data', { error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
     res.status(500).json({ message: 'Failed to fetch preprocessing data.', details: err.message });
@@ -496,7 +498,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
       preprocessingData: rows
     });
   } catch (err) {
-    logger.error('Error fetching preprocessing data by batch number', { batchNumber, error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
+    logger.error('Error fetching preprocessing data by batch number', { batchNumber, error: err.message, stack: err.stack, user: req.body.createdBy || 'null' });
     res.status(500).json({ message: 'Failed to fetch preprocessing data by batch number.', details: err.message });
   }
 });
