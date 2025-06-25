@@ -34,7 +34,7 @@ router.post('/preprocessing', async (req, res) => {
 
     // Check available weight and retrieve type
     const [batch] = await sequelize.query(
-      `SELECT a.weight, a."type", a."farmerName", a."receivingDate", b."qcDate" FROM "ReceivingData" a left join "QCData" b on a."batchNumber" = b."batchNumber" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+      `SELECT a.weight, a."type", a."farmerName", a."receivingDate", b."qcDate" FROM "ReceivingData" a left join "QCData" b on a."batchNumber" = b."batchNumber" WHERE LOWER(a."batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
