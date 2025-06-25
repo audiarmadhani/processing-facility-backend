@@ -1,51 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
-const validator = require('validator');
-const winston = require('winston');
 const cors = require('cors');
 
-// Configure CORS
+// Configure CORS for this router
 router.use(cors({
   origin: ['https://kopifabriek-platform.vercel.app', 'http://localhost:3000'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 204
 }));
 
-// Configure Winston logger
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: 'logs/preprocessing.log' })
-  ]
-});
-
-// Middleware for input sanitization
-const sanitizeInput = (req, res, next) => {
-  const sanitize = (obj) => {
-    for (const key in obj) {
-      if (typeof obj[key] === 'string') {
-        obj[key] = validator.trim(obj[key]);
-        if (key.toLowerCase().includes('number') || key.toLowerCase().includes('id')) {
-          obj[key] = validator.escape(obj[key]);
-        }
-      } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-        sanitize(obj[key]);
-      }
-    }
-  };
-  sanitize(req.body);
-  sanitize(req.params);
-  sanitize(req.query);
-  next();
-};
-
-router.use(sanitizeInput);
+// Handle CORS preflight requests
+router.options('*', cors());
 
 // Route for creating preprocessing data
 router.post('/preprocessing', async (req, res) => {
@@ -54,13 +22,11 @@ router.post('/preprocessing', async (req, res) => {
     const { batchNumber, weightProcessed, processingDate, producer, productLine, processingType, quality, createdBy, notes } = req.body;
 
     if (!batchNumber || weightProcessed === undefined || !producer || !productLine || !processingType || !quality) {
-      logger.warn('Missing required parameters', { batchNumber, user: createdBy || 'unknown' });
       return res.status(400).json({ error: 'Batch number, weight processed, producer, product line, processing type, and quality are required.' });
     }
 
     const parsedWeight = parseFloat(weightProcessed.toString().replace(',', '.'));
     if (isNaN(parsedWeight) || parsedWeight <= 0) {
-      logger.warn('Invalid weight processed', { batchNumber, weightProcessed, user: createdBy || 'unknown' });
       return res.status(400).json({ error: 'Weight processed must be a positive number.' });
     }
 
@@ -74,8 +40,7 @@ router.post('/preprocessing', async (req, res) => {
 
     if (!batch) {
       await t.rollback();
-      logger.warn('Batch not found', { batchNumber, user: createdBy || 'unknown' });
-      throw new Error('Batch not found.');
+      return res.status(404).json({ error: 'Batch not found.' });
     }
 
     const totalWeight = parseFloat(batch.weight);
@@ -94,14 +59,12 @@ router.post('/preprocessing', async (req, res) => {
 
     if (isFinished) {
       await t.rollback();
-      logger.warn('Batch already finished', { batchNumber, user: createdBy || 'unknown' });
-      throw new Error('Batch is already marked as finished.');
+      return res.status(400).json({ error: 'Batch is already marked as finished.' });
     }
 
     if (parsedWeight > weightAvailable) {
       await t.rollback();
-      logger.warn('Insufficient weight available', { batchNumber, weightProcessed: parsedWeight, weightAvailable, user: createdBy || 'unknown' });
-      throw new Error(`Cannot process ${parsedWeight} kg. Only ${weightAvailable} kg available.`);
+      return res.status(400).json({ error: `Cannot process ${parsedWeight} kg. Only ${weightAvailable} kg available.` });
     }
 
     // Fetch product line and processing type abbreviations (case-insensitive)
@@ -117,8 +80,7 @@ router.post('/preprocessing', async (req, res) => {
 
     if (!productLineEntry || !processingTypeEntry) {
       await t.rollback();
-      logger.warn('Invalid product line or processing type', { batchNumber, productLine, processingType, user: createdBy || 'unknown' });
-      throw new Error('Invalid product line or processing type. Ensure they exist in the database.');
+      return res.status(400).json({ error: 'Invalid product line or processing type. Ensure they exist in the database.' });
     }
 
     const productLineAbbreviation = productLineEntry.abbreviation;
@@ -164,6 +126,7 @@ router.post('/preprocessing', async (req, res) => {
         }
       );
 
+      // Use ReferenceMappings_duplicate (replace with ReferenceMappings if confirmed incorrect)
       const [referenceResult] = await sequelize.query(
         `SELECT "referenceNumber" FROM "ReferenceMappings_duplicate"
          WHERE LOWER("productLine") = LOWER(:productLine)
@@ -180,8 +143,7 @@ router.post('/preprocessing', async (req, res) => {
 
       if (!referenceResult) {
         await t.rollback();
-        logger.warn('No reference number found', { batchNumber, productLine, processingType, producer, type: batchType, user: createdBy || 'unknown' });
-        throw new Error('No matching reference number found.');
+        return res.status(400).json({ error: 'No matching reference number found in ReferenceMappings_duplicate.' });
       }
 
       referenceNumber = referenceResult.referenceNumber;
@@ -191,8 +153,7 @@ router.post('/preprocessing', async (req, res) => {
       referenceNumber = null;
     } else {
       await t.rollback();
-      logger.warn('Invalid producer', { batchNumber, producer, user: createdBy || 'unknown' });
-      throw new Error('Invalid producer.');
+      return res.status(400).json({ error: 'Invalid producer.' });
     }
 
     const now = new Date();
@@ -222,7 +183,7 @@ router.post('/preprocessing', async (req, res) => {
           referenceNumber,
           createdAt: now,
           updatedAt: now,
-          createdBy,
+          createdBy: createdBy || 'Unknown',
           notes: notes || null,
           finished: false
         },
@@ -232,15 +193,14 @@ router.post('/preprocessing', async (req, res) => {
     );
 
     await t.commit();
-    logger.info('Preprocessing data created successfully', { batchNumber, lotNumber, referenceNumber, user: createdBy || 'unknown' });
     res.status(201).json({
       message: 'Preprocessing data created successfully.',
       preprocessingData: [preprocessingData],
     });
   } catch (err) {
     if (t) await t.rollback();
-    logger.error('Error creating preprocessing data', { batchNumber, error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
-    res.status(500).json({ error: 'Server error', details: err.message });
+    console.error('Error creating preprocessing data:', err);
+    res.status(err.message.includes('not found') ? 404 : 500).json({ error: 'Server error', details: err.message });
   }
 });
 
@@ -251,7 +211,6 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
     const { batchNumber } = req.params;
     const { createdBy } = req.body;
     if (!batchNumber) {
-      logger.warn('Missing batch number', { user: createdBy || 'unknown' });
       return res.status(400).json({ error: 'Batch number is required.' });
     }
 
@@ -264,7 +223,6 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 
     if (!batch) {
       await t.rollback();
-      logger.warn('Batch not found', { batchNumber, user: createdBy || 'unknown' });
       return res.status(404).json({ error: 'Batch not found in receiving data.' });
     }
 
@@ -279,7 +237,6 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 
     if (processed.finished) {
       await t.rollback();
-      logger.warn('Batch already finished', { batchNumber, user: createdBy || 'unknown' });
       return res.status(400).json({ error: 'Batch is already marked as finished.' });
     }
 
@@ -305,12 +262,17 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
         { replacements: { processingType: defaultProcessingType }, type: sequelize.QueryTypes.SELECT, transaction: t }
       );
 
+      if (!productLineEntry || !processingTypeEntry) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Invalid default product line or processing type for batch completion.' });
+      }
+
       let dummyLotNumber, dummyReferenceNumber;
 
       if (defaultProducer === 'HQ') {
-        const currentYear = now.getFullYear();
-        const productLineAbbreviation = productLineEntry?.abbreviation || 'UN';
-        const processingTypeAbbreviation = processingTypeEntry?.processingType || 'UN';
+        const currentYear = now.getFullYear().toString().slice(-2);
+        const productLineAbbreviation = productLineEntry.abbreviation;
+        const processingTypeAbbreviation = processingTypeEntry.processingType;
         const batchPrefix = `HQ${currentYear}${productLineAbbreviation}-${processingTypeAbbreviation}`;
         
         let sequenceNumber = 1;
@@ -365,7 +327,7 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
         dummyReferenceNumber = referenceResult?.referenceNumber || null;
       } else {
         const typeAbbreviation = batchType === 'Arabica' ? 'A' : 'R';
-        const processingTypeAbbreviation = processingTypeEntry?.processingType || 'N/A';
+        const processingTypeAbbreviation = processingTypeEntry.processingType || 'N/A';
         dummyLotNumber = `ID-BTM-${typeAbbreviation}-${processingTypeAbbreviation}`;
         dummyReferenceNumber = null;
       }
@@ -402,8 +364,8 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
           transaction: t
         }
       );
+
       await t.commit();
-      logger.info('Batch marked as complete with dummy record', { batchNumber, lotNumber: dummyLotNumber, referenceNumber: dummyReferenceNumber, user: createdBy || 'unknown' });
       return res.json({ message: `Batch ${batchNumber} marked as complete with dummy record.`, data: dummyRecord });
     }
 
@@ -421,16 +383,14 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 
     if (result.length === 0) {
       await t.rollback();
-      logger.warn('Failed to update preprocessing data', { batchNumber, user: createdBy });
-      throw new Error('Failed to update preprocessing data.');
+      return res.status(400).json({ error: 'Failed to update preprocessing data.' });
     }
 
     await t.commit();
-    logger.info('Batch marked as complete', { batchNumber, batchType, user: createdBy || 'batch-complete' });
     res.json({ message: `Batch ${batchNumber} marked as complete.`, data: result });
   } catch (err) {
     if (t) await t.rollback();
-    logger.error('Error marking batch as complete', { batchNumber, error: err.message, stack: err.stack, user: req.body.createdBy || 'batch-complete' });
+    console.error('Error marking batch as complete:', err);
     res.status(err.message.includes('not found') ? 404 : 500).json({ error: 'Server error', details: err.message });
   }
 });
@@ -457,7 +417,7 @@ router.get('/preprocessing', async (req, res) => {
       allRows 
     });
   } catch (err) {
-    logger.error('Error fetching preprocessing data', { error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
+    console.error('Error fetching preprocessing data:', err);
     res.status(500).json({ message: 'Failed to fetch preprocessing data.', details: err.message });
   }
 });
@@ -467,7 +427,6 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
 
   if (!batchNumber) {
-    logger.warn('Missing batch number', { user: req.body.createdBy || 'unknown' });
     return res.status(400).json({ error: 'Batch number is required.' });
   }
 
@@ -492,14 +451,12 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
     );
 
     if (rows.length === 0) {
-      // Query ReceivingData to get totalWeight
       const [batch] = await sequelize.query(
         `SELECT weight FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
         { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
       );
 
       if (!batch) {
-        logger.warn('Batch not found in ReceivingData', { batchNumber, user: req.body.createdBy || 'unknown' });
         return res.status(404).json({ error: 'Batch not found in receiving data.' });
       }
 
@@ -514,16 +471,25 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
       });
     }
 
-    logger.info('Fetched preprocessing data by batch number', { batchNumber, user: rows[0]?.createdBy || 'unknown' });
+    const totalWeightProcessed = parseFloat(rows[0].totalWeightProcessed || 0);
+    const [batch] = await sequelize.query(
+      `SELECT weight FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+      { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    const totalWeight = parseFloat(batch?.weight || 0);
+    const weightAvailable = totalWeight - totalWeightProcessed;
+
     res.json({
-      totalWeightProcessed: parseFloat(rows[0].totalWeightProcessed || 0),
+      totalWeightProcessed,
+      weightAvailable,
       finished: rows[0].batch_finished,
       preprocessingData: rows,
       lotNumber: rows[0].lotNumber || 'N/A',
       referenceNumber: rows[0].referenceNumber || 'N/A'
     });
   } catch (err) {
-    logger.error('Error fetching preprocessing data by batch number', { batchNumber, error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
+    console.error('Error fetching preprocessing data by batch number:', err);
     res.status(500).json({ message: 'Failed to fetch preprocessing data by batch number.', details: err.message });
   }
 });
