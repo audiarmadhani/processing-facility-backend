@@ -94,8 +94,8 @@ router.post('/preprocessing', async (req, res) => {
       let sequenceNumber = 1;
       const [sequenceResult] = await sequelize.query(
         `SELECT sequence FROM "LotNumberSequences" 
-         WHERE producer = :producer AND productLine = :productLine 
-         AND processingType = :processingType AND year = :year 
+         WHERE producer = :producer AND "productLine" = :productLine 
+         AND "processingType" = :processingType AND year = :year 
          FOR UPDATE`,
         { 
           replacements: { producer, productLine, processingType, year: currentYear }, 
@@ -113,11 +113,11 @@ router.post('/preprocessing', async (req, res) => {
 
       await sequelize.query(
         `INSERT INTO "LotNumberSequences" (
-          producer, productLine, processingType, year, sequence
+          producer, "productLine", "processingType", year, sequence
         ) VALUES (
           :producer, :productLine, :processingType, :year, :sequence
         )
-        ON CONFLICT (producer, productLine, processingType, year) 
+        ON CONFLICT (producer, "productLine", "processingType", year) 
         DO UPDATE SET sequence = :sequence`,
         {
           replacements: { producer, productLine, processingType, year: currentYear, sequence: sequenceNumber + 1 },
@@ -278,8 +278,8 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
         let sequenceNumber = 1;
         const [sequenceResult] = await sequelize.query(
           `SELECT sequence FROM "LotNumberSequences" 
-           WHERE producer = :producer AND productLine = :productLine 
-           AND processingType = :processingType AND year = :year 
+           WHERE producer = :producer AND "productLine" = :productLine 
+           AND "processingType" = :processingType AND year = :year 
            FOR UPDATE`,
           { 
             replacements: { producer: defaultProducer, productLine: defaultProductLine, processingType: defaultProcessingType, year: currentYear }, 
@@ -297,11 +297,11 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 
         await sequelize.query(
           `INSERT INTO "LotNumberSequences" (
-            producer, productLine, processingType, year, sequence
+            producer, "productLine", "processingType", year, sequence
           ) VALUES (
             :producer, :productLine, :processingType, :year, :sequence
           )
-          ON CONFLICT (producer, productLine, processingType, year) 
+          ON CONFLICT (producer, "productLine", "processingType", year) 
           DO UPDATE SET sequence = :sequence`,
           {
             replacements: { producer: defaultProducer, productLine: defaultProductLine, processingType: defaultProcessingType, year: currentYear, sequence: sequenceNumber + 1 },
