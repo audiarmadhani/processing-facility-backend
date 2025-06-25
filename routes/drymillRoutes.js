@@ -1065,7 +1065,7 @@ router.get('/dry-mill-data', async (req, res) => {
         rd."farmerName" AS "farmerName",
         pp."productLine" AS "productLine",
         pp."processingType",
-        pp."lotNumber",
+        pd."lotNumber",
         pp."referenceNumber",
         CASE
           WHEN dm."entered_at" IS NOT NULL AND dm."exited_at" IS NULL THEN 'In Dry Mill'
@@ -1097,7 +1097,7 @@ router.get('/dry-mill-data', async (req, res) => {
         pp.weight, rd.weight, pp.quality,
         pp.producer, rd.producer, rd."farmerName",
         pp."productLine", pp."processingType",
-        pp."lotNumber", pp."referenceNumber", pp.notes, rd.notes,
+        pd."lotNumber", pp."referenceNumber", pp.notes, rd.notes,
         pp."storedDate", rd.rfid,
         fm."farmVarieties"
       ORDER BY dm."entered_at" DESC
