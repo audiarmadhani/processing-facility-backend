@@ -34,7 +34,10 @@ router.post('/preprocessing', async (req, res) => {
 
     // Check available weight and retrieve type
     const [batch] = await sequelize.query(
-      `SELECT a.weight, a."type", a."farmerName", a."receivingDate", b."qcDate" FROM "ReceivingData" a left join "QCData" b on a."batchNumber" = b."batchNumber" WHERE LOWER(a."batchNumber") = LOWER(:batchNumber)`,
+      `SELECT a.weight, a."type", a."farmerName", a."receivingDate", b."qcDate" 
+       FROM "ReceivingData" a 
+       LEFT JOIN "QCData" b ON a."batchNumber" = b."batchNumber" 
+       WHERE LOWER(a."batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
@@ -67,7 +70,7 @@ router.post('/preprocessing', async (req, res) => {
       return res.status(400).json({ error: `Cannot process ${parsedWeight} kg. Only ${weightAvailable} kg available.` });
     }
 
-    // Fetch product line and processing type abbreviations (case-insensitive)
+    // Fetch product line and processing type abbreviations
     const [productLineEntry] = await sequelize.query(
       `SELECT abbreviation FROM "ProductLines" WHERE LOWER("productLine") = LOWER(:productLine) LIMIT 1`,
       { replacements: { productLine }, type: sequelize.QueryTypes.SELECT, transaction: t }
@@ -92,6 +95,8 @@ router.post('/preprocessing', async (req, res) => {
     if (producer === 'HQ') {
       const batchPrefix = `HQ${currentYear}${productLineAbbreviation}-${processingTypeAbbreviation}`;
       let sequenceNumber = 1;
+
+      // Fetch and lock the sequence
       const [sequenceResult] = await sequelize.query(
         `SELECT sequence FROM "LotNumberSequences" 
          WHERE producer = :producer AND "productLine" = :productLine 
@@ -105,12 +110,13 @@ router.post('/preprocessing', async (req, res) => {
       );
 
       if (sequenceResult) {
-        sequenceNumber = sequenceResult.sequence;
+        sequenceNumber = sequenceResult.sequence + 1; // Increment sequence
       }
 
       const formattedSequence = sequenceNumber.toString().padStart(4, '0');
       lotNumber = `${batchPrefix}-${formattedSequence}`;
 
+      // Insert or update sequence
       await sequelize.query(
         `INSERT INTO "LotNumberSequences" (
           producer, "productLine", "processingType", year, sequence
@@ -118,15 +124,15 @@ router.post('/preprocessing', async (req, res) => {
           :producer, :productLine, :processingType, :year, :sequence
         )
         ON CONFLICT (producer, "productLine", "processingType", year) 
-        DO UPDATE SET sequence = :sequence`,
+        DO UPDATE SET sequence = EXCLUDED.sequence`,
         {
-          replacements: { producer, productLine, processingType, year: currentYear, sequence: sequenceNumber + 1 },
+          replacements: { producer, productLine, processingType, year: currentYear, sequence: sequenceNumber },
           type: sequelize.QueryTypes.INSERT,
           transaction: t
         }
       );
 
-      // Use ReferenceMappings_duplicate (replace with ReferenceMappings if confirmed incorrect)
+      // Fetch reference number
       const [referenceResult] = await sequelize.query(
         `SELECT "referenceNumber" FROM "ReferenceMappings_duplicate"
          WHERE LOWER("productLine") = LOWER(:productLine)
