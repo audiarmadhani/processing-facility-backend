@@ -47,7 +47,7 @@ router.post('/preprocessing', async (req, res) => {
     const batchType = batch.type;
 
     const [processed] = await sequelize.query(
-      `SELECT SUM("weightProcessed") AS totalWeightProcessed, COALESCE(BOOL_OR(finished), FALSE) AS finished 
+      `SELECT SUM("weightProcessed") AS "totalWeightProcessed", COALESCE(BOOL_OR(finished), FALSE) AS finished 
        FROM "PreprocessingData" 
        WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
@@ -436,7 +436,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
         "batchNumber", "weightProcessed", "processingDate", "producer", 
         "productLine", "processingType", "quality", "lotNumber", "referenceNumber", 
         finished, notes, "createdAt", "updatedAt", "createdBy",
-        SUM("weightProcessed") OVER (PARTITION BY "batchNumber") AS totalWeightProcessed,
+        SUM("weightProcessed") OVER (PARTITION BY "batchNumber") AS "totalWeightProcessed",
         COALESCE(BOOL_OR(finished), FALSE) AS batch_finished
        FROM "PreprocessingData" 
        WHERE LOWER("batchNumber") = LOWER(:batchNumber)
