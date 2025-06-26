@@ -15,6 +15,226 @@ router.use(cors({
 // Handle CORS preflight requests
 router.options('*', cors());
 
+// Generate new batch number for merge
+router.get('/new-batch-number', async (req, res) => {
+  let t;
+  try {
+    t = await sequelize.transaction();
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const [result] = await sequelize.query(
+      `SELECT latest_batch_number, last_updated_date 
+       FROM latest_m_batch 
+       WHERE id = 1 FOR UPDATE`,
+      { type: sequelize.QueryTypes.SELECT, transaction: t }
+    );
+
+    let sequenceNumber = result.latest_batch_number;
+    const lastUpdatedDate = result.last_updated_date.toISOString().slice(0, 10);
+
+    // Reset sequence if date has changed
+    if (lastUpdatedDate !== today) {
+      sequenceNumber = 0;
+    }
+    sequenceNumber += 1;
+
+    // Update latest_m_batch
+    await sequelize.query(
+      `UPDATE latest_m_batch 
+       SET latest_batch_number = :sequenceNumber, last_updated_date = :today 
+       WHERE id = 1`,
+      {
+        replacements: { sequenceNumber, today },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t
+      }
+    );
+
+    const formattedSequence = sequenceNumber.toString().padStart(4, '0');
+    const newBatchNumber = `${today}-${formattedSequence}-MB`;
+
+    await t.commit();
+    res.json({ newBatchNumber });
+  } catch (err) {
+    if (t) await t.rollback();
+    console.error('Error generating new batch number:', err);
+    res.status(500).json({ error: 'Failed to generate batch number', details: err.message });
+  }
+});
+
+// Merge batches
+router.post('/merge', async (req, res) => {
+  let t;
+  try {
+    const { batchNumbers, notes, createdBy } = req.body;
+    if (!batchNumbers || !Array.isArray(batchNumbers) || batchNumbers.length < 2) {
+      return res.status(400).json({ error: 'At least two batch numbers are required.' });
+    }
+
+    t = await sequelize.transaction();
+
+    // Validate batches
+    const batches = await sequelize.query(
+      `SELECT "batchNumber", "type", "weight", "farmerName", "receivingDate", "totalBags", "commodityType"
+       FROM "ReceivingData"
+       WHERE LOWER("batchNumber") = ANY(:batchNumbers) AND merged = FALSE AND "commodityType" != 'Green Bean'`,
+      {
+        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      }
+    );
+
+    if (batches.length !== batchNumbers.length) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Some batches not found, already merged, or are Green Bean.' });
+    }
+
+    const type = batches[0].type;
+    if (!batches.every(b => b.type === type)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batches must have the same type.' });
+    }
+
+    // Calculate available weight
+    const processed = await sequelize.query(
+      `SELECT "batchNumber", SUM("weightProcessed") AS "totalProcessed"
+       FROM "PreprocessingData"
+       WHERE LOWER("batchNumber") = ANY(:batchNumbers)
+       GROUP BY "batchNumber"`,
+      {
+        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      }
+    );
+
+    const processedMap = new Map(processed.map(r => [r.batchNumber.toLowerCase(), parseFloat(r.totalProcessed || 0)]));
+    const totalWeight = batches.reduce((sum, b) => {
+      const processedWeight = processedMap.get(b.batchNumber.toLowerCase()) || 0;
+      const availableWeight = parseFloat(b.weight) - processedWeight;
+      if (availableWeight <= 0) {
+        throw new Error(`Batch ${b.batchNumber} has no available weight.`);
+      }
+      return sum + availableWeight;
+    }, 0);
+
+    // Generate new batch number
+    const today = new Date().toISOString().slice(0, 10);
+    const [sequenceResult] = await sequelize.query(
+      `SELECT latest_batch_number, last_updated_date 
+       FROM latest_m_batch 
+       WHERE id = 1 FOR UPDATE`,
+      { type: sequelize.QueryTypes.SELECT, transaction: t }
+    );
+
+    let sequenceNumber = sequenceResult.latest_batch_number;
+    const lastUpdatedDate = sequenceResult.last_updated_date.toISOString().slice(0, 10);
+    if (lastUpdatedDate !== today) {
+      sequenceNumber = 0;
+    }
+    sequenceNumber += 1;
+
+    const formattedSequence = sequenceNumber.toString().padStart(4, '0');
+    const newBatchNumber = `${today}-${formattedSequence}-MB`;
+
+    // Update latest_m_batch
+    await sequelize.query(
+      `UPDATE latest_m_batch 
+       SET latest_batch_number = :sequenceNumber, last_updated_date = :today 
+       WHERE id = 1`,
+      {
+        replacements: { sequenceNumber, today },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t
+      }
+    );
+
+    // Insert new batch into ReceivingData
+    const farmerNames = batches.map(b => b.farmerName).filter(Boolean).join(',');
+    const latestReceivingDate = batches.reduce((latest, b) => {
+      const date = new Date(b.receivingDate);
+      return date > new Date(latest) ? b.receivingDate : latest;
+    }, batches[0].receivingDate);
+    const totalBags = batches.reduce((sum, b) => sum + (parseInt(b.totalBags) || 0), 0);
+
+    await sequelize.query(
+      `INSERT INTO "ReceivingData" (
+        "batchNumber", "weight", "farmerName", "receivingDate", "type", "totalBags", "commodityType", merged, "createdAt", "updatedAt"
+      ) VALUES (
+        :batchNumber, :weight, :farmerName, :receivingDate, :type, :totalBags, :commodityType, FALSE, :createdAt, :updatedAt
+      )`,
+      {
+        replacements: {
+          batchNumber: newBatchNumber,
+          weight: totalWeight,
+          farmerName: farmerNames || null,
+          receivingDate: latestReceivingDate,
+          type,
+          totalBags: totalBags || null,
+          commodityType: batches[0].commodityType,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        type: sequelize.QueryTypes.INSERT,
+        transaction: t
+      }
+    );
+
+    // Update original batches
+    await sequelize.query(
+      `UPDATE "ReceivingData" SET merged = TRUE WHERE LOWER("batchNumber") = ANY(:batchNumbers)`,
+      {
+        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t
+      }
+    );
+    await sequelize.query(
+      `UPDATE "QCData" SET merged = TRUE WHERE LOWER("batchNumber") = ANY(:batchNumbers)`,
+      {
+        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t
+      }
+    );
+    await sequelize.query(
+      `UPDATE "PreprocessingData" SET merged = TRUE WHERE LOWER("batchNumber") = ANY(:batchNumbers)`,
+      {
+        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t
+      }
+    );
+
+    // Insert into BatchMerges
+    await sequelize.query(
+      `INSERT INTO "BatchMerges" (
+        new_batch_number, original_batch_numbers, merged_at, created_by, notes
+      ) VALUES (
+        :newBatchNumber, :originalBatchNumbers, :mergedAt, :createdBy, :notes
+      )`,
+      {
+        replacements: {
+          newBatchNumber,
+          originalBatchNumbers: batchNumbers,
+          mergedAt: new Date(),
+          createdBy: createdBy || 'Unknown',
+          notes: notes || null
+        },
+        type: sequelize.QueryTypes.INSERT,
+        transaction: t
+      }
+    );
+
+    await t.commit();
+    res.json({ success: true, newBatchNumber, totalWeight });
+  } catch (err) {
+    if (t) await t.rollback();
+    console.error('Error merging batches:', err);
+    res.status(400).json({ error: 'Failed to merge batches', details: err.message });
+  }
+});
+
 // Route for creating preprocessing data
 router.post('/preprocessing', async (req, res) => {
   let t;
@@ -34,7 +254,7 @@ router.post('/preprocessing', async (req, res) => {
 
     // Check available weight and retrieve type
     const [batch] = await sequelize.query(
-      `SELECT a.weight, a."type", a."farmerName", a."receivingDate", b."qcDate" 
+      `SELECT a.weight, a."type", a."farmerName", a."receivingDate", a.merged, b."qcDate" 
        FROM "ReceivingData" a 
        LEFT JOIN "QCData" b ON a."batchNumber" = b."batchNumber" 
        WHERE LOWER(a."batchNumber") = LOWER(:batchNumber)`,
@@ -44,6 +264,11 @@ router.post('/preprocessing', async (req, res) => {
     if (!batch) {
       await t.rollback();
       return res.status(404).json({ error: 'Batch not found.' });
+    }
+
+    if (batch.merged) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batch is already merged.' });
     }
 
     const totalWeight = parseFloat(batch.weight);
@@ -96,7 +321,6 @@ router.post('/preprocessing', async (req, res) => {
       const batchPrefix = `HQ${currentYear}${productLineAbbreviation}-${processingTypeAbbreviation}`;
       let sequenceNumber = 1;
 
-      // Fetch and lock the sequence
       const [sequenceResult] = await sequelize.query(
         `SELECT sequence FROM "LotNumberSequences" 
          WHERE producer = :producer AND "productLine" = :productLine 
@@ -110,13 +334,12 @@ router.post('/preprocessing', async (req, res) => {
       );
 
       if (sequenceResult) {
-        sequenceNumber = sequenceResult.sequence + 1; // Increment sequence
+        sequenceNumber = sequenceResult.sequence + 1;
       }
 
       const formattedSequence = sequenceNumber.toString().padStart(4, '0');
       lotNumber = `${batchPrefix}-${formattedSequence}`;
 
-      // Insert or update sequence
       await sequelize.query(
         `INSERT INTO "LotNumberSequences" (
           producer, "productLine", "processingType", year, sequence
@@ -132,7 +355,6 @@ router.post('/preprocessing', async (req, res) => {
         }
       );
 
-      // Fetch reference number
       const [referenceResult] = await sequelize.query(
         `SELECT "referenceNumber" FROM "ReferenceMappings_duplicate"
          WHERE LOWER("productLine") = LOWER(:productLine)
@@ -169,11 +391,11 @@ router.post('/preprocessing', async (req, res) => {
       `INSERT INTO "PreprocessingData" (
         "batchNumber", "weightProcessed", "processingDate", "producer", 
         "productLine", "processingType", "quality", "lotNumber", "referenceNumber",
-        "createdAt", "updatedAt", "createdBy", notes, finished
+        "createdAt", "updatedAt", "createdBy", notes, finished, merged
       ) VALUES (
         :batchNumber, :weightProcessed, :processingDate, :producer, 
         :productLine, :processingType, :quality, :lotNumber, :referenceNumber,
-        :createdAt, :updatedAt, :createdBy, :notes, :finished
+        :createdAt, :updatedAt, :createdBy, :notes, :finished, FALSE
       ) 
       RETURNING *`,
       {
@@ -223,13 +445,18 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
     t = await sequelize.transaction();
 
     const [batch] = await sequelize.query(
-      `SELECT "batchNumber", "type" FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+      `SELECT "batchNumber", "type", merged FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
     if (!batch) {
       await t.rollback();
       return res.status(404).json({ error: 'Batch not found in receiving data.' });
+    }
+
+    if (batch.merged) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batch is already merged.' });
     }
 
     const batchType = batch.type;
@@ -342,11 +569,11 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
         `INSERT INTO "PreprocessingData" (
           "batchNumber", "weightProcessed", "processingDate", "producer", 
           "productLine", "processingType", "quality", "lotNumber", "referenceNumber",
-          "createdAt", "updatedAt", "createdBy", notes, finished
+          "createdAt", "updatedAt", "createdBy", notes, finished, merged
         ) VALUES (
           :batchNumber, :weightProcessed, :processingDate, :producer, 
           :productLine, :processingType, :quality, :lotNumber, :referenceNumber,
-          :createdAt, :updatedAt, :createdBy, :notes, :finished
+          :createdAt, :updatedAt, :createdBy, :notes, :finished, FALSE
         ) 
         RETURNING *`,
         {
@@ -405,15 +632,21 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
 router.get('/preprocessing', async (req, res) => {
   try {
     const allRows = await sequelize.query(
-      `SELECT a.*, TO_CHAR("processingDate", 'YYYY-MM-DD') AS "processingDateTrunc" 
+      `SELECT a.*, TO_CHAR("processingDate", 'YYYY-MM-DD') AS "processingDateTrunc",
+              b.original_batch_numbers
        FROM "PreprocessingData" a
+       LEFT JOIN "BatchMerges" b ON a."batchNumber" = b.new_batch_number
+       WHERE a.merged = FALSE
        ORDER BY "processingDate" DESC`,
       { type: sequelize.QueryTypes.SELECT }
     );
 
     const latestRows = await sequelize.query(
-      `SELECT a.*, TO_CHAR("processingDate", 'YYYY-MM-DD') AS "processingDateTrunc" 
-       FROM "PreprocessingData" a 
+      `SELECT a.*, TO_CHAR("processingDate", 'YYYY-MM-DD') AS "processingDateTrunc",
+              b.original_batch_numbers
+       FROM "PreprocessingData" a
+       LEFT JOIN "BatchMerges" b ON a."batchNumber" = b.new_batch_number
+       WHERE a.merged = FALSE
        ORDER BY "processingDate" DESC LIMIT 1`,
       { type: sequelize.QueryTypes.SELECT }
     );
@@ -439,17 +672,20 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
   try {
     const rows = await sequelize.query(
       `SELECT 
-        "batchNumber", "weightProcessed", "processingDate", "producer", 
-        "productLine", "processingType", "quality", "lotNumber", "referenceNumber", 
-        finished, notes, "createdAt", "updatedAt", "createdBy",
-        SUM("weightProcessed") OVER (PARTITION BY "batchNumber") AS "totalWeightProcessed",
-        COALESCE(BOOL_OR(finished), FALSE) AS batch_finished
-       FROM "PreprocessingData" 
-       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
+        p."batchNumber", p."weightProcessed", p."processingDate", p."producer", 
+        p."productLine", p."processingType", p."quality", p."lotNumber", p."referenceNumber", 
+        p.finished, p.notes, p."createdAt", p."updatedAt", p."createdBy", p.merged,
+        SUM(p."weightProcessed") OVER (PARTITION BY p."batchNumber") AS "totalWeightProcessed",
+        COALESCE(BOOL_OR(p.finished), FALSE) AS batch_finished,
+        b.original_batch_numbers
+       FROM "PreprocessingData" p
+       LEFT JOIN "BatchMerges" b ON p."batchNumber" = b.new_batch_number
+       WHERE LOWER(p."batchNumber") = LOWER(:batchNumber)
        GROUP BY 
-        "batchNumber", "weightProcessed", "processingDate", "producer", 
-        "productLine", "processingType", "quality", "lotNumber", "referenceNumber", 
-        finished, notes, "createdAt", "updatedAt", "createdBy"`,
+        p."batchNumber", p."weightProcessed", p."processingDate", p."producer", 
+        p."productLine", p."processingType", p."quality", p."lotNumber", p."referenceNumber", 
+        p.finished, p.notes, p."createdAt", p."updatedAt", p."createdBy", p.merged,
+        b.original_batch_numbers`,
       { 
         replacements: { batchNumber: batchNumber.trim() }, 
         type: sequelize.QueryTypes.SELECT 
@@ -458,7 +694,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
 
     if (rows.length === 0) {
       const [batch] = await sequelize.query(
-        `SELECT weight FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+        `SELECT weight, merged FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
         { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
       );
 
@@ -466,14 +702,24 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
         return res.status(404).json({ error: 'Batch not found in receiving data.' });
       }
 
+      if (batch.merged) {
+        return res.status(400).json({ error: 'Batch is already merged.' });
+      }
+
       const totalWeight = parseFloat(batch.weight || 0);
+      const [mergeData] = await sequelize.query(
+        `SELECT original_batch_numbers FROM "BatchMerges" WHERE new_batch_number = :batchNumber`,
+        { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
+      );
+
       return res.status(200).json({
         totalWeightProcessed: 0,
         weightAvailable: totalWeight,
         finished: false,
         preprocessingData: [],
         lotNumber: 'N/A',
-        referenceNumber: 'N/A'
+        referenceNumber: 'N/A',
+        mergedFrom: mergeData?.original_batch_numbers || []
       });
     }
 
@@ -492,11 +738,39 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
       finished: rows[0].batch_finished,
       preprocessingData: rows,
       lotNumber: rows[0].lotNumber || 'N/A',
-      referenceNumber: rows[0].referenceNumber || 'N/A'
+      referenceNumber: rows[0].referenceNumber || 'N/A',
+      mergedFrom: rows[0].original_batch_numbers || []
     });
   } catch (err) {
     console.error('Error fetching preprocessing data by batch number:', err);
     res.status(500).json({ message: 'Failed to fetch preprocessing data by batch number.', details: err.message });
+  }
+});
+
+// Route to get batch merges by batch number
+router.get('/batch-merges/:batchNumber', async (req, res) => {
+  const { batchNumber } = req.params;
+
+  if (!batchNumber) {
+    return res.status(400).json({ error: 'Batch number is required.' });
+  }
+
+  try {
+    const mergeData = await sequelize.query(
+      `SELECT new_batch_number, original_batch_numbers, merged_at, created_by, notes
+       FROM "BatchMerges"
+       WHERE LOWER(new_batch_number) = LOWER(:batchNumber)`,
+      { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (mergeData.length === 0) {
+      return res.status(404).json({ error: 'No merge data found for this batch number.' });
+    }
+
+    res.json(mergeData[0]);
+  } catch (err) {
+    console.error('Error fetching batch merge data:', err);
+    res.status(500).json({ error: 'Failed to fetch batch merge data', details: err.message });
   }
 });
 
