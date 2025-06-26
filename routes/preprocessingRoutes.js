@@ -72,11 +72,12 @@ router.post('/merge', async (req, res) => {
 
     t = await sequelize.transaction();
 
-    // Validate batches
+    // Validate batches and fetch additional data
     const batches = await sequelize.query(
-      `SELECT "batchNumber", "type", "weight", "farmerName", "receivingDate", "totalBags", "commodityType"
-       FROM "ReceivingData"
-       WHERE LOWER("batchNumber") = ANY(:batchNumbers) AND merged = FALSE AND "commodityType" != 'Green Bean'`,
+      `SELECT r."batchNumber", r."type", r."weight", r."farmerName", r."receivingDate", r."totalBags", r."commodityType", r."rfid", q."qcDate", q."cherryScore", q."cherryGroup", q."ripeness", q."color", q."foreignMatter", q."overallQuality"
+       FROM "ReceivingData" r
+       LEFT JOIN "QCData" q ON LOWER(r."batchNumber") = LOWER(q."batchNumber")
+       WHERE LOWER(r."batchNumber") = ANY(:batchNumbers) AND r.merged = FALSE AND r."commodityType" != 'Green Bean'`,
       {
         replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
         type: sequelize.QueryTypes.SELECT,
@@ -89,6 +90,7 @@ router.post('/merge', async (req, res) => {
       return res.status(400).json({ error: 'Some batches not found, already merged, or are Green Bean.' });
     }
 
+    // Validate same type
     const type = batches[0].type;
     if (!batches.every(b => b.type === type)) {
       await t.rollback();
@@ -149,29 +151,69 @@ router.post('/merge', async (req, res) => {
       }
     );
 
-    // Insert new batch into ReceivingData
-    const farmerNames = batches.map(b => b.farmerName).filter(Boolean).join(',');
-    const latestReceivingDate = batches.reduce((latest, b) => {
+    // Calculate aggregated data
+    const farmerNames = [...new Set(batches.map(b => b.farmerName).filter(Boolean))];
+    const farmerNamesArray = farmerNames.length > 0 ? farmerNames : null;
+    const farmerNamesString = farmerNames.length > 0 ? farmerNames.join(', ') : null;
+    const earliestReceivingDate = batches.reduce((earliest, b) => {
       const date = new Date(b.receivingDate);
-      return date > new Date(latest) ? b.receivingDate : latest;
+      return date < new Date(earliest) ? b.receivingDate : earliest;
     }, batches[0].receivingDate);
+    const latestQcDate = batches.reduce((latest, b) => {
+      const date = new Date(b.qcDate || new Date());
+      return date > new Date(latest) ? b.qcDate || new Date() : latest;
+    }, batches[0].qcDate || new Date());
     const totalBags = batches.reduce((sum, b) => sum + (parseInt(b.totalBags) || 0), 0);
+    const rfids = batches.flatMap(b => b.rfid ? b.rfid.split(',').map(s => s.trim()) : []).filter(Boolean);
+    const cherryScores = [...new Set(batches.map(b => b.cherryScore).filter(Boolean))].join(', ');
+    const cherryGroups = [...new Set(batches.map(b => b.cherryGroup).filter(Boolean))].join(', ');
+    const ripenesses = [...new Set(batches.map(b => b.ripeness).filter(Boolean))].join(', ');
+    const colors = [...new Set(batches.map(b => b.color).filter(Boolean))].join(', ');
+    const foreignMatters = [...new Set(batches.map(b => b.foreignMatter).filter(Boolean))].join(', ');
+    const overallQualities = [...new Set(batches.map(b => b.overallQuality).filter(Boolean))].join(', ');
 
+    // Insert new batch into ReceivingData
     await sequelize.query(
       `INSERT INTO "ReceivingData" (
-        "batchNumber", "weight", "farmerName", "receivingDate", "type", "totalBags", "commodityType", merged, "createdAt", "updatedAt"
+        "batchNumber", "weight", "farmerName", "receivingDate", "type", "totalBags", "commodityType", merged, "createdAt", "updatedAt", "rfid"
       ) VALUES (
-        :batchNumber, :weight, :farmerName, :receivingDate, :type, :totalBags, :commodityType, FALSE, :createdAt, :updatedAt
+        :batchNumber, :weight, :farmerName, :receivingDate, :type, :totalBags, :commodityType, FALSE, :createdAt, :updatedAt, :rfid
       )`,
       {
         replacements: {
           batchNumber: newBatchNumber,
           weight: totalWeight,
-          farmerName: farmerNames || null,
-          receivingDate: latestReceivingDate,
+          farmerName: farmerNamesArray ? JSON.stringify(farmerNamesArray) : null, // Store as JSON array
+          receivingDate: earliestReceivingDate,
           type,
           totalBags: totalBags || null,
           commodityType: batches[0].commodityType,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          rfid: rfids.length > 0 ? rfids.join(',') : null
+        },
+        type: sequelize.QueryTypes.INSERT,
+        transaction: t
+      }
+    );
+
+    // Insert into QCData for merged batch
+    await sequelize.query(
+      `INSERT INTO "QCData" (
+        "batchNumber", "qcDate", "cherryScore", "cherryGroup", "ripeness", "color", "foreignMatter", "overallQuality", "createdAt", "updatedAt", merged
+      ) VALUES (
+        :batchNumber, :qcDate, :cherryScore, :cherryGroup, :ripeness, :color, :foreignMatter, :overallQuality, :createdAt, :updatedAt, FALSE
+      )`,
+      {
+        replacements: {
+          batchNumber: newBatchNumber,
+          qcDate: latestQcDate,
+          cherryScore: cherryScores || null,
+          cherryGroup: cherryGroups || null,
+          ripeness: ripenesses || null,
+          color: colors || null,
+          foreignMatter: foreignMatters || null,
+          overallQuality: overallQualities || null,
           createdAt: new Date(),
           updatedAt: new Date()
         },
@@ -227,7 +269,15 @@ router.post('/merge', async (req, res) => {
     );
 
     await t.commit();
-    res.json({ success: true, newBatchNumber, totalWeight });
+    res.json({ 
+      success: true, 
+      newBatchNumber, 
+      totalWeight, 
+      farmerName: farmerNamesString, 
+      receivingDate: earliestReceivingDate, 
+      totalBags,
+      rfid: rfids.length > 0 ? rfids.join(',') : null
+    });
   } catch (err) {
     if (t) await t.rollback();
     console.error('Error merging batches:', err);
@@ -252,12 +302,12 @@ router.post('/preprocessing', async (req, res) => {
 
     t = await sequelize.transaction();
 
-    // Check available weight and retrieve type
+    // Check available weight and retrieve batch data
     const [batch] = await sequelize.query(
-      `SELECT a.weight, a."type", a."farmerName", a."receivingDate", a.merged, b."qcDate" 
-       FROM "ReceivingData" a 
-       LEFT JOIN "QCData" b ON a."batchNumber" = b."batchNumber" 
-       WHERE LOWER(a."batchNumber") = LOWER(:batchNumber)`,
+      `SELECT r."batchNumber", r."weight", r."type", r."farmerName", r."receivingDate", r.merged, r."totalBags", q."qcDate"
+       FROM "ReceivingData" r 
+       LEFT JOIN "QCData" q ON LOWER(r."batchNumber") = LOWER(q."batchNumber")
+       WHERE LOWER(r."batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
@@ -694,7 +744,9 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
 
     if (rows.length === 0) {
       const [batch] = await sequelize.query(
-        `SELECT weight, merged FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+        `SELECT weight, merged, farmerName, receivingDate, totalBags, type, rfid 
+         FROM "ReceivingData" 
+         WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
         { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
       );
 
@@ -712,6 +764,17 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
         { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
       );
 
+      // Parse farmerName if it's a JSON string
+      let farmerNameString = batch.farmerName;
+      if (batch.farmerName && batch.farmerName.startsWith('[')) {
+        try {
+          const farmerNamesArray = JSON.parse(batch.farmerName);
+          farmerNameString = farmerNamesArray.join(', ');
+        } catch (e) {
+          console.error('Error parsing farmerName JSON:', e);
+        }
+      }
+
       return res.status(200).json({
         totalWeightProcessed: 0,
         weightAvailable: totalWeight,
@@ -719,18 +782,36 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
         preprocessingData: [],
         lotNumber: 'N/A',
         referenceNumber: 'N/A',
-        mergedFrom: mergeData?.original_batch_numbers || []
+        mergedFrom: mergeData?.original_batch_numbers || [],
+        farmerName: farmerNameString || 'N/A',
+        receivingDate: batch.receivingDate ? new Date(batch.receivingDate).toISOString().slice(0, 10) : 'N/A',
+        totalBags: batch.totalBags || 'N/A',
+        type: batch.type || 'N/A',
+        rfid: batch.rfid || null
       });
     }
 
     const totalWeightProcessed = parseFloat(rows[0].totalWeightProcessed || 0);
     const [batch] = await sequelize.query(
-      `SELECT weight FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+      `SELECT weight, farmerName, receivingDate, totalBags, type, rfid 
+       FROM "ReceivingData" 
+       WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
     );
 
     const totalWeight = parseFloat(batch?.weight || 0);
     const weightAvailable = totalWeight - totalWeightProcessed;
+
+    // Parse farmerName if it's a JSON string
+    let farmerNameString = batch.farmerName;
+    if (batch.farmerName && batch.farmerName.startsWith('[')) {
+      try {
+        const farmerNamesArray = JSON.parse(batch.farmerName);
+        farmerNameString = farmerNamesArray.join(', ');
+      } catch (e) {
+        console.error('Error parsing farmerName JSON:', e);
+      }
+    }
 
     res.json({
       totalWeightProcessed,
@@ -739,7 +820,12 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
       preprocessingData: rows,
       lotNumber: rows[0].lotNumber || 'N/A',
       referenceNumber: rows[0].referenceNumber || 'N/A',
-      mergedFrom: rows[0].original_batch_numbers || []
+      mergedFrom: rows[0].original_batch_numbers || [],
+      farmerName: farmerNameString || 'N/A',
+      receivingDate: batch.receivingDate ? new Date(batch.receivingDate).toISOString().slice(0, 10) : 'N/A',
+      totalBags: batch.totalBags || 'N/A',
+      type: batch.type || 'N/A',
+      rfid: batch.rfid || null
     });
   } catch (err) {
     console.error('Error fetching preprocessing data by batch number:', err);
@@ -771,6 +857,33 @@ router.get('/batch-merges/:batchNumber', async (req, res) => {
   } catch (err) {
     console.error('Error fetching batch merge data:', err);
     res.status(500).json({ error: 'Failed to fetch batch merge data', details: err.message });
+  }
+});
+
+// Route to get merged batch by original batch number
+router.get('/batch-merges/original/:batchNumber', async (req, res) => {
+  const { batchNumber } = req.params;
+
+  if (!batchNumber) {
+    return res.status(400).json({ error: 'Batch number is required.' });
+  }
+
+  try {
+    const mergeData = await sequelize.query(
+      `SELECT new_batch_number, original_batch_numbers
+       FROM "BatchMerges"
+       WHERE :batchNumber = ANY(original_batch_numbers)`,
+      { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (mergeData.length === 0) {
+      return res.status(404).json({ error: 'No merge data found for this original batch number.' });
+    }
+
+    res.json(mergeData[0]);
+  } catch (err) {
+    console.error('Error fetching merge data for original batch number:', err);
+    res.status(500).json({ error: 'Failed to fetch merge data', details: err.message });
   }
 });
 
