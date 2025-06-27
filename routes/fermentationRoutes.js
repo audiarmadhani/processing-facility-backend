@@ -2,6 +2,38 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 
+// Route for fetching available tanks
+router.get('/fermentation/available-tanks', async (req, res) => {
+  try {
+    // Get tanks currently in use
+    const [inUseTanks] = await sequelize.query(
+      `SELECT DISTINCT tank 
+       FROM "FermentationData" 
+       WHERE status = :status`,
+      {
+        replacements: { status: 'In Progress' },
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+    
+    const inUseTankNames = inUseTanks.map(row => row.tank);
+    
+    // Define all possible tanks
+    const allBlueBarrelCodes = Array.from({ length: 15 }, (_, i) => 
+      `BB-HQ-${String(i + 1).padStart(4, '0')}`
+    );
+    const allTanks = ['Biomaster', 'Carrybrew', ...allBlueBarrelCodes];
+    
+    // Filter out in-use tanks
+    const availableTanks = allTanks.filter(tank => !inUseTankNames.includes(tank));
+    
+    res.json(availableTanks);
+  } catch (err) {
+    console.error('Error fetching available tanks:', err);
+    res.status(500).json({ message: 'Failed to fetch available tanks.' });
+  }
+});
+
 // Route for fetching available batches for fermentation
 router.get('/fermentation/available-batches', async (req, res) => {
   try {
@@ -45,9 +77,10 @@ router.post('/fermentation', async (req, res) => {
       await t.rollback();
       return res.status(400).json({ error: 'Missing required fields.' });
     }
-    if (!['Biomaster', 'Carrybrew Tank'].includes(tank)) {
+    // Validate tank: Biomaster, Carrybrew, or BB-HQ-XXXX
+    if (!['Biomaster', 'Carrybrew'].includes(tank) && !/^BB-HQ-\d{4}$/.test(tank)) {
       await t.rollback();
-      return res.status(400).json({ error: 'Invalid tank. Must be Biomaster or Carrybrew Tank.' });
+      return res.status(400).json({ error: 'Invalid tank. Must be Biomaster, Carrybrew, or BB-HQ-XXXX.' });
     }
     const parsedStartDate = new Date(startDate);
     if (isNaN(parsedStartDate)) {
@@ -55,7 +88,7 @@ router.post('/fermentation', async (req, res) => {
       return res.status(400).json({ error: 'Invalid startDate format.' });
     }
 
-    // Validate batchNumber exists, is not merged, and has producer HEQA
+    // Validate batchNumber exists, is not merged, and has producer HQ
     const [batchCheck] = await sequelize.query(
       `SELECT 1 
       FROM "ReceivingData" r
@@ -72,7 +105,7 @@ router.post('/fermentation', async (req, res) => {
     );
     if (!batchCheck) {
       await t.rollback();
-      return res.status(400).json({ error: 'Batch number not found, merged, or not from producer HEQA.' });
+      return res.status(400).json({ error: 'Batch number not found, merged, or not from producer HQ.' });
     }
 
     // Check if batch is already in fermentation
@@ -87,6 +120,20 @@ router.post('/fermentation', async (req, res) => {
     if (fermentationCheck) {
       await t.rollback();
       return res.status(400).json({ error: 'Batch is already in fermentation.' });
+    }
+
+    // Check if tank is already in use
+    const [tankCheck] = await sequelize.query(
+      'SELECT 1 FROM "FermentationData" WHERE tank = :tank AND status = :status',
+      {
+        replacements: { tank, status: 'In Progress' },
+        transaction: t,
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+    if (tankCheck) {
+      await t.rollback();
+      return res.status(400).json({ error: `Tank ${tank} is already in use.` });
     }
 
     // Check if batch is in drying
