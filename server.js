@@ -28,6 +28,7 @@ const uploadInvoiceRoutes = require('./routes/uploadInvoiceRoutes')
 const calendarEventRoutes = require('./routes/calendarEventRoutes')
 const rfidRoutes = require('./routes/rfidRoutes')
 const wetmillRoutes = require('./routes/wetmillRoutes')
+const fermentationRoutes = require('./routes/fermentationRoutes')
 const dryingRoutes = require('./routes/dryingRoutes')
 const drymillRoutes = require('./routes/drymillRoutes')
 const OMSRoutes = require('./routes/OMSRoutes')
@@ -85,6 +86,7 @@ const apiRoutes = [
   calendarEventRoutes,
   rfidRoutes,
   wetmillRoutes,
+  fermentationRoutes,
   dryingRoutes,
   drymillRoutes,
   OMSRoutes,
