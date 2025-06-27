@@ -4,35 +4,40 @@ const sequelize = require('../config/database');
 
 // Route for fetching available tanks
 router.get('/fermentation/available-tanks', async (req, res) => {
-  try {
-    // Get tanks currently in use
-    const [inUseTanks] = await sequelize.query(
-      `SELECT DISTINCT tank 
-       FROM "FermentationData" 
-       WHERE status = :status`,
-      {
-        replacements: { status: 'In Progress' },
-        type: sequelize.QueryTypes.SELECT
+    try {
+      // Define all possible tanks
+      const allBlueBarrelCodes = Array.from({ length: 15 }, (_, i) => 
+        `BB-HQ-${String(i + 1).padStart(4, '0')}`
+      );
+      const allTanks = ['Biomaster', 'Carrybrew', ...allBlueBarrelCodes];
+  
+      // Get tanks currently in use
+      const [inUseTanks] = await sequelize.query(
+        `SELECT DISTINCT tank 
+         FROM "FermentationData" 
+         WHERE status = :status`,
+        {
+          replacements: { status: 'In Progress' },
+          type: sequelize.QueryTypes.SELECT
+        }
+      );
+  
+      // If no tanks are in use, return all tanks
+      if (!inUseTanks || inUseTanks.length === 0) {
+        return res.json(allTanks);
       }
-    );
-    
-    const inUseTankNames = inUseTanks.map(row => row.tank);
-    
-    // Define all possible tanks
-    const allBlueBarrelCodes = Array.from({ length: 15 }, (_, i) => 
-      `BB-HQ-${String(i + 1).padStart(4, '0')}`
-    );
-    const allTanks = ['Biomaster', 'Carrybrew', ...allBlueBarrelCodes];
-    
-    // Filter out in-use tanks
-    const availableTanks = allTanks.filter(tank => !inUseTankNames.includes(tank));
-    
-    res.json(availableTanks);
-  } catch (err) {
-    console.error('Error fetching available tanks:', err);
-    res.status(500).json({ message: 'Failed to fetch available tanks.' });
-  }
-});
+  
+      const inUseTankNames = inUseTanks.map(row => row.tank);
+      
+      // Filter out in-use tanks
+      const availableTanks = allTanks.filter(tank => !inUseTankNames.includes(tank));
+      
+      res.json(availableTanks);
+    } catch (err) {
+      console.error('Error fetching available tanks:', err);
+      res.status(500).json({ message: 'Failed to fetch available tanks.', details: err.message });
+    }
+  });
 
 // Route for fetching available batches for fermentation
 router.get('/fermentation/available-batches', async (req, res) => {
