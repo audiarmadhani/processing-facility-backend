@@ -2,6 +2,38 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 
+// Route for fetching available batches for fermentation
+router.get('/fermentation/available-batches', async (req, res) => {
+  try {
+    const [rows] = await sequelize.query(
+      `SELECT 
+        p."batchNumber",
+        p."lotNumber",
+        r."farmerName",
+        r.weight
+      FROM "PreprocessingData" p
+      INNER JOIN "ReceivingData" r ON p."batchNumber" = r."batchNumber"
+      LEFT JOIN "FermentationData" f ON p."batchNumber" = f."batchNumber" AND f.status = :fermentationStatus
+      LEFT JOIN "DryingData" d ON p."batchNumber" = d."batchNumber"
+      WHERE p.producer = :producer
+      AND r.merged = FALSE
+      AND p.merged = FALSE
+      AND f."batchNumber" IS NULL
+      AND d."batchNumber" IS NULL
+      ORDER BY p."batchNumber" DESC;`,
+      {
+        replacements: { producer: 'HQ', fermentationStatus: 'In Progress' },
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching available batches:', err);
+    res.status(500).json({ message: 'Failed to fetch available batches.' });
+  }
+});
+
 // Route for creating fermentation data
 router.post('/fermentation', async (req, res) => {
   const t = await sequelize.transaction();
@@ -23,18 +55,24 @@ router.post('/fermentation', async (req, res) => {
       return res.status(400).json({ error: 'Invalid startDate format.' });
     }
 
-    // Validate batchNumber exists and is not merged
+    // Validate batchNumber exists, is not merged, and has producer HEQA
     const [batchCheck] = await sequelize.query(
-      'SELECT 1 FROM "ReceivingData" WHERE "batchNumber" = :batchNumber AND merged = FALSE',
+      `SELECT 1 
+      FROM "ReceivingData" r
+      INNER JOIN "PreprocessingData" p ON r."batchNumber" = p."batchNumber"
+      WHERE r."batchNumber" = :batchNumber 
+      AND r.merged = FALSE 
+      AND p.merged = FALSE
+      AND p.producer = :producer`,
       {
-        replacements: { batchNumber },
+        replacements: { batchNumber, producer: 'HQ' },
         transaction: t,
         type: sequelize.QueryTypes.SELECT
       }
     );
     if (!batchCheck) {
       await t.rollback();
-      return res.status(400).json({ error: 'Batch number not found or has been merged.' });
+      return res.status(400).json({ error: 'Batch number not found, merged, or not from producer HEQA.' });
     }
 
     // Check if batch is already in fermentation
@@ -49,6 +87,20 @@ router.post('/fermentation', async (req, res) => {
     if (fermentationCheck) {
       await t.rollback();
       return res.status(400).json({ error: 'Batch is already in fermentation.' });
+    }
+
+    // Check if batch is in drying
+    const [dryingCheck] = await sequelize.query(
+      'SELECT 1 FROM "DryingData" WHERE "batchNumber" = :batchNumber',
+      {
+        replacements: { batchNumber },
+        transaction: t,
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+    if (dryingCheck) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batch is already in drying.' });
     }
 
     // Insert FermentationData
