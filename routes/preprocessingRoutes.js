@@ -744,7 +744,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
 
     if (rows.length === 0) {
       const [batch] = await sequelize.query(
-        `SELECT weight, merged, farmerName, receivingDate, totalBags, type, rfid 
+        `SELECT weight, merged, "farmerName", "receivingDate", "totalBags", type, rfid 
          FROM "ReceivingData" 
          WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
         { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
@@ -793,7 +793,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
 
     const totalWeightProcessed = parseFloat(rows[0].totalWeightProcessed || 0);
     const [batch] = await sequelize.query(
-      `SELECT weight, farmerName, receivingDate, totalBags, type, rfid 
+      `SELECT weight, "farmerName", "receivingDate", "totalBags", type, rfid 
        FROM "ReceivingData" 
        WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
