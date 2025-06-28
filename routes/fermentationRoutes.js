@@ -62,7 +62,8 @@ router.get('/fermentation/available-batches', async (req, res) => {
       }
     );
 
-    res.json(rows || []);
+    // Ensure response is always an array
+    res.json(Array.isArray(rows) ? rows : rows ? [rows] : []);
   } catch (err) {
     console.error('Error fetching available batches:', err);
     res.status(500).json({ message: 'Failed to fetch available batches.', details: err.message });
