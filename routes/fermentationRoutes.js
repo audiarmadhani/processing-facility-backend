@@ -62,7 +62,7 @@ router.get('/fermentation/available-batches', async (req, res) => {
       }
     );
 
-    res.json(rows);
+    res.json(rows || []);
   } catch (err) {
     console.error('Error fetching available batches:', err);
     res.status(500).json({ message: 'Failed to fetch available batches.', details: err.message });
@@ -193,7 +193,7 @@ router.get('/fermentation', async (req, res) => {
       ORDER BY f."startDate" DESC;`
     );
 
-    res.json(rows);
+    res.json(rows || []);
   } catch (err) {
     console.error('Error fetching fermentation data:', err);
     res.status(500).json({ message: 'Failed to fetch fermentation data.', details: err.message });
