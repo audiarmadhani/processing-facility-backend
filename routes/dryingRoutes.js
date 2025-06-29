@@ -3,17 +3,6 @@ const router = express.Router();
 const sequelize = require('../config/database');
 const rateLimit = require('express-rate-limit');
 
-// // Rate limiter: 100 requests per 15 minutes per IP
-// const apiLimiter = rateLimit({
-//   windowMs: 15 * 60 * 1000, // 15 minutes
-//   max: 100, // Limit each IP to 100 requests per window
-//   message: { error: 'Too many requests, please try again later.' },
-//   statusCode: 429,
-// });
-
-// // Apply rate limiter to all API endpoints
-// router.use(apiLimiter);
-
 /**
  * GET /drying-data
  * Fetches all drying data records, including RFID, batch number, drying area, and timestamps.
@@ -151,6 +140,10 @@ router.get('/greenhouse-latest', async (req, res) => {
   }
 });
 
+/**
+ * GET /greenhouse-weight
+ * Fetches the total weight for each drying area.
+ */
 router.get('/greenhouse-weight', async (req, res) => {
   try {
     const data = await sequelize.query(`
@@ -162,7 +155,7 @@ router.get('/greenhouse-weight', async (req, res) => {
           SUM(b.weight) as wetmill_weight
         FROM "ReceivingData" a
         LEFT JOIN "WetMillWeightMeasurements" b on a."batchNumber" = b."batchNumber"
-        LEFt JOIN "DryingData" c on a."batchNumber" = c."batchNumber"
+        LEFT JOIN "DryingData" c on a."batchNumber" = c."batchNumber"
         WHERE b."processingType" IS NOT NULL
         AND a.merged = FALSE
         AND c.exited_at IS NOT NULL
@@ -177,6 +170,25 @@ router.get('/greenhouse-weight', async (req, res) => {
   } catch (error) {
     console.error('Error fetching latest greenhouse total weight:', error);
     res.status(500).json({ error: 'Failed to fetch latest greenhouse total weight', details: error.message });
+  }
+});
+
+/**
+ * GET /wetmill-weights
+ * Fetches the total weight for each batch after exiting the wetmill.
+ */
+router.get('/wetmill-weights', async (req, res) => {
+  try {
+    const data = await sequelize.query(`
+      SELECT "batchNumber", SUM(weight) as wetmill_weight
+      FROM "WetMillWeightMeasurements"
+      GROUP BY "batchNumber"
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('Error fetching wetmill weights:', error);
+    res.status(500).json({ error: 'Failed to fetch wetmill weights', details: error.message });
   }
 });
 
