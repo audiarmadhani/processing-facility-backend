@@ -40,13 +40,15 @@ router.get('/fermentation/available-batches', async (req, res) => {
     const [rows] = await sequelize.query(
       `SELECT 
         r."batchNumber",
-        r."lotNumber",
+        p."lotNumber",
         r."farmerName",
         r.weight
       FROM "ReceivingData" r
+      LEFT JOIN "PreprocessingData" p on r."batchNumber" = p."batchNumber"
       LEFT JOIN "DryingData" d ON r."batchNumber" = d."batchNumber"
       WHERE r.producer = 'HEQA'
       AND r.merged = FALSE
+      -- AND p.merged = FALSE
       AND d."batchNumber" IS NULL
       AND r."commodityType" = 'Cherry'
       ORDER BY r."batchNumber" DESC;`,
