@@ -151,6 +151,35 @@ router.get('/greenhouse-latest', async (req, res) => {
   }
 });
 
+router.get('/greenhouse-weight', async (req, res) => {
+  try {
+    const data = await sequelize.query(`
+      SELECT "dryingArea", SUM(wetmill_weight) as total_weight FROM (  
+        SELECT 
+          a."batchNumber", 
+          b."processingType",
+          c."dryingArea",
+          SUM(b.weight) as wetmill_weight
+        FROM "ReceivingData" a
+        LEFT JOIN "WetMillWeightMeasurements" b on a."batchNumber" = b."batchNumber"
+        LEFt JOIN "DryingData" c on a."batchNumber" = c."batchNumber"
+        WHERE b."processingType" IS NOT NULL
+        AND a.merged = FALSE
+        AND c.exited_at IS NOT NULL
+        group by a."batchNumber", b."processingType", c."dryingArea"
+        ORDER BY "batchNumber" DESC
+      ) a
+      GROUP BY "dryingArea"
+      ORDER BY "dryingArea"
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('Error fetching latest greenhouse total weight:', error);
+    res.status(500).json({ error: 'Failed to fetch latest greenhouse total weight', details: error.message });
+  }
+});
+
 /**
  * GET /greenhouse-historical/:device_id
  * Fetches historical environmental data for a specific device (last 1 month).
