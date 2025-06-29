@@ -5,13 +5,11 @@ const sequelize = require('../config/database');
 // Route for fetching available tanks
 router.get('/fermentation/available-tanks', async (req, res) => {
   try {
-    // Define all possible tanks
     const allBlueBarrelCodes = Array.from({ length: 15 }, (_, i) => 
       `BB-HQ-${String(i + 1).padStart(4, '0')}`
     );
     const allTanks = ['Biomaster', 'Carrybrew', ...allBlueBarrelCodes];
 
-    // Get tanks currently in use
     const [inUseTanks] = await sequelize.query(
       `SELECT DISTINCT tank 
        FROM "FermentationData" 
@@ -22,14 +20,11 @@ router.get('/fermentation/available-tanks', async (req, res) => {
       }
     );
 
-    // If no tanks are in use, return all tanks
     if (!inUseTanks || inUseTanks.length === 0) {
       return res.json(allTanks);
     }
 
     const inUseTankNames = inUseTanks.map(row => row.tank);
-    
-    // Filter out in-use tanks
     const availableTanks = allTanks.filter(tank => !inUseTankNames.includes(tank));
     
     res.json(availableTanks);
@@ -44,25 +39,22 @@ router.get('/fermentation/available-batches', async (req, res) => {
   try {
     const [rows] = await sequelize.query(
       `SELECT 
-        p."batchNumber",
-        p."lotNumber",
+        r."batchNumber",
+        r."lotNumber",
         r."farmerName",
         r.weight
-      FROM "PreprocessingData" p
-      INNER JOIN "ReceivingData" r ON p."batchNumber" = r."batchNumber"
-      LEFT JOIN "DryingData" d ON p."batchNumber" = d."batchNumber"
-      WHERE p.producer = :producer
+      FROM "ReceivingData" r
+      LEFT JOIN "DryingData" d ON r."batchNumber" = d."batchNumber"
+      WHERE r.producer = 'HEQA'
       AND r.merged = FALSE
-      AND p.merged = FALSE
       AND d."batchNumber" IS NULL
-      ORDER BY p."batchNumber" DESC;`,
+      AND r."commodityType" = 'Cherry'
+      ORDER BY r."batchNumber" DESC;`,
       {
-        replacements: { producer: 'HQ' },
         type: sequelize.QueryTypes.SELECT
       }
     );
 
-    // Ensure response is always an array
     res.json(Array.isArray(rows) ? rows : rows ? [rows] : []);
   } catch (err) {
     console.error('Error fetching available batches:', err);
@@ -76,47 +68,45 @@ router.post('/fermentation', async (req, res) => {
   try {
     const { batchNumber, tank, startDate, weight, createdBy } = req.body;
 
-    // Basic validation
-    if (!batchNumber || !tank || !startDate || !weight || !createdBy) {
+    if (!batchNumber || !tank || !startDate || !createdBy) {
       await t.rollback();
-      return res.status(400).json({ error: 'Missing required fields.' });
+      return res.status(400).json({ error: 'batchNumber, tank, startDate, and createdBy are required.' });
     }
-    // Validate tank: Biomaster, Carrybrew, or BB-HQ-XXXX
+
     if (!['Biomaster', 'Carrybrew'].includes(tank) && !/^BB-HQ-\d{4}$/.test(tank)) {
       await t.rollback();
       return res.status(400).json({ error: 'Invalid tank. Must be Biomaster, Carrybrew, or BB-HQ-XXXX.' });
     }
+
     const parsedStartDate = new Date(startDate);
     if (isNaN(parsedStartDate)) {
       await t.rollback();
       return res.status(400).json({ error: 'Invalid startDate format.' });
     }
-    if (typeof weight !== 'number' || weight <= 0) {
+
+    if (weight !== undefined && (typeof weight !== 'number' || weight <= 0)) {
       await t.rollback();
-      return res.status(400).json({ error: 'Weight must be a positive number.' });
+      return res.status(400).json({ error: 'Weight must be a positive number if provided.' });
     }
 
-    // Validate batchNumber exists, is not merged, and has producer HQ
     const [batchCheck] = await sequelize.query(
       `SELECT 1 
       FROM "ReceivingData" r
-      INNER JOIN "PreprocessingData" p ON r."batchNumber" = p."batchNumber"
       WHERE r."batchNumber" = :batchNumber 
       AND r.merged = FALSE 
-      AND p.merged = FALSE
-      AND p.producer = :producer`,
+      AND r.producer = :producer
+      AND r."commodityType" = 'Cherry'`,
       {
-        replacements: { batchNumber, producer: 'HQ' },
+        replacements: { batchNumber, producer: 'HEQA' },
         transaction: t,
         type: sequelize.QueryTypes.SELECT
       }
     );
     if (!batchCheck) {
       await t.rollback();
-      return res.status(400).json({ error: 'Batch number not found, merged, or not from producer HQ.' });
+      return res.status(400).json({ error: 'Batch number not found, merged, not from producer HEQA, or not Cherry.' });
     }
 
-    // Check if tank is already in use
     const [tankCheck] = await sequelize.query(
       'SELECT 1 FROM "FermentationData" WHERE tank = :tank AND status = :status',
       {
@@ -130,7 +120,6 @@ router.post('/fermentation', async (req, res) => {
       return res.status(400).json({ error: `Tank ${tank} is already in use.` });
     }
 
-    // Check if batch is in drying
     const [dryingCheck] = await sequelize.query(
       'SELECT 1 FROM "DryingData" WHERE "batchNumber" = :batchNumber',
       {
@@ -144,7 +133,6 @@ router.post('/fermentation', async (req, res) => {
       return res.status(400).json({ error: 'Batch is already in drying.' });
     }
 
-    // Insert FermentationData
     const [fermentationData] = await sequelize.query(`
       INSERT INTO "FermentationData" (
         "batchNumber", tank, "startDate", weight, status, "createdBy", "createdAt", "updatedAt"
@@ -156,7 +144,7 @@ router.post('/fermentation', async (req, res) => {
         batchNumber,
         tank,
         startDate: parsedStartDate,
-        weight,
+        weight: weight || null,
         status: 'In Progress',
         createdBy,
       },
@@ -166,7 +154,7 @@ router.post('/fermentation', async (req, res) => {
 
     await t.commit();
     res.status(201).json({
-      message: `Fermentation started for batch ${batchNumber} in ${tank} with weight ${weight}kg`,
+      message: `Fermentation started for batch ${batchNumber} in ${tank}${weight ? ` with weight ${weight}kg` : ''}`,
       fermentationData: fermentationData[0],
     });
   } catch (err) {
@@ -186,11 +174,21 @@ router.get('/fermentation', async (req, res) => {
         (f."endDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "endDate",
         r."farmerName",
         r.weight AS receiving_weight,
-        p."lotNumber"
+        p."lotNumber",
+        COALESCE((
+          SELECT SUM(fwm.weight)
+          FROM "FermentationWeightMeasurements" fwm
+          WHERE fwm."batchNumber" = f."batchNumber"
+          AND fwm.measurement_date = (
+            SELECT MAX(measurement_date)
+            FROM "FermentationWeightMeasurements"
+            WHERE "batchNumber" = f."batchNumber"
+          )
+        ), 0) as latest_weight
       FROM "FermentationData" f
       LEFT JOIN "ReceivingData" r ON f."batchNumber" = r."batchNumber"
       LEFT JOIN "PreprocessingData" p ON f."batchNumber" = p."batchNumber"
-      WHERE r.merged = FALSE AND (p.merged = FALSE OR p."batchNumber" IS NULL)
+      WHERE r.merged = FALSE
       ORDER BY f."startDate" DESC;`
     );
 
@@ -201,6 +199,81 @@ router.get('/fermentation', async (req, res) => {
   }
 });
 
+// Route for saving a new weight measurement
+router.post('/fermentation-weight-measurement', async (req, res) => {
+  const { batchNumber, processingType, weight, measurement_date } = req.body;
+
+  if (!batchNumber || !processingType || !weight || !measurement_date) {
+    return res.status(400).json({ error: 'batchNumber, processingType, weight, and measurement_date are required.' });
+  }
+
+  if (typeof weight !== 'number' || weight <= 0) {
+    return res.status(400).json({ error: 'Weight must be a positive number.' });
+  }
+
+  const parsedDate = new Date(measurement_date);
+  if (isNaN(parsedDate) || parsedDate > new Date()) {
+    return res.status(400).json({ error: 'Invalid or future measurement_date.' });
+  }
+
+  const t = await sequelize.transaction();
+  try {
+    const [batchCheck] = await sequelize.query(
+      'SELECT 1 FROM "FermentationData" WHERE "batchNumber" = :batchNumber',
+      {
+        replacements: { batchNumber },
+        transaction: t,
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+    if (!batchCheck) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batch not found in fermentation data.' });
+    }
+
+    const [result] = await sequelize.query(`
+      INSERT INTO "FermentationWeightMeasurements" (
+        "batchNumber", "processingType", weight, measurement_date, created_at, updated_at
+      ) VALUES (
+        :batchNumber, :processingType, :weight, :measurement_date, NOW(), NOW()
+      ) RETURNING *;
+    `, {
+      replacements: { batchNumber, processingType, weight, measurement_date: parsedDate },
+      transaction: t,
+      type: sequelize.QueryTypes.INSERT
+    });
+
+    await t.commit();
+    res.status(201).json({ message: 'Weight measurement saved', measurement: result[0] });
+  } catch (err) {
+    await t.rollback();
+    console.error('Error saving weight measurement:', err);
+    res.status(500).json({ error: 'Failed to save weight measurement', details: err.message });
+  }
+});
+
+// Route for fetching weight measurements for a batch
+router.get('/fermentation-weight-measurements/:batchNumber', async (req, res) => {
+  const { batchNumber } = req.params;
+
+  try {
+    const [measurements] = await sequelize.query(`
+      SELECT id, "batchNumber", "processingType", weight, measurement_date, created_at
+      FROM "FermentationWeightMeasurements"
+      WHERE "batchNumber" = :batchNumber
+      ORDER BY measurement_date DESC
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    res.status(200).json(measurements || []);
+  } catch (err) {
+    console.error('Error fetching weight measurements:', err);
+    res.status(500).json({ error: 'Failed to fetch weight measurements', details: err.message });
+  }
+});
+
 // Route to finish fermentation for a batch
 router.put('/fermentation/finish/:batchNumber', async (req, res) => {
   const t = await sequelize.transaction();
@@ -208,7 +281,6 @@ router.put('/fermentation/finish/:batchNumber', async (req, res) => {
     let { batchNumber } = req.params;
     batchNumber = batchNumber.trim();
 
-    // Validate batch exists and is in progress
     const [batchCheck] = await sequelize.query(
       'SELECT 1 FROM "FermentationData" WHERE "batchNumber" = :batchNumber AND status = :status',
       {
@@ -222,7 +294,6 @@ router.put('/fermentation/finish/:batchNumber', async (req, res) => {
       return res.status(400).json({ error: 'Batch not found or fermentation already finished.' });
     }
 
-    // Update FermentationData
     const [fermentationData] = await sequelize.query(`
       UPDATE "FermentationData"
       SET "endDate" = NOW(), status = :status, "updatedAt" = NOW()
