@@ -68,8 +68,21 @@ router.get('/fermentation/available-batches', async (req, res) => {
     );
     console.log('DryingData batches:', dryingData);
 
+    // Debug: Check PreprocessingData
+    const preprocessingData = await sequelize.query(
+      `SELECT "batchNumber", "lotNumber", merged 
+       FROM "PreprocessingData"
+       WHERE "batchNumber" IN (
+         SELECT "batchNumber" 
+         FROM "ReceivingData" 
+         WHERE producer = 'HEQA' AND merged = FALSE AND "commodityType" = 'Cherry'
+       )`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    console.log('PreprocessingData for eligible batches:', preprocessingData);
+
     // Main query
-    const [rows] = await sequelize.query(
+    const rows = await sequelize.query(
       `SELECT DISTINCT 
         r."batchNumber",
         r."farmerName",
@@ -78,8 +91,7 @@ router.get('/fermentation/available-batches', async (req, res) => {
       FROM "ReceivingData" r
       LEFT JOIN "PreprocessingData" p ON r."batchNumber" = p."batchNumber" AND p.merged = FALSE
       LEFT JOIN "DryingData" d ON r."batchNumber" = d."batchNumber"
-      WHERE r.producer = 'HEQA'
-      AND r.merged = FALSE
+      WHERE r.merged = FALSE
       AND d."batchNumber" IS NULL
       AND r."commodityType" = 'Cherry'
       AND r."batchNumber" NOT IN (
@@ -92,10 +104,13 @@ router.get('/fermentation/available-batches', async (req, res) => {
       }
     );
 
-    // Log raw query results for debugging
-    console.log('Available batches query result:', rows);
+    // Ensure rows is an array
+    const result = Array.isArray(rows) ? rows : rows ? [rows] : [];
 
-    res.json(rows || []);
+    // Log raw query results for debugging
+    console.log('Available batches query result:', result);
+
+    res.json(result);
   } catch (err) {
     console.error('Error fetching available batches:', err);
     res.status(500).json({ message: 'Failed to fetch available batches.', details: err.message });
