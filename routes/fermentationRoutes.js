@@ -8,7 +8,7 @@ router.get('/fermentation/available-tanks', async (req, res) => {
     const allBlueBarrelCodes = Array.from({ length: 15 }, (_, i) => 
       `BB-HQ-${String(i + 1).padStart(4, '0')}`
     );
-    const allTanks = ['Biomaster', 'Carrybrew', ...allBlueBarrelCodes];
+    const allTanks = ['Biomaster', 'Carrybrew', 'Washing Track', ...allBlueBarrelCodes];
 
     // Fetch in-use tanks
     const inUseTanks = await sequelize.query(
@@ -128,9 +128,9 @@ router.post('/fermentation', async (req, res) => {
       return res.status(400).json({ error: 'batchNumber, tank, startDate, and createdBy are required.' });
     }
 
-    if (!['Biomaster', 'Carrybrew'].includes(tank) && !/^BB-HQ-\d{4}$/.test(tank)) {
+    if (!['Biomaster', 'Carrybrew','Washing Track'].includes(tank) && !/^BB-HQ-\d{4}$/.test(tank)) {
       await t.rollback();
-      return res.status(400).json({ error: 'Invalid tank. Must be Biomaster, Carrybrew, or BB-HQ-XXXX.' });
+      return res.status(400).json({ error: 'Invalid tank. Must be Biomaster, Carrybrew, Washing Track, or BB-HQ-XXXX.' });
     }
 
     const parsedStartDate = new Date(startDate);
