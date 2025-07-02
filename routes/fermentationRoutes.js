@@ -44,19 +44,20 @@ router.get('/fermentation/available-tanks', async (req, res) => {
 router.get('/fermentation/available-batches', async (req, res) => {
   try {
     const [rows] = await sequelize.query(
-      `SELECT 
+      `SELECT DISTINCT 
         r."batchNumber",
-        p."lotNumber",
         r."farmerName",
-        r.weight
+        r.weight,
+        MIN(p."lotNumber") as "lotNumber"
       FROM "ReceivingData" r
-      LEFT JOIN "PreprocessingData" p on r."batchNumber" = p."batchNumber"
+      LEFT JOIN "PreprocessingData" p ON r."batchNumber" = p."batchNumber" AND p.merged = FALSE
       LEFT JOIN "DryingData" d ON r."batchNumber" = d."batchNumber"
       WHERE r.producer = 'HEQA'
       AND r.merged = FALSE
-      -- AND p.merged = FALSE
       AND d."batchNumber" IS NULL
       AND r."commodityType" = 'Cherry'
+      and r."batchNumber" NOT IN (SELECT "batchNumber" FROM "FermentationData")
+      GROUP BY r."batchNumber", r."farmerName", r.weight
       ORDER BY r."batchNumber" DESC;`,
       {
         type: sequelize.QueryTypes.SELECT
