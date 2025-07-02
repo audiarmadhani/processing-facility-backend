@@ -56,13 +56,16 @@ router.get('/fermentation/available-batches', async (req, res) => {
       AND r.merged = FALSE
       AND d."batchNumber" IS NULL
       AND r."commodityType" = 'Cherry'
-      and r."batchNumber" NOT IN (SELECT "batchNumber" FROM "FermentationData")
+      AND r."batchNumber" NOT IN (SELECT "batchNumber" FROM "FermentationData")
       GROUP BY r."batchNumber", r."farmerName", r.weight
       ORDER BY r."batchNumber" DESC;`,
       {
         type: sequelize.QueryTypes.SELECT
       }
     );
+
+    // Log raw query results for debugging
+    console.log('Available batches query result:', rows);
 
     res.json(Array.isArray(rows) ? rows : rows ? [rows] : []);
   } catch (err) {
