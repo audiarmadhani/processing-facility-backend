@@ -160,14 +160,18 @@ router.get('/dashboard-metrics', async (req, res) => {
             AND type = 'Robusta'
         `;
         const totalArabicaProcessedQuery = `
-            SELECT COALESCE(ROUND(SUM((b.weight / b."totalBags") * a."bagsProcessed")::numeric, 1), 0) AS sum 
+            SELECT COALESCE(ROUND(SUM("weightProcessed")::numeric, 1), 0) AS sum 
             FROM "PreprocessingData" a 
             LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber" 
             WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             AND type = 'Arabica'
         `;
         const totalRobustaProcessedQuery = `
-            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' AND type = 'Robusta'
+            SELECT COALESCE(ROUND(SUM("weightProcessed")::numeric, 1), 0) AS sum  
+            FROM "PreprocessingData" a 
+            LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" 
+            WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
+            AND type = 'Robusta'
         `;
         const activeArabicaFarmersQuery = `
             SELECT COALESCE(SUM(isActive), 0) AS count FROM "Farmers" where "farmType" in ('Arabica', 'Mix', 'Mixed');
