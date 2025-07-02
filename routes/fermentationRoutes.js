@@ -43,6 +43,32 @@ router.get('/fermentation/available-tanks', async (req, res) => {
 // Route for fetching available batches for fermentation
 router.get('/fermentation/available-batches', async (req, res) => {
   try {
+    // Debug: Check ReceivingData
+    const receivingData = await sequelize.query(
+      `SELECT "batchNumber", producer, merged, "commodityType"
+       FROM "ReceivingData"
+       WHERE producer = 'HEQA' AND merged = FALSE AND "commodityType" = 'Cherry'`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    console.log('ReceivingData eligible batches:', receivingData);
+
+    // Debug: Check FermentationData
+    const fermentationData = await sequelize.query(
+      `SELECT "batchNumber", status 
+       FROM "FermentationData"`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    console.log('FermentationData batches:', fermentationData);
+
+    // Debug: Check DryingData
+    const dryingData = await sequelize.query(
+      `SELECT "batchNumber" 
+       FROM "DryingData"`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    console.log('DryingData batches:', dryingData);
+
+    // Main query
     const [rows] = await sequelize.query(
       `SELECT DISTINCT 
         r."batchNumber",
@@ -56,7 +82,9 @@ router.get('/fermentation/available-batches', async (req, res) => {
       AND r.merged = FALSE
       AND d."batchNumber" IS NULL
       AND r."commodityType" = 'Cherry'
-      AND r."batchNumber" NOT IN (SELECT "batchNumber" FROM "FermentationData")
+      AND r."batchNumber" NOT IN (
+        SELECT "batchNumber" FROM "FermentationData" WHERE status = 'In Progress'
+      )
       GROUP BY r."batchNumber", r."farmerName", r.weight
       ORDER BY r."batchNumber" DESC;`,
       {
@@ -67,7 +95,7 @@ router.get('/fermentation/available-batches', async (req, res) => {
     // Log raw query results for debugging
     console.log('Available batches query result:', rows);
 
-    res.json(Array.isArray(rows) ? rows : rows ? [rows] : []);
+    res.json(rows || []);
   } catch (err) {
     console.error('Error fetching available batches:', err);
     res.status(500).json({ message: 'Failed to fetch available batches.', details: err.message });
