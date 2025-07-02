@@ -43,43 +43,43 @@ router.get('/fermentation/available-tanks', async (req, res) => {
 // Route for fetching available batches for fermentation
 router.get('/fermentation/available-batches', async (req, res) => {
   try {
-    // Debug: Check ReceivingData
-    const receivingData = await sequelize.query(
-      `SELECT "batchNumber", producer, merged, "commodityType"
-       FROM "ReceivingData"
-       WHERE producer = 'HEQA' AND merged = FALSE AND "commodityType" = 'Cherry'`,
-      { type: sequelize.QueryTypes.SELECT }
-    );
-    console.log('ReceivingData eligible batches:', receivingData);
+    // // Debug: Check ReceivingData
+    // const receivingData = await sequelize.query(
+    //   `SELECT "batchNumber", producer, merged, "commodityType"
+    //    FROM "ReceivingData"
+    //    WHERE producer = 'HEQA' AND merged = FALSE AND "commodityType" = 'Cherry'`,
+    //   { type: sequelize.QueryTypes.SELECT }
+    // );
+    // console.log('ReceivingData eligible batches:', receivingData);
 
-    // Debug: Check FermentationData
-    const fermentationData = await sequelize.query(
-      `SELECT "batchNumber", status 
-       FROM "FermentationData"`,
-      { type: sequelize.QueryTypes.SELECT }
-    );
-    console.log('FermentationData batches:', fermentationData);
+    // // Debug: Check FermentationData
+    // const fermentationData = await sequelize.query(
+    //   `SELECT "batchNumber", status 
+    //    FROM "FermentationData"`,
+    //   { type: sequelize.QueryTypes.SELECT }
+    // );
+    // console.log('FermentationData batches:', fermentationData);
 
-    // Debug: Check DryingData
-    const dryingData = await sequelize.query(
-      `SELECT "batchNumber" 
-       FROM "DryingData"`,
-      { type: sequelize.QueryTypes.SELECT }
-    );
-    console.log('DryingData batches:', dryingData);
+    // // Debug: Check DryingData
+    // const dryingData = await sequelize.query(
+    //   `SELECT "batchNumber" 
+    //    FROM "DryingData"`,
+    //   { type: sequelize.QueryTypes.SELECT }
+    // );
+    // console.log('DryingData batches:', dryingData);
 
-    // Debug: Check PreprocessingData
-    const preprocessingData = await sequelize.query(
-      `SELECT "batchNumber", "lotNumber", merged 
-       FROM "PreprocessingData"
-       WHERE "batchNumber" IN (
-         SELECT "batchNumber" 
-         FROM "ReceivingData" 
-         WHERE producer = 'HEQA' AND merged = FALSE AND "commodityType" = 'Cherry'
-       )`,
-      { type: sequelize.QueryTypes.SELECT }
-    );
-    console.log('PreprocessingData for eligible batches:', preprocessingData);
+    // // Debug: Check PreprocessingData
+    // const preprocessingData = await sequelize.query(
+    //   `SELECT "batchNumber", "lotNumber", merged 
+    //    FROM "PreprocessingData"
+    //    WHERE "batchNumber" IN (
+    //      SELECT "batchNumber" 
+    //      FROM "ReceivingData" 
+    //      WHERE producer = 'HEQA' AND merged = FALSE AND "commodityType" = 'Cherry'
+    //    )`,
+    //   { type: sequelize.QueryTypes.SELECT }
+    // );
+    // console.log('PreprocessingData for eligible batches:', preprocessingData);
 
     // Main query
     const rows = await sequelize.query(
@@ -108,7 +108,7 @@ router.get('/fermentation/available-batches', async (req, res) => {
     const result = Array.isArray(rows) ? rows : rows ? [rows] : [];
 
     // Log raw query results for debugging
-    console.log('Available batches query result:', result);
+    // console.log('Available batches query result:', result);
 
     res.json(result);
   } catch (err) {
