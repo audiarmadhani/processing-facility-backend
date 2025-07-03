@@ -1821,5 +1821,62 @@ router.get('/heqa-targets', async (req, res) => {
       }
 });
 
+router.get('/batch-tracking', async (req, res) => {
+    try {
+      const { batchNumbers } = req.query; // Optional batchNumber filter (comma-separated)
+  
+      let query = `
+        SELECT 
+          "batchNumber",
+          "farmerName",
+          "processingType",
+          "grade",
+          COALESCE(CAST("receiving_weight" AS TEXT), 'N/A') AS "receiving_weight",
+          "receiving_date",
+          "qc_date",
+          "preprocessing_date",
+          COALESCE(CAST("preprocessing_weight" AS TEXT), 'N/A') AS "preprocessing_weight",
+          "wet_mill_entered_date",
+          "wet_mill_exited_date",
+          COALESCE(CAST("wetmill_weight" AS TEXT), 'N/A') AS "wetmill_weight",
+          "wetmill_weight_date",
+          "fermentation_start_date",
+          "fermentation_end_date",
+          COALESCE(CAST("fermentation_weight" AS TEXT), 'N/A') AS "fermentation_weight",
+          "fermentation_weight_date",
+          "drying_entered_date",
+          "drying_exited_date",
+          COALESCE(CAST("drying_weight" AS TEXT), 'N/A') AS "drying_weight",
+          "drying_weight_date",
+          "dry_mill_entered_date",
+          "dry_mill_exited_date",
+          "dry_mill_split_date",
+          COALESCE(CAST("dry_mill_weight" AS TEXT), 'N/A') AS "dry_mill_weight",
+          "storage_date",
+          "position",
+          "status"
+        FROM "BatchTrackingView"
+      `;
+  
+      // Add batch number filtering if provided
+      if (batchNumbers) {
+        const batchArray = batchNumbers.split(',').map(num => `'${num.trim()}'`).join(',');
+        query += ` WHERE "batchNumber" IN (${batchArray})`;
+      }
+  
+      // Order by batchNumber and processingType for consistency
+      query += ` ORDER BY "batchNumber", "processingType"`;
+  
+      // Execute the query
+      const [results] = await sequelize.query(query);
+  
+      // Return the results
+      res.json(results);
+    } catch (err) {
+      console.error('Error fetching batch tracking data:', err);
+      res.status(500).json({ message: 'Failed to fetch batch tracking data.' });
+    }
+  });
+
  
 module.exports = router;

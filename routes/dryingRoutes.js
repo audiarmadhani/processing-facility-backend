@@ -158,7 +158,7 @@ router.get('/greenhouse-weight', async (req, res) => {
         LEFT JOIN "DryingData" c on a."batchNumber" = c."batchNumber"
         WHERE b."processingType" IS NOT NULL
         AND a.merged = FALSE
-        AND c.exited_at IS NOT NULL
+        AND c.exited_at IS NULL
         group by a."batchNumber", b."processingType", c."dryingArea"
         ORDER BY "batchNumber" DESC
       ) a
