@@ -221,8 +221,8 @@ router.get('/fermentation', async (req, res) => {
     const [rows] = await sequelize.query(
       `SELECT 
         f.*, 
-        (f."startDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "startDate",
-        (f."endDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "endDate",
+        (f."startDate") as "startDate",
+        (f."endDate") as "endDate",
         r."farmerName",
         r.weight AS receiving_weight,
         COALESCE((
