@@ -286,6 +286,7 @@ router.post('/merge', async (req, res) => {
 });
 
 // Route for creating preprocessing data
+// Route for creating preprocessing data
 router.post('/preprocessing', async (req, res) => {
   let t;
   try {
@@ -295,10 +296,12 @@ router.post('/preprocessing', async (req, res) => {
       return res.status(400).json({ error: 'Batch number, weight processed, producer, product line, processing type, and quality are required.' });
     }
 
-    const parsedWeight = weightProcessed.toString().replace(',', '.');
+    // Parse and round weightProcessed to 2 decimal places
+    const parsedWeight = parseFloat(weightProcessed.toString().replace(',', '.'));
     if (isNaN(parsedWeight) || parsedWeight <= 0) {
       return res.status(400).json({ error: 'Weight processed must be a positive number.' });
     }
+    const roundedWeightProcessed = Math.round(parsedWeight * 100) / 100; // Round to 2 decimal places
 
     t = await sequelize.transaction();
 
@@ -321,7 +324,8 @@ router.post('/preprocessing', async (req, res) => {
       return res.status(400).json({ error: 'Batch is already merged.' });
     }
 
-    const totalWeight = batch.weight;
+    const totalWeight = parseFloat(batch.weight); // Ensure it's a number
+    const roundedTotalWeight = Math.round(totalWeight * 100) / 100; // Round to 2 decimal places
     const batchType = batch.type;
 
     const [processed] = await sequelize.query(
@@ -331,18 +335,20 @@ router.post('/preprocessing', async (req, res) => {
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
-    const totalWeightProcessed = processed.totalWeightProcessed || 0;
+    const totalWeightProcessed = parseFloat(processed.totalWeightProcessed) || 0;
+    const roundedTotalWeightProcessed = Math.round(totalWeightProcessed * 100) / 100; // Round to 2 decimal places
     const isFinished = processed.finished;
-    const weightAvailable = totalWeight - totalWeightProcessed;
+    const weightAvailable = roundedTotalWeight - roundedTotalWeightProcessed;
+    const roundedWeightAvailable = Math.round(weightAvailable * 100) / 100; // Round to 2 decimal places
 
     if (isFinished) {
       await t.rollback();
       return res.status(400).json({ error: 'Batch is already marked as finished.' });
     }
 
-    if (parsedWeight > weightAvailable) {
+    if (roundedWeightProcessed > roundedWeightAvailable) {
       await t.rollback();
-      return res.status(400).json({ error: `Cannot process ${parsedWeight} kg. Only ${weightAvailable} kg available.` });
+      return res.status(400).json({ error: `Cannot process ${roundedWeightProcessed} kg. Only ${roundedWeightAvailable} kg available.` });
     }
 
     // Fetch product line and processing type abbreviations
@@ -451,7 +457,7 @@ router.post('/preprocessing', async (req, res) => {
       {
         replacements: {
           batchNumber: batchNumber.trim(),
-          weightProcessed: parsedWeight,
+          weightProcessed: roundedWeightProcessed,
           processingDate: formattedProcessingDate,
           producer,
           productLine,
