@@ -94,9 +94,6 @@ router.get('/fermentation/available-batches', async (req, res) => {
       WHERE r.merged = FALSE
       AND d."batchNumber" IS NULL
       AND r."commodityType" = 'Cherry'
-      AND r."batchNumber" NOT IN (
-        SELECT "batchNumber" FROM "FermentationData" WHERE status = 'In Progress'
-      )
       GROUP BY r."batchNumber", r."farmerName", r.weight
       ORDER BY r."batchNumber" DESC;`,
       {
