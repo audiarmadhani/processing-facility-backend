@@ -229,7 +229,6 @@ router.get('/fermentation', async (req, res) => {
         (f."endDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "endDate",
         r."farmerName",
         r.weight AS receiving_weight,
-        p."lotNumber",
         COALESCE((
           SELECT SUM(fwm.weight)
           FROM "FermentationWeightMeasurements" fwm
@@ -242,7 +241,7 @@ router.get('/fermentation', async (req, res) => {
         ), 0) as latest_weight
       FROM "FermentationData" f
       LEFT JOIN "ReceivingData" r ON f."batchNumber" = r."batchNumber"
-      LEFT JOIN "PreprocessingData" p ON f."batchNumber" = p."batchNumber"
+      LEFT JOIN (SELECT DISTINCT "batchNumber" FROM "PreprocessingData") p ON f."batchNumber" = p."batchNumber"
       WHERE r.merged = FALSE
       ORDER BY f."startDate" DESC;`
     );
