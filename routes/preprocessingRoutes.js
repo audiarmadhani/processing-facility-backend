@@ -110,10 +110,10 @@ router.post('/merge', async (req, res) => {
       }
     );
 
-    const processedMap = new Map(processed.map(r => [r.batchNumber.toLowerCase(), parseFloat(r.totalProcessed || 0)]));
+    const processedMap = new Map(processed.map(r => [r.batchNumber.toLowerCase(), r.totalProcessed || 0]));
     const totalWeight = batches.reduce((sum, b) => {
       const processedWeight = processedMap.get(b.batchNumber.toLowerCase()) || 0;
-      const availableWeight = parseFloat(b.weight) - processedWeight;
+      const availableWeight = b.weight - processedWeight;
       if (availableWeight <= 0) {
         throw new Error(`Batch ${b.batchNumber} has no available weight.`);
       }
@@ -321,7 +321,7 @@ router.post('/preprocessing', async (req, res) => {
       return res.status(400).json({ error: 'Batch is already merged.' });
     }
 
-    const totalWeight = parseFloat(batch.weight);
+    const totalWeight = batch.weight;
     const batchType = batch.type;
 
     const [processed] = await sequelize.query(
@@ -758,7 +758,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
         return res.status(400).json({ error: 'Batch is already merged.' });
       }
 
-      const totalWeight = parseFloat(batch.weight || 0);
+      const totalWeight = batch.weight || 0;
       const [mergeData] = await sequelize.query(
         `SELECT original_batch_numbers FROM "BatchMerges" WHERE new_batch_number = :batchNumber`,
         { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
@@ -791,7 +791,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
       });
     }
 
-    const totalWeightProcessed = parseFloat(rows[0].totalWeightProcessed || 0);
+    const totalWeightProcessed = rows[0].totalWeightProcessed || 0;
     const [batch] = await sequelize.query(
       `SELECT weight, "farmerName", "receivingDate", "totalBags", type, rfid 
        FROM "ReceivingData" 
@@ -799,7 +799,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
     );
 
-    const totalWeight = parseFloat(batch?.weight || 0);
+    const totalWeight = batch?.weight || 0;
     const weightAvailable = totalWeight - totalWeightProcessed;
 
     // Parse farmerName if it's a JSON string
