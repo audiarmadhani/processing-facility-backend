@@ -295,7 +295,7 @@ router.post('/preprocessing', async (req, res) => {
       return res.status(400).json({ error: 'Batch number, weight processed, producer, product line, processing type, and quality are required.' });
     }
 
-    const parsedWeight = parseFloat(weightProcessed.toString().replace(',', '.'));
+    const parsedWeight = weightProcessed.toString().replace(',', '.');
     if (isNaN(parsedWeight) || parsedWeight <= 0) {
       return res.status(400).json({ error: 'Weight processed must be a positive number.' });
     }
