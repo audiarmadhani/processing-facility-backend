@@ -331,7 +331,7 @@ router.post('/preprocessing', async (req, res) => {
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
-    const totalWeightProcessed = parseFloat(processed.totalWeightProcessed || 0);
+    const totalWeightProcessed = processed.totalWeightProcessed || 0;
     const isFinished = processed.finished;
     const weightAvailable = totalWeight - totalWeightProcessed;
 
