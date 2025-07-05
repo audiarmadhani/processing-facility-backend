@@ -83,10 +83,10 @@ router.post('/merge', async (req, res) => {
 
     // Validate batches and fetch additional data
     const batches = await sequelize.query(
-      `SELECT r."batchNumber", r."type", r."weight", r."farmerName", r."receivingDate", r."totalBags", r."commodityType", r."rfid", q."qcDate", q."cherryScore", q."cherryGroup", q."ripeness", q."color", q."foreignMatter", q."overallQuality"
+      `SELECT r."batchNumber", r."type", r."weight", r."farmerName", r."receivingDate", r."totalBags", r."commodityType", r."rfid", q."qcDate", q."ripeness", q."color", q."foreignMatter", q."overallQuality"
        FROM "ReceivingData" r
        LEFT JOIN "QCData" q ON LOWER(r."batchNumber") = LOWER(q."batchNumber")
-       WHERE LOWER(r."batchNumber") = ANY(:batchNumbers) AND r.merged = FALSE AND r."commodityType" != 'Green Bean'`,
+       WHERE LOWER(r."batchNumber") IN (:batchNumbers) AND r.merged = FALSE AND r."commodityType" != 'Green Bean'`,
       {
         replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
         type: sequelize.QueryTypes.SELECT,
@@ -218,16 +218,14 @@ router.post('/merge', async (req, res) => {
     // Insert into QCData for merged batch
     await sequelize.query(
       `INSERT INTO "QCData" (
-        "batchNumber", "qcDate", "cherryScore", "cherryGroup", "ripeness", "color", "foreignMatter", "overallQuality", "createdAt", "updatedAt", merged
+        "batchNumber", "qcDate", "ripeness", "color", "foreignMatter", "overallQuality", "createdAt", "updatedAt", merged
       ) VALUES (
-        :batchNumber, :qcDate, :cherryScore, :cherryGroup, :ripeness, :color, :foreignMatter, :overallQuality, :createdAt, :updatedAt, FALSE
+        :batchNumber, :qcDate, :ripeness, :color, :foreignMatter, :overallQuality, :createdAt, :updatedAt, FALSE
       )`,
       {
         replacements: {
           batchNumber: newBatchNumber,
           qcDate: latestQcDate,
-          cherryScore: cherryScores || null,
-          cherryGroup: cherryGroups || null,
           ripeness: ripenesses || null,
           color: colors || null,
           foreignMatter: foreignMatters || null,
