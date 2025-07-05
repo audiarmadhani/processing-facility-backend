@@ -268,12 +268,12 @@ router.post('/merge', async (req, res) => {
       `INSERT INTO "BatchMerges" (
         new_batch_number, original_batch_numbers, merged_at, created_by, notes
       ) VALUES (
-        :newBatchNumber, :originalBatchNumbers, :mergedAt, :createdBy, :notes
+        :newBatchNumber, ARRAY[:originalBatchNumbers], :mergedAt, :createdBy, :notes
       )`,
       {
         replacements: {
           newBatchNumber,
-          originalBatchNumbers: batchNumbers, // Pass the array directly
+          originalBatchNumbers: batchNumbers, // Pass the array to be cast as a PostgreSQL array
           mergedAt: new Date(),
           createdBy: createdBy || 'Unknown',
           notes: notes || null
@@ -300,7 +300,6 @@ router.post('/merge', async (req, res) => {
   }
 });
 
-// Route for creating preprocessing data
 // Route for creating preprocessing data
 router.post('/preprocessing', async (req, res) => {
   let t;
