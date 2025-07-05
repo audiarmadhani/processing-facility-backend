@@ -267,7 +267,7 @@ router.post('/merge', async (req, res) => {
     // Insert into BatchMerges
     await sequelize.query(
       `INSERT INTO "BatchMerges" (
-        new_batch_number, original_batch_numbers, merged_at, created_by, notes
+        new_batch_number, (original_batch_numbers), merged_at, created_by, notes
       ) VALUES (
         :newBatchNumber, :originalBatchNumbers, :mergedAt, :createdBy, :notes
       )`,
