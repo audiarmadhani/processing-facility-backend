@@ -110,7 +110,7 @@ router.post('/merge', async (req, res) => {
     const processed = await sequelize.query(
       `SELECT "batchNumber", SUM("weightProcessed") AS "totalProcessed"
        FROM "PreprocessingData"
-       WHERE LOWER("batchNumber") = ANY(:batchNumbers)
+       WHERE LOWER("batchNumber") IN (:batchNumbers)
        GROUP BY "batchNumber"`,
       {
         replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
@@ -240,7 +240,7 @@ router.post('/merge', async (req, res) => {
 
     // Update original batches
     await sequelize.query(
-      `UPDATE "ReceivingData" SET merged = TRUE WHERE LOWER("batchNumber") = ANY(:batchNumbers)`,
+      `UPDATE "ReceivingData" SET merged = TRUE WHERE LOWER("batchNumber") IN (:batchNumbers)`,
       {
         replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
         type: sequelize.QueryTypes.UPDATE,
@@ -248,7 +248,7 @@ router.post('/merge', async (req, res) => {
       }
     );
     await sequelize.query(
-      `UPDATE "QCData" SET merged = TRUE WHERE LOWER("batchNumber") = ANY(:batchNumbers)`,
+      `UPDATE "QCData" SET merged = TRUE WHERE LOWER("batchNumber") IN (:batchNumbers)`,
       {
         replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
         type: sequelize.QueryTypes.UPDATE,
@@ -256,7 +256,7 @@ router.post('/merge', async (req, res) => {
       }
     );
     await sequelize.query(
-      `UPDATE "PreprocessingData" SET merged = TRUE WHERE LOWER("batchNumber") = ANY(:batchNumbers)`,
+      `UPDATE "PreprocessingData" SET merged = TRUE WHERE LOWER("batchNumber") IN (:batchNumbers)`,
       {
         replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
         type: sequelize.QueryTypes.UPDATE,
@@ -894,7 +894,7 @@ router.get('/batch-merges/original/:batchNumber', async (req, res) => {
     const mergeData = await sequelize.query(
       `SELECT new_batch_number, original_batch_numbers
        FROM "BatchMerges"
-       WHERE :batchNumber = ANY(original_batch_numbers)`,
+       WHERE :batchNumber IN (original_batch_numbers)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
     );
 
