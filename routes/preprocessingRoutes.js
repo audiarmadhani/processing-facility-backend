@@ -16,6 +16,7 @@ router.use(cors({
 router.options('*', cors());
 
 // Generate new batch number for merge
+// Generate new batch number for merge
 router.get('/new-batch-number', async (req, res) => {
   let t;
   try {
@@ -29,7 +30,15 @@ router.get('/new-batch-number', async (req, res) => {
     );
 
     let sequenceNumber = result.latest_batch_number;
-    const lastUpdatedDate = result.last_updated_date.toISOString().slice(0, 10);
+    // Safely handle last_updated_date, converting to ISO string if it's a Date or parsing if it's a string
+    let lastUpdatedDate = result.last_updated_date;
+    if (lastUpdatedDate instanceof Date && !isNaN(lastUpdatedDate)) {
+      lastUpdatedDate = lastUpdatedDate.toISOString().slice(0, 10);
+    } else if (typeof lastUpdatedDate === 'string') {
+      lastUpdatedDate = new Date(lastUpdatedDate).toISOString().slice(0, 10);
+    } else {
+      lastUpdatedDate = today; // Default to today if invalid
+    }
 
     // Reset sequence if date has changed
     if (lastUpdatedDate !== today) {
@@ -130,7 +139,16 @@ router.post('/merge', async (req, res) => {
     );
 
     let sequenceNumber = sequenceResult.latest_batch_number;
-    const lastUpdatedDate = sequenceResult.last_updated_date.toISOString().slice(0, 10);
+    // Safely handle last_updated_date
+    let lastUpdatedDate = sequenceResult.last_updated_date;
+    if (lastUpdatedDate instanceof Date && !isNaN(lastUpdatedDate)) {
+      lastUpdatedDate = lastUpdatedDate.toISOString().slice(0, 10);
+    } else if (typeof lastUpdatedDate === 'string') {
+      lastUpdatedDate = new Date(lastUpdatedDate).toISOString().slice(0, 10);
+    } else {
+      lastUpdatedDate = today; // Default to today if invalid
+    }
+
     if (lastUpdatedDate !== today) {
       sequenceNumber = 0;
     }
@@ -183,7 +201,7 @@ router.post('/merge', async (req, res) => {
         replacements: {
           batchNumber: newBatchNumber,
           weight: totalWeight,
-          farmerName: farmerNamesArray ? JSON.stringify(farmerNamesArray) : null, // Store as JSON array
+          farmerName: farmerNamesArray ? JSON.stringify(farmerNamesArray) : null,
           receivingDate: earliestReceivingDate,
           type,
           totalBags: totalBags || null,
