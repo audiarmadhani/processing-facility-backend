@@ -139,14 +139,13 @@ router.post('/merge', async (req, res) => {
     );
 
     let sequenceNumber = sequenceResult.latest_batch_number;
-    // Safely handle last_updated_date
     let lastUpdatedDate = sequenceResult.last_updated_date;
     if (lastUpdatedDate instanceof Date && !isNaN(lastUpdatedDate)) {
       lastUpdatedDate = lastUpdatedDate.toISOString().slice(0, 10);
     } else if (typeof lastUpdatedDate === 'string') {
       lastUpdatedDate = new Date(lastUpdatedDate).toISOString().slice(0, 10);
     } else {
-      lastUpdatedDate = today; // Default to today if invalid
+      lastUpdatedDate = today;
     }
 
     if (lastUpdatedDate !== today) {
@@ -269,12 +268,12 @@ router.post('/merge', async (req, res) => {
       `INSERT INTO "BatchMerges" (
         new_batch_number, original_batch_numbers, merged_at, created_by, notes
       ) VALUES (
-        :newBatchNumber, (:originalBatchNumbers), :mergedAt, :createdBy, :notes
+        :newBatchNumber, :originalBatchNumbers, :mergedAt, :createdBy, :notes
       )`,
       {
         replacements: {
           newBatchNumber,
-          originalBatchNumbers: batchNumbers,
+          originalBatchNumbers: batchNumbers, // Pass the array directly
           mergedAt: new Date(),
           createdBy: createdBy || 'Unknown',
           notes: notes || null
