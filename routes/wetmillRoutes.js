@@ -66,12 +66,17 @@ router.get('/wetmill-data', async (req, res) => {
  * Adds a new weight measurement for a batch.
  * Requires: batchNumber, processingType, bagNumber, weight (>0), measurement_date.
  */
+/**
+ * POST /wetmill-weight-measurement
+ * Adds a new weight measurement for a batch.
+ * Requires: batchNumber, processingType, bagNumber, weight (>0), measurement_date, producer.
+ */
 router.post('/wetmill-weight-measurement', async (req, res) => {
-  const { batchNumber, processingType, bagNumber, weight, measurement_date } = req.body;
+  const { batchNumber, processingType, bagNumber, weight, measurement_date, producer } = req.body;
 
   // Validate inputs
-  if (!batchNumber || !processingType || bagNumber === undefined || weight === undefined || !measurement_date) {
-    return res.status(400).json({ error: 'batchNumber, processingType, bagNumber, weight, and measurement_date are required' });
+  if (!batchNumber || !processingType || bagNumber === undefined || weight === undefined || !measurement_date || !producer) {
+    return res.status(400).json({ error: 'batchNumber, processingType, bagNumber, weight, measurement_date, and producer are required' });
   }
   if (typeof weight !== 'number' || weight <= 0) {
     return res.status(400).json({ error: 'Weight must be a positive number' });
@@ -83,14 +88,17 @@ router.post('/wetmill-weight-measurement', async (req, res) => {
   if (isNaN(parsedDate) || parsedDate > new Date()) {
     return res.status(400).json({ error: 'Invalid or future measurement_date' });
   }
+  if (!['HQ', 'BTM'].includes(producer)) { // Optional: Restrict to known producers
+    return res.status(400).json({ error: 'Producer must be either "HQ" or "BTM"' });
+  }
 
   try {
     const [result] = await sequelize.query(`
-      INSERT INTO "WetMillWeightMeasurements" ("batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at)
-      VALUES (:batchNumber, :processingType, :bagNumber, :weight, :measurement_date, NOW())
-      RETURNING id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at
+      INSERT INTO "WetMillWeightMeasurements" ("batchNumber", "processingType", "bagNumber", weight, measurement_date, producer, created_at)
+      VALUES (:batchNumber, :processingType, :bagNumber, :weight, :measurement_date, :producer, NOW())
+      RETURNING id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, producer, created_at
     `, {
-      replacements: { batchNumber, processingType, bagNumber, weight, measurement_date },
+      replacements: { batchNumber, processingType, bagNumber, weight, measurement_date, producer },
       type: sequelize.QueryTypes.INSERT,
     });
 
@@ -103,12 +111,12 @@ router.post('/wetmill-weight-measurement', async (req, res) => {
 
 /**
  * PUT /wetmill-weight-measurement/:id
- * Updates a weight measurement's weight and measurement_date.
+ * Updates a weight measurement's weight, measurement_date, and optionally producer.
  * Requires: weight (>0), measurement_date.
  */
 router.put('/wetmill-weight-measurement/:id', async (req, res) => {
   const { id } = req.params;
-  const { weight, measurement_date } = req.body;
+  const { weight, measurement_date, producer } = req.body;
 
   // Validate inputs
   if (weight === undefined || !measurement_date) {
@@ -121,15 +129,18 @@ router.put('/wetmill-weight-measurement/:id', async (req, res) => {
   if (isNaN(parsedDate) || parsedDate > new Date()) {
     return res.status(400).json({ error: 'Invalid or future measurement_date' });
   }
+  if (producer && !['HQ', 'BTM'].includes(producer)) { // Optional validation if producer is provided
+    return res.status(400).json({ error: 'Producer must be either "HQ" or "BTM"' });
+  }
 
   try {
     const [result] = await sequelize.query(`
       UPDATE "WetMillWeightMeasurements"
-      SET weight = :weight, measurement_date = :measurement_date
+      SET weight = :weight, measurement_date = :measurement_date, producer = COALESCE(:producer, producer)
       WHERE id = :id
-      RETURNING id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at
+      RETURNING id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, producer, created_at
     `, {
-      replacements: { id, weight, measurement_date },
+      replacements: { id, weight, measurement_date, producer: producer || null },
       type: sequelize.QueryTypes.UPDATE,
     });
 
@@ -188,7 +199,7 @@ router.post('/wetmill-weight-measurements/delete', async (req, res) => {
 
 /**
  * GET /wetmill-weight-measurements/:batchNumber
- * Fetches all weight measurements for a specific batch with lotNumber and referenceNumber.
+ * Fetches all weight measurements for a specific batch with lotNumber, referenceNumber, and producer.
  */
 router.get('/wetmill-weight-measurements/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
@@ -202,6 +213,7 @@ router.get('/wetmill-weight-measurements/:batchNumber', async (req, res) => {
         w."bagNumber", 
         w.weight, 
         w.measurement_date, 
+        w.producer,
         w.created_at,
         COALESCE(
           (SELECT array_agg(DISTINCT p."lotNumber") 
@@ -262,11 +274,12 @@ router.get('/wetmill-weight-measurements/aggregated', async (req, res) => {
     const data = await sequelize.query(`
       SELECT 
         "batchNumber",
+        "producer",
         SUM(weight) as total_weight,
         MAX(measurement_date) as measurement_date
       FROM "WetMillWeightMeasurements"
       WHERE "batchNumber" IN (:batchNumbers)
-      GROUP BY "batchNumber"
+      GROUP BY "batchNumber", "producer"
     `, {
       replacements: { batchNumbers: batchNumberArray },
       type: sequelize.QueryTypes.SELECT,
@@ -281,18 +294,21 @@ router.get('/wetmill-weight-measurements/aggregated', async (req, res) => {
 
 /**
  * GET /wetmill-weight-measurements/:batchNumber/:processingType/max-bag-number
- * Fetches the maximum bag number for a batch and processing type.
+ * Fetches the maximum bag number for a batch, processing type, and producer.
  */
 router.get('/wetmill-weight-measurements/:batchNumber/:processingType/max-bag-number', async (req, res) => {
   const { batchNumber, processingType } = req.params;
+  const { producer } = req.query; // Optional query param for producer
 
   try {
     const [result] = await sequelize.query(`
       SELECT COALESCE(MAX("bagNumber"), 0) as "maxBagNumber"
       FROM "WetMillWeightMeasurements"
-      WHERE "batchNumber" = :batchNumber AND "processingType" = :processingType
+      WHERE "batchNumber" = :batchNumber 
+        AND "processingType" = :processingType
+        ${producer ? 'AND "producer" = :producer' : ''}
     `, {
-      replacements: { batchNumber, processingType },
+      replacements: { batchNumber, processingType, ...(producer ? { producer } : {}) },
       type: sequelize.QueryTypes.SELECT,
     });
 
