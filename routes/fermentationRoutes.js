@@ -10,7 +10,6 @@ router.get('/fermentation/available-tanks', async (req, res) => {
     );
     const allTanks = ['Biomaster', 'Carrybrew', 'Washing Track', ...allBlueBarrelCodes];
 
-    // Fetch in-use tanks
     const inUseTanks = await sequelize.query(
       `SELECT DISTINCT tank 
        FROM "FermentationData" 
@@ -21,16 +20,11 @@ router.get('/fermentation/available-tanks', async (req, res) => {
       }
     );
 
-    // Ensure inUseTanks is an array
     const inUseTanksArray = Array.isArray(inUseTanks) ? inUseTanks : inUseTanks ? [inUseTanks] : [];
-    
-    // Log for debugging
     console.log('inUseTanks:', inUseTanksArray);
 
-    // Map tank names, ensuring we handle empty results
     const inUseTankNames = inUseTanksArray.map(row => row.tank).filter(tank => tank);
 
-    // Filter out in-use tanks
     const availableTanks = allTanks.filter(tank => !inUseTankNames.includes(tank));
     
     res.json(availableTanks);
@@ -43,45 +37,6 @@ router.get('/fermentation/available-tanks', async (req, res) => {
 // Route for fetching available batches for fermentation
 router.get('/fermentation/available-batches', async (req, res) => {
   try {
-    // // Debug: Check ReceivingData
-    // const receivingData = await sequelize.query(
-    //   `SELECT "batchNumber", producer, merged, "commodityType"
-    //    FROM "ReceivingData"
-    //    WHERE producer = 'HEQA' AND merged = FALSE AND "commodityType" = 'Cherry'`,
-    //   { type: sequelize.QueryTypes.SELECT }
-    // );
-    // console.log('ReceivingData eligible batches:', receivingData);
-
-    // // Debug: Check FermentationData
-    // const fermentationData = await sequelize.query(
-    //   `SELECT "batchNumber", status 
-    //    FROM "FermentationData"`,
-    //   { type: sequelize.QueryTypes.SELECT }
-    // );
-    // console.log('FermentationData batches:', fermentationData);
-
-    // // Debug: Check DryingData
-    // const dryingData = await sequelize.query(
-    //   `SELECT "batchNumber" 
-    //    FROM "DryingData"`,
-    //   { type: sequelize.QueryTypes.SELECT }
-    // );
-    // console.log('DryingData batches:', dryingData);
-
-    // // Debug: Check PreprocessingData
-    // const preprocessingData = await sequelize.query(
-    //   `SELECT "batchNumber", "lotNumber", merged 
-    //    FROM "PreprocessingData"
-    //    WHERE "batchNumber" IN (
-    //      SELECT "batchNumber" 
-    //      FROM "ReceivingData" 
-    //      WHERE producer = 'HEQA' AND merged = FALSE AND "commodityType" = 'Cherry'
-    //    )`,
-    //   { type: sequelize.QueryTypes.SELECT }
-    // );
-    // console.log('PreprocessingData for eligible batches:', preprocessingData);
-
-    // Main query
     const rows = await sequelize.query(
       `SELECT DISTINCT 
         r."batchNumber",
@@ -101,11 +56,7 @@ router.get('/fermentation/available-batches', async (req, res) => {
       }
     );
 
-    // Ensure rows is an array
     const result = Array.isArray(rows) ? rows : rows ? [rows] : [];
-
-    // Log raw query results for debugging
-    // console.log('Available batches query result:', result);
 
     res.json(result);
   } catch (err) {
@@ -125,7 +76,7 @@ router.post('/fermentation', async (req, res) => {
       return res.status(400).json({ error: 'batchNumber, tank, startDate, and createdBy are required.' });
     }
 
-    if (!['Biomaster', 'Carrybrew','Washing Track'].includes(tank) && !/^BB-HQ-\d{4}$/.test(tank)) {
+    if (!['Biomaster', 'Carrybrew', 'Washing Track'].includes(tank) && !/^BB-HQ-\d{4}$/.test(tank)) {
       await t.rollback();
       return res.status(400).json({ error: 'Invalid tank. Must be Biomaster, Carrybrew, Washing Track, or BB-HQ-XXXX.' });
     }
@@ -251,10 +202,10 @@ router.get('/fermentation', async (req, res) => {
 
 // Route for saving a new weight measurement
 router.post('/fermentation-weight-measurement', async (req, res) => {
-  const { batchNumber, processingType, weight, measurement_date } = req.body;
+  const { batchNumber, processingType, weight, measurement_date, producer } = req.body;
 
-  if (!batchNumber || !processingType || !weight || !measurement_date) {
-    return res.status(400).json({ error: 'batchNumber, processingType, weight, and measurement_date are required.' });
+  if (!batchNumber || !processingType || !weight || !measurement_date || !producer) {
+    return res.status(400).json({ error: 'batchNumber, processingType, weight, measurement_date, and producer are required.' });
   }
 
   if (typeof weight !== 'number' || weight <= 0) {
@@ -264,6 +215,10 @@ router.post('/fermentation-weight-measurement', async (req, res) => {
   const parsedDate = new Date(measurement_date);
   if (isNaN(parsedDate) || parsedDate > new Date()) {
     return res.status(400).json({ error: 'Invalid or future measurement_date.' });
+  }
+
+  if (!['HQ', 'BTM'].includes(producer)) {
+    return res.status(400).json({ error: 'Producer must be either "HQ" or "BTM".' });
   }
 
   const t = await sequelize.transaction();
@@ -283,12 +238,12 @@ router.post('/fermentation-weight-measurement', async (req, res) => {
 
     const [result] = await sequelize.query(`
       INSERT INTO "FermentationWeightMeasurements" (
-        "batchNumber", "processingType", weight, measurement_date, created_at, updated_at
+        "batchNumber", "processingType", weight, measurement_date, producer, created_at, updated_at
       ) VALUES (
-        :batchNumber, :processingType, :weight, :measurement_date, NOW(), NOW()
+        :batchNumber, :processingType, :weight, :measurement_date, :producer, NOW(), NOW()
       ) RETURNING *;
     `, {
-      replacements: { batchNumber, processingType, weight, measurement_date: parsedDate },
+      replacements: { batchNumber, processingType, weight, measurement_date: parsedDate, producer },
       transaction: t,
       type: sequelize.QueryTypes.INSERT
     });
@@ -308,7 +263,7 @@ router.get('/fermentation-weight-measurements/:batchNumber', async (req, res) =>
 
   try {
     const [measurements] = await sequelize.query(`
-      SELECT id, "batchNumber", "processingType", weight, measurement_date, created_at
+      SELECT id, "batchNumber", "processingType", weight, measurement_date, producer, created_at
       FROM "FermentationWeightMeasurements"
       WHERE "batchNumber" = :batchNumber
       ORDER BY measurement_date DESC
