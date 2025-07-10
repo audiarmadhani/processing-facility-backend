@@ -874,7 +874,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
           await t.rollback();
           logger.warn('Invalid lot number in grade', { batchNumber, lotNumber: grade.lotNumber, user: createdBy });
           return res.status(400).json({ error: `Invalid lot number in grade: ${grade.lotNumber}` });
-        }
+      }
         if (!validateReferenceNumber(grade.referenceNumber)) {
           await t.rollback();
           logger.warn('Invalid reference number in grade', { batchNumber, referenceNumber: grade.referenceNumber, user: createdBy });
@@ -1047,6 +1047,12 @@ router.get('/dry-mill-data', async (req, res) => {
     t = await sequelize.transaction();
 
     const data = await sequelize.query(`
+      WITH LatestDryingWeights AS (
+        SELECT "batchNumber", "processingType", producer, SUM(weight) AS drying_weight
+        FROM "DryingWeightMeasurements"
+        GROUP BY "batchNumber", "processingType", producer
+        ORDER BY "batchNumber" ASC
+      )
       SELECT 
         rd."batchNumber",
         COALESCE(pp."parentBatchNumber", rd."batchNumber") AS parentBatchNumber,
@@ -1061,6 +1067,7 @@ router.get('/dry-mill-data', async (req, res) => {
         COALESCE(pp.weight, rd.weight) AS weight,
         COALESCE(pp.quality, 'N/A') AS quality,
         rd.weight AS cherry_weight,
+        COALESCE(ldw.drying_weight, 0.00) AS drying_weight,
         COALESCE(pp.producer, rd.producer) AS producer,
         rd."farmerName" AS "farmerName",
         pp."productLine" AS "productLine",
@@ -1089,6 +1096,10 @@ router.get('/dry-mill-data', async (req, res) => {
       )
       LEFT JOIN "BagDetails" bd ON LOWER(dg."subBatchId") = LOWER(bd.grade_id)
       LEFT JOIN "Farmers" fm ON rd."farmerID" = fm."farmerID"
+      LEFT JOIN LatestDryingWeights ldw 
+        ON rd."batchNumber" = ldw."batchNumber" 
+        AND COALESCE(pp."processingType", pd."processingType") = ldw."processingType" 
+        AND COALESCE(pp.producer, rd.producer) = ldw.producer
       WHERE dm."entered_at" IS NOT NULL
       GROUP BY 
         rd."batchNumber", pp."batchNumber", pp."parentBatchNumber",
@@ -1099,7 +1110,8 @@ router.get('/dry-mill-data', async (req, res) => {
         pp."productLine", pp."processingType",
         pd."lotNumber", pp."referenceNumber", pp.notes, rd.notes,
         pp."storedDate", rd.rfid,
-        fm."farmVarieties"
+        fm."farmVarieties",
+        ldw.drying_weight
       ORDER BY dm."entered_at" DESC
     `, {
       type: sequelize.QueryTypes.SELECT,
@@ -1405,6 +1417,85 @@ router.post('/rfid/reuse', async (req, res) => {
     if (t) await t.rollback();
     logger.error('Error reusing RFID tag', { rfid, batchNumber, error: error.message, stack: error.stack, user: req.body.createdBy || 'unknown' });
     res.status(500).json({ error: 'Failed to reuse RFID tag', details: error.message });
+  }
+});
+
+// GET route for sample history
+router.get('/dry-mill/:batchNumber/sample-history', async (req, res) => {
+  const { batchNumber } = req.params;
+
+  if (!batchNumber) {
+    logger.warn('Missing batchNumber', { user: req.body.createdBy || 'unknown' });
+    return res.status(400).json({ error: 'batchNumber is required.' });
+  }
+
+  let t;
+  try {
+    t = await sequelize.transaction();
+
+    const samples = await sequelize.query(`
+      SELECT date_taken, weight_taken
+      FROM "DryMillSamples"
+      WHERE "batchNumber" = :batchNumber
+      ORDER BY date_taken DESC
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t
+    });
+
+    await t.commit();
+    logger.info('Fetched sample history successfully', { batchNumber, user: req.body.createdBy || 'unknown' });
+    res.status(200).json(samples);
+  } catch (error) {
+    if (t) await t.rollback();
+    logger.error('Error fetching sample history', { batchNumber, error: error.message, stack: error.stack, user: req.body.createdBy || 'unknown' });
+    res.status(500).json({ error: 'Failed to fetch sample history', details: error.message });
+  }
+});
+
+// POST route to add a sample
+router.post('/dry-mill/:batchNumber/add-sample', async (req, res) => {
+  const { batchNumber } = req.params;
+  const { dateTaken, weightTaken } = req.body;
+
+  if (!batchNumber || !dateTaken || weightTaken === undefined) {
+    logger.warn('Missing required parameters', { batchNumber, dateTaken, weightTaken, user: req.body.createdBy || 'unknown' });
+    return res.status(400).json({ error: 'batchNumber, dateTaken, and weightTaken are required.' });
+  }
+
+  if (isNaN(parseFloat(weightTaken)) || parseFloat(weightTaken) <= 0) {
+    logger.warn('Invalid weightTaken', { batchNumber, weightTaken, user: req.body.createdBy || 'unknown' });
+    return res.status(400).json({ error: 'weightTaken must be a positive number.' });
+  }
+
+  const parsedDate = new Date(dateTaken);
+  if (isNaN(parsedDate) || parsedDate > new Date()) {
+    logger.warn('Invalid dateTaken', { batchNumber, dateTaken, user: req.body.createdBy || 'unknown' });
+    return res.status(400).json({ error: 'dateTaken must be a valid past or present date.' });
+  }
+
+  let t;
+  try {
+    t = await sequelize.transaction();
+
+    const [result] = await sequelize.query(`
+      INSERT INTO "DryMillSamples" ("batchNumber", date_taken, weight_taken, created_at)
+      VALUES (:batchNumber, :dateTaken, :weightTaken, NOW())
+      RETURNING date_taken, weight_taken
+    `, {
+      replacements: { batchNumber, dateTaken, weightTaken: parseFloat(weightTaken).toFixed(2) },
+      type: sequelize.QueryTypes.INSERT,
+      transaction: t
+    });
+
+    await t.commit();
+    logger.info('Sample added successfully', { batchNumber, user: req.body.createdBy || 'unknown' });
+    res.status(201).json(result);
+  } catch (error) {
+    if (t) await t.rollback();
+    logger.error('Error adding sample', { batchNumber, error: error.message, stack: error.stack, user: req.body.createdBy || 'unknown' });
+    res.status(500).json({ error: 'Failed to add sample', details: error.message });
   }
 });
 
