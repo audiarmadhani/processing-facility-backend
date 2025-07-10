@@ -282,20 +282,23 @@ router.post('/move-drying-area', async (req, res) => {
 /**
  * POST /drying-weight-measurement
  * Saves a new weight measurement for a batch.
- * Requires: batchNumber, processingType, bagNumber, weight (>0), measurement_date.
+ * Requires: batchNumber, processingType, bagNumber, weight (>0), measurement_date, producer.
  */
 router.post('/drying-weight-measurement', async (req, res) => {
-  const { batchNumber, processingType, bagNumber, weight, measurement_date } = req.body;
+  const { batchNumber, processingType, bagNumber, weight, measurement_date, producer } = req.body;
 
   // Validate inputs
-  if (!batchNumber || !processingType || !bagNumber || weight === undefined || !measurement_date) {
-    return res.status(400).json({ error: 'batchNumber, processingType, bagNumber, weight, and measurement_date are required' });
+  if (!batchNumber || !processingType || !bagNumber || weight === undefined || !measurement_date || !producer) {
+    return res.status(400).json({ error: 'batchNumber, processingType, bagNumber, weight, measurement_date, and producer are required' });
   }
   if (typeof weight !== 'number' || weight <= 0) {
     return res.status(400).json({ error: 'Weight must be a positive number' });
   }
   if (!Number.isInteger(bagNumber) || bagNumber <= 0) {
     return res.status(400).json({ error: 'Bag number must be a positive integer' });
+  }
+  if (!['HQ', 'BTM'].includes(producer)) {
+    return res.status(400).json({ error: 'Producer must be either "HQ" or "BTM"' });
   }
   const parsedDate = new Date(measurement_date);
   if (isNaN(parsedDate) || parsedDate > new Date()) {
@@ -304,11 +307,11 @@ router.post('/drying-weight-measurement', async (req, res) => {
 
   try {
     const [result] = await sequelize.query(`
-      INSERT INTO "DryingWeightMeasurements" ("batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at)
-      VALUES (:batchNumber, :processingType, :bagNumber, :weight, :measurement_date, NOW())
-      RETURNING id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at
+      INSERT INTO "DryingWeightMeasurements" ("batchNumber", "processingType", "bagNumber", weight, measurement_date, producer, created_at)
+      VALUES (:batchNumber, :processingType, :bagNumber, :weight, :measurement_date, :producer, NOW())
+      RETURNING id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, producer, created_at
     `, {
-      replacements: { batchNumber, processingType, bagNumber, weight, measurement_date },
+      replacements: { batchNumber, processingType, bagNumber, weight, measurement_date, producer },
       type: sequelize.QueryTypes.INSERT,
     });
 
@@ -328,7 +331,7 @@ router.get('/drying-weight-measurements/:batchNumber', async (req, res) => {
 
   try {
     const measurements = await sequelize.query(`
-      SELECT id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at
+      SELECT id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, producer, created_at
       FROM "DryingWeightMeasurements"
       WHERE "batchNumber" = :batchNumber
       ORDER BY measurement_date DESC, "processingType" ASC, "bagNumber" ASC
@@ -431,7 +434,7 @@ router.put('/drying-weight-measurement/:id', async (req, res) => {
       UPDATE "DryingWeightMeasurements"
       SET weight = :weight, measurement_date = :measurement_date
       WHERE id = :id
-      RETURNING id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, created_at
+      RETURNING id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, producer, created_at
     `, {
       replacements: { id, weight, measurement_date },
       type: sequelize.QueryTypes.UPDATE,
