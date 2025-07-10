@@ -331,9 +331,39 @@ router.get('/drying-weight-measurements/:batchNumber', async (req, res) => {
 
   try {
     const measurements = await sequelize.query(`
-      SELECT id, "batchNumber", "processingType", "bagNumber", weight, measurement_date, producer, created_at
-      FROM "DryingWeightMeasurements"
-      WHERE "batchNumber" = :batchNumber
+      SELECT 
+        id, 
+        "batchNumber", 
+        "processingType", 
+        "bagNumber", 
+        weight, 
+        measurement_date, 
+        producer, 
+        created_at,
+        COALESCE(
+          (SELECT array_agg(DISTINCT p."lotNumber") 
+            FROM "PreprocessingData" p 
+            WHERE p."batchNumber" = d."batchNumber"),
+          '{}'
+        ) AS "lotNumbers",
+        COALESCE(
+          (SELECT array_agg(DISTINCT p."referenceNumber") 
+            FROM "PreprocessingData" p 
+            WHERE p."batchNumber" = d."batchNumber" AND p."referenceNumber" IS NOT NULL),
+          '{}'
+        ) AS "referenceNumbers",
+        COALESCE(
+          (SELECT json_agg(json_build_object(
+            'processingType', p."processingType",
+            'lotNumber', p."lotNumber",
+            'referenceNumber', p."referenceNumber"
+          ))
+          FROM "PreprocessingData" p 
+          WHERE p."batchNumber" = d."batchNumber"),
+          '[]'
+        ) AS "lotMapping"
+      FROM "DryingWeightMeasurements" d
+      WHERE d."batchNumber" = :batchNumber
       ORDER BY measurement_date DESC, "processingType" ASC, "bagNumber" ASC
     `, {
       replacements: { batchNumber },
