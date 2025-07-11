@@ -1071,7 +1071,7 @@ router.get('/dry-mill-data', async (req, res) => {
         COALESCE(pp.producer, rd.producer) AS producer,
         rd."farmerName" AS "farmerName",
         pp."productLine" AS "productLine",
-        pp."processingType",
+        COALESCE(pp."processingType", pd."processingType") AS processingType,
         pd."lotNumber",
         pp."referenceNumber",
         CASE
@@ -1099,7 +1099,7 @@ router.get('/dry-mill-data', async (req, res) => {
       LEFT JOIN LatestDryingWeights ldw 
         ON rd."batchNumber" = ldw."batchNumber" 
         AND COALESCE(pp."processingType", pd."processingType") = ldw."processingType" 
-        AND COALESCE(pp.producer, rd.producer) = ldw.producer
+        AND COALESCE(pp.producer, rd.producer, 'Unknown') = COALESCE(ldw.producer, 'Unknown')
       WHERE dm."entered_at" IS NOT NULL
       GROUP BY 
         rd."batchNumber", pp."batchNumber", pp."parentBatchNumber",
@@ -1107,7 +1107,7 @@ router.get('/dry-mill-data', async (req, res) => {
         dm."entered_at", dm."exited_at", pp."storedDate",
         pp.weight, rd.weight, pp.quality,
         pp.producer, rd.producer, rd."farmerName",
-        pp."productLine", pp."processingType",
+        pp."productLine", COALESCE(pp."processingType", pd."processingType"),
         pd."lotNumber", pp."referenceNumber", pp.notes, rd.notes,
         pp."storedDate", rd.rfid,
         fm."farmVarieties",
