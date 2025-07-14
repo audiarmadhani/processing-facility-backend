@@ -1514,7 +1514,7 @@ router.get('/postprocessing-data/:batchNumber', async (req, res) => {
 
     const data = await sequelize.query(
       `
-      SELECT "batchNumber", "parentBatchNumber", weight, quality, "processingType", "lotNumber", "referenceNumber", "isStored", "storedDate"
+      SELECT "batchNumber", "parentBatchNumber", weight, quality, "processingType", "lotNumber", "referenceNumber", "storedDate"
       FROM "PostprocessingData"
       WHERE "batchNumber" = :batchNumber
       OR "parentBatchNumber" = :batchNumber
