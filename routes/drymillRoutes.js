@@ -234,8 +234,8 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       bagWeights: Array.isArray(g.bagWeights) && g.bagWeights.length > 0 && g.bagWeights[0] !== null ? g.bagWeights.map(w => String(w)) : [],
       bagged_at: g.bagged_at ? new Date(g.bagged_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
       is_stored: g.is_stored || false,
-      lotNumber: g.lotNumber || 'N/A',
-      referenceNumber: g.referenceNumber || 'N/A',
+      lotNumber: g.lotNumber || validProcessingType?.lotNumber || 'N/A', // Fallback to preprocessing data or 'N/A'
+      referenceNumber: g.referenceNumber || validProcessingType?.referenceNumber || 'N/A', // Fallback
       tempSequence: g.temp_sequence || '0001'
     }));
 
@@ -1496,6 +1496,50 @@ router.post('/dry-mill/:batchNumber/add-sample', async (req, res) => {
     if (t) await t.rollback();
     logger.error('Error adding sample', { batchNumber, error: error.message, stack: error.stack, user: req.body.createdBy || 'unknown' });
     res.status(500).json({ error: 'Failed to add sample', details: error.message });
+  }
+});
+
+// GET route for postprocessing data by batch number
+router.get('/postprocessing-data/:batchNumber', async (req, res) => {
+  const { batchNumber } = req.params;
+
+  if (!batchNumber) {
+    logger.warn('Missing batchNumber', { user: req.body.createdBy || 'unknown' });
+    return res.status(400).json({ error: 'batchNumber is required.' });
+  }
+
+  let t;
+  try {
+    t = await sequelize.transaction();
+
+    const data = await sequelize.query(
+      `
+      SELECT "batchNumber", "parentBatchNumber", weight, quality, "processingType", "lotNumber", "referenceNumber", "isStored", "storedDate"
+      FROM "PostprocessingData"
+      WHERE "batchNumber" = :batchNumber
+      OR "parentBatchNumber" = :batchNumber
+      ORDER BY "processingType"
+      `,
+      {
+        replacements: { batchNumber },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      }
+    );
+
+    if (data.length === 0) {
+      await t.rollback();
+      logger.warn('No postprocessing data found', { batchNumber, user: req.body.createdBy || 'unknown' });
+      return res.status(404).json({ error: 'No postprocessing data found for this batch.' });
+    }
+
+    await t.commit();
+    logger.info('Fetched postprocessing data successfully', { batchNumber, user: req.body.createdBy || 'unknown' });
+    res.status(200).json(data);
+  } catch (error) {
+    if (t) await t.rollback();
+    logger.error('Error fetching postprocessing data', { batchNumber, error: error.message, stack: error.stack, user: req.body.createdBy || 'unknown' });
+    res.status(500).json({ error: 'Failed to fetch postprocessing data', details: error.message });
   }
 });
 
