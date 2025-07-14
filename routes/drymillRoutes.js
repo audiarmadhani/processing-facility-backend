@@ -175,7 +175,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       relevantBatchNumber = validProcessingType.parentBatchNumber;
       grades = await sequelize.query(`
         SELECT 
-          dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
+          dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg."storedDate",
           dg."lotNumber", dg."referenceNumber",
           ARRAY_AGG(bd.weight) FILTER (WHERE bd.weight IS NOT NULL) AS bagWeights,
           COALESCE(dg.temp_sequence, '0001') AS temp_sequence
@@ -184,7 +184,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         WHERE dg."batchNumber" = :parentBatchNumber
           AND LOWER(dg.grade) = LOWER(:quality)
           AND dg.processing_type = :processingType
-        GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored, 
+        GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg."storedDate", 
                  dg."lotNumber", dg."referenceNumber", dg.temp_sequence
       `, {
         replacements: { parentBatchNumber: validProcessingType.parentBatchNumber, quality: validProcessingType.quality, processingType },
@@ -194,7 +194,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
     } else {
       grades = await sequelize.query(`
         SELECT 
-          dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored,
+          dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg."storedDate",
           dg."lotNumber", dg."referenceNumber",
           ARRAY_AGG(bd.weight) FILTER (WHERE bd.weight IS NOT NULL) AS bagWeights,
           COALESCE(dg.temp_sequence, '0001') AS temp_sequence
@@ -202,7 +202,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         LEFT JOIN "BagDetails" bd ON LOWER(dg."subBatchId") = LOWER(bd.grade_id)
         WHERE dg."batchNumber" = :batchNumber
           AND dg.processing_type = :processingType
-        GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg.is_stored, 
+        GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg."storedDate", 
                  dg."lotNumber", dg."referenceNumber", dg.temp_sequence
       `, {
         replacements: { batchNumber, processingType },
@@ -233,9 +233,9 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
       weight: g.weight ? parseFloat(g.weight).toFixed(2) : '0.00',
       bagWeights: Array.isArray(g.bagWeights) && g.bagWeights.length > 0 && g.bagWeights[0] !== null ? g.bagWeights.map(w => String(w)) : [],
       bagged_at: g.bagged_at ? new Date(g.bagged_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-      is_stored: g.is_stored || false,
-      lotNumber: g.lotNumber || validProcessingType?.lotNumber || 'N/A', // Fallback to preprocessing data or 'N/A'
-      referenceNumber: g.referenceNumber || validProcessingType?.referenceNumber || 'N/A', // Fallback
+      storedDate: g.storedDate || null,
+      lotNumber: g.lotNumber || validProcessingType?.lotNumber || 'N/A',
+      referenceNumber: g.referenceNumber || validProcessingType?.referenceNumber || 'N/A',
       tempSequence: g.temp_sequence || '0001'
     }));
 
@@ -248,7 +248,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         weight: '0.00',
         bagWeights: [],
         bagged_at: new Date().toISOString().split('T')[0],
-        is_stored: false,
+        storedDate: null,
         lotNumber: validProcessingType?.lotNumber || 'N/A',
         referenceNumber: validProcessingType?.referenceNumber || 'N/A',
         tempSequence: '0001'
@@ -443,17 +443,16 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
       await sequelize.query(`
         INSERT INTO "DryMillGrades" (
-          "batchNumber", "subBatchId", grade, weight, split_at, bagged_at, is_stored, processing_type, temp_sequence, 
+          "batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "storedDate", processing_type, temp_sequence, 
           "lotNumber", "referenceNumber", "createdAt", "updatedAt"
         ) VALUES (
-          :batchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, FALSE, :processingType, :tempSequence, 
+          :batchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, NULL, :processingType, :tempSequence, 
           :lotNumber, :referenceNumber, NOW(), NOW()
         )
         ON CONFLICT ("subBatchId") DO UPDATE SET
           weight = :weight,
           bagged_at = :bagged_at,
-          temp_sequence = :tempSequence,
-          is_stored = FALSE,
+          "storedDate" = NULL,
           processing_type = :processingType,
           "lotNumber" = :lotNumber,
           "referenceNumber" = :referenceNumber,
@@ -485,9 +484,9 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       for (let i = 0; i < weights.length; i++) {
         await sequelize.query(`
           INSERT INTO "BagDetails" (
-            grade_id, bag_number, weight, bagged_at, is_stored, "createdAt", "updatedAt"
+            grade_id, bag_number, weight, bagged_at, "storedDate", "createdAt", "updatedAt"
           ) VALUES (
-            :gradeId, :bagNumber, :weight, :baggedAt, FALSE, NOW(), NOW()
+            :gradeId, :bagNumber, :weight, :baggedAt, NULL, NOW(), NOW()
           )
         `, {
           replacements: {
@@ -661,16 +660,16 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
 
     await sequelize.query(`
       INSERT INTO "DryMillGrades" (
-        "batchNumber", "subBatchId", grade, weight, split_at, bagged_at, is_stored, processing_type, 
+        "batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "storedDate", processing_type, 
         "lotNumber", "referenceNumber", "createdAt", "updatedAt"
       ) VALUES (
-        :parentBatchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, FALSE, :processingType, 
+        :parentBatchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, NULL, :processingType, 
         :lotNumber, :referenceNumber, NOW(), NOW()
       )
       ON CONFLICT ("subBatchId") DO UPDATE SET
         weight = :weight,
         bagged_at = :bagged_at,
-        is_stored = FALSE,
+        "storedDate" = NULL,
         processing_type = :processingType,
         "lotNumber" = :lotNumber,
         "referenceNumber" = :referenceNumber,
@@ -693,9 +692,9 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
     for (let i = 0; i < weights.length; i++) {
       await sequelize.query(`
         INSERT INTO "BagDetails" (
-          grade_id, bag_number, weight, bagged_at, is_stored, "createdAt", "updatedAt"
+          grade_id, bag_number, weight, bagged_at, "storedDate", "createdAt", "updatedAt"
         ) VALUES (
-          :gradeId, :bagNumber, :weight, :baggedAt, FALSE, NOW(), NOW()
+          :gradeId, :bagNumber, :weight, :baggedAt, NULL, NOW(), NOW()
         )
       `, {
         replacements: {
@@ -820,7 +819,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
 
       for (const pt of processingTypes) {
         const grades = await sequelize.query(`
-          SELECT grade, weight, bagged_at, is_stored, "lotNumber", "referenceNumber"
+          SELECT grade, weight, bagged_at, "storedDate", "lotNumber", "referenceNumber"
           FROM "DryMillGrades"
           WHERE "batchNumber" = :batchNumber
           AND processing_type = :processingType
@@ -830,7 +829,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
           transaction: t
         });
 
-        const hasValidSplits = grades.some(g => parseFloat(g.weight) > 0 && g.bagged_at && !g.is_stored);
+        const hasValidSplits = grades.some(g => parseFloat(g.weight) > 0 && g.bagged_at && !g.storedDate);
         if (!hasValidSplits) {
           await t.rollback();
           logger.warn('No valid splits for processing type', { batchNumber, processingType: pt, user: createdBy });
@@ -852,7 +851,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
       }
     } else {
       const grades = await sequelize.query(`
-        SELECT grade, weight, bagged_at, is_stored, "lotNumber", "referenceNumber"
+        SELECT grade, weight, bagged_at, "storedDate", "lotNumber", "referenceNumber"
         FROM "DryMillGrades"
         WHERE "batchNumber" = :batchNumber
         AND processing_type = 'Dry'
@@ -862,7 +861,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
         transaction: t
       });
 
-      const hasValidSplits = grades.some(g => parseFloat(g.weight) > 0 && g.bagged_at && !g.is_stored);
+      const hasValidSplits = grades.some(g => parseFloat(g.weight) > 0 && g.bagged_at && !g.storedDate);
       if (!hasValidSplits) {
         await t.rollback();
         logger.warn('No valid splits for green beans', { batchNumber, user: createdBy });
@@ -874,7 +873,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
           await t.rollback();
           logger.warn('Invalid lot number in grade', { batchNumber, lotNumber: grade.lotNumber, user: createdBy });
           return res.status(400).json({ error: `Invalid lot number in grade: ${grade.lotNumber}` });
-      }
+        }
         if (!validateReferenceNumber(grade.referenceNumber)) {
           await t.rollback();
           logger.warn('Invalid reference number in grade', { batchNumber, referenceNumber: grade.referenceNumber, user: createdBy });
@@ -1193,7 +1192,7 @@ router.post('/warehouse/scan', async (req, res) => {
       SELECT "batchNumber", "parentBatchNumber", weight, quality, "processingType", "lotNumber", "referenceNumber"
       FROM "PostprocessingData"
       WHERE "batchNumber" = :batchNumber
-      AND "isStored" = FALSE
+      AND "storedDate" IS NULL
       LIMIT 1
     `, {
       replacements: { batchNumber },
@@ -1220,7 +1219,7 @@ router.post('/warehouse/scan', async (req, res) => {
     }
 
     const [dryMillGrade] = await sequelize.query(`
-      SELECT "subBatchId", is_stored
+      SELECT "subBatchId", "storedDate"
       FROM "DryMillGrades"
       WHERE "subBatchId" = :subBatchId
       AND processing_type = :processingType
@@ -1234,7 +1233,7 @@ router.post('/warehouse/scan', async (req, res) => {
       transaction: t
     });
 
-    if (!dryMillGrade || dryMillGrade.is_stored) {
+    if (!dryMillGrade || dryMillGrade.storedDate) {
       await t.rollback();
       logger.warn('Grade not found or already stored', { batchNumber, user: req.body.createdBy || 'unknown' });
       return res.status(400).json({ error: 'Grade not found or already stored.' });
@@ -1242,7 +1241,7 @@ router.post('/warehouse/scan', async (req, res) => {
 
     await sequelize.query(`
       UPDATE "PostprocessingData"
-      SET "isStored" = TRUE, "storedDate" = NOW(), "updatedAt" = NOW()
+      SET "storedDate" = NOW(), "updatedAt" = NOW()
       WHERE "batchNumber" = :batchNumber
     `, {
       replacements: { batchNumber },
@@ -1252,7 +1251,7 @@ router.post('/warehouse/scan', async (req, res) => {
 
     await sequelize.query(`
       UPDATE "DryMillGrades"
-      SET is_stored = TRUE, "updatedAt" = NOW()
+      SET "storedDate" = NOW(), "updatedAt" = NOW()
       WHERE "subBatchId" = :subBatchId
       AND processing_type = :processingType
     `, {
@@ -1266,7 +1265,7 @@ router.post('/warehouse/scan', async (req, res) => {
 
     await sequelize.query(`
       UPDATE "BagDetails"
-      SET is_stored = TRUE, "updatedAt" = NOW()
+      SET "storedDate" = NOW(), "updatedAt" = NOW()
       WHERE grade_id = :subBatchId
     `, {
       replacements: { subBatchId: dryMillGrade.subBatchId },
