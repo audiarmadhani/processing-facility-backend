@@ -203,6 +203,7 @@ router.get('/fermentation', async (req, res) => {
 // Route for fetching available processing types
 router.get('/fermentation/processing-types', async (req, res) => {
   try {
+    console.log('Executing query for processing types...');
     const [results, metadata] = await sequelize.query(
       `SELECT DISTINCT "processingType" 
        FROM "ReferenceMappings_duplicate" 
@@ -212,8 +213,18 @@ router.get('/fermentation/processing-types', async (req, res) => {
       }
     );
 
+    console.log('Query results:', results);
+    console.log('Metadata:', metadata);
+
     // Ensure results is an array and map to extract processingType
-    const processingTypes = Array.isArray(results) ? results.map(row => row.processingType).filter(type => type) : [];
+    const processingTypes = Array.isArray(results) ? results.map(row => row.processingType).filter(type => type && type.trim() !== '') : [];
+    console.log('Processed processingTypes:', processingTypes);
+
+    if (processingTypes.length === 0) {
+      console.warn('No processing types found in ReferenceMappings_duplicate.');
+      return res.status(404).json({ message: 'No processing types found.' });
+    }
+
     res.json(processingTypes);
   } catch (err) {
     console.error('Error fetching processing types:', err);
