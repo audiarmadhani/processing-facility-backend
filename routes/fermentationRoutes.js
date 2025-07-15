@@ -203,17 +203,18 @@ router.get('/fermentation', async (req, res) => {
 // Route for fetching available processing types
 router.get('/fermentation/processing-types', async (req, res) => {
   try {
-    const [rows] = await sequelize.query(
+    const rows = await sequelize.query(
       `SELECT DISTINCT "processingType" 
        FROM "ReferenceMappings_duplicate" 
-       ORDER BY "processingType" ASC`,
+       ORDER BY "processingType" ASC;`,
       {
         type: sequelize.QueryTypes.SELECT
       }
     );
 
-    const processingTypes = rows.map(row => row.processingType).filter(type => type);
-    res.json(processingTypes);
+    const result = Array.isArray(rows) ? rows : rows ? [rows] : [];
+
+    res.json(result);
   } catch (err) {
     console.error('Error fetching processing types:', err);
     res.status(500).json({ message: 'Failed to fetch processing types.', details: err.message });
