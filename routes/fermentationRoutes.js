@@ -204,17 +204,17 @@ router.get('/fermentation', async (req, res) => {
 router.get('/fermentation/processing-types', async (req, res) => {
   try {
     console.log('Executing query for processing types...');
-    const [results, metadata] = await sequelize.query(
+    const [results] = await sequelize.query(
       `SELECT DISTINCT "processingType" 
        FROM "ReferenceMappings_duplicate" 
        ORDER BY "processingType" ASC`,
       {
-        type: sequelize.QueryTypes.SELECT
+        type: sequelize.QueryTypes.SELECT,
+        plain: false // Ensure raw query returns an array of rows
       }
     );
 
     console.log('Query results:', results);
-    console.log('Metadata:', metadata);
 
     // Ensure results is an array and map to extract processingType
     const processingTypes = Array.isArray(results) ? results.map(row => row.processingType).filter(type => type && type.trim() !== '') : [];
