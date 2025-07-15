@@ -200,12 +200,32 @@ router.get('/fermentation', async (req, res) => {
   }
 });
 
+// Route for fetching available processing types
+router.get('/fermentation/processing-types', async (req, res) => {
+  try {
+    const [rows] = await sequelize.query(
+      `SELECT DISTINCT "processingType" 
+       FROM "ReferenceMappings_duplicate" 
+       ORDER BY "processingType" ASC`,
+      {
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    const processingTypes = rows.map(row => row.processingType).filter(type => type);
+    res.json(processingTypes);
+  } catch (err) {
+    console.error('Error fetching processing types:', err);
+    res.status(500).json({ message: 'Failed to fetch processing types.', details: err.message });
+  }
+});
+
 // Route for saving a new weight measurement
 router.post('/fermentation-weight-measurement', async (req, res) => {
   const { batchNumber, processingType, weight, measurement_date, producer } = req.body;
 
-  if (!batchNumber || !processingType || !weight || !measurement_date || !producer) {
-    return res.status(400).json({ error: 'batchNumber, processingType, weight, measurement_date, and producer are required.' });
+  if (!batchNumber || !weight || !measurement_date || !producer) {
+    return res.status(400).json({ error: 'batchNumber, weight, measurement_date, and producer are required.' });
   }
 
   if (typeof weight !== 'number' || weight <= 0) {
@@ -236,6 +256,25 @@ router.post('/fermentation-weight-measurement', async (req, res) => {
       return res.status(400).json({ error: 'Batch not found in fermentation data.' });
     }
 
+    // If processingType is not provided or empty, fetch default processing types
+    let finalProcessingType = processingType;
+    if (!finalProcessingType) {
+      const [processingTypes] = await sequelize.query(
+        `SELECT DISTINCT "processingType" 
+         FROM "ReferenceMappings_duplicate" 
+         ORDER BY "processingType" ASC`,
+        {
+          transaction: t,
+          type: sequelize.QueryTypes.SELECT
+        }
+      );
+      finalProcessingType = processingTypes.length > 0 ? processingTypes[0].processingType : null;
+      if (!finalProcessingType) {
+        await t.rollback();
+        return res.status(400).json({ error: 'No default processing type available.' });
+      }
+    }
+
     const [result] = await sequelize.query(`
       INSERT INTO "FermentationWeightMeasurements" (
         "batchNumber", "processingType", weight, measurement_date, producer, created_at, updated_at
@@ -243,7 +282,7 @@ router.post('/fermentation-weight-measurement', async (req, res) => {
         :batchNumber, :processingType, :weight, :measurement_date, :producer, NOW(), NOW()
       ) RETURNING *;
     `, {
-      replacements: { batchNumber, processingType, weight, measurement_date: parsedDate, producer },
+      replacements: { batchNumber, processingType: finalProcessingType, weight, measurement_date: parsedDate, producer },
       transaction: t,
       type: sequelize.QueryTypes.INSERT
     });
