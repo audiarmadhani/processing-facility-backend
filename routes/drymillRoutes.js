@@ -343,11 +343,22 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       return res.status(400).json({ error: 'Batch must be entered into dry mill first.' });
     }
 
-    // Retrieve base lotNumber and referenceNumber
+    // Retrieve base lotNumber and referenceNumber from PreprocessingData
     let baseLotNumber, baseReferenceNumber;
     if (batch.type !== 'Green Beans') {
-      baseLotNumber = dryMillEntry.lotNumber;
-      baseReferenceNumber = dryMillEntry.referenceNumber;
+      const [preprocessingData] = await sequelize.query(`
+        SELECT "lotNumber", "referenceNumber"
+        FROM "PreprocessingData"
+        WHERE "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
+        LIMIT 1
+      `, {
+        replacements: { batchNumber, processingType },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      });
+      baseLotNumber = preprocessingData?.lotNumber;
+      baseReferenceNumber = preprocessingData?.referenceNumber;
     } else {
       const [preprocessingData] = await sequelize.query(`
         SELECT "lotNumber", "referenceNumber"
@@ -397,27 +408,22 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '-')}`;
       const formattedSequence = tempSequence || '0001';
 
-      // Generate suffixed lot and reference numbers
-      let qualityAbbreviation, qualitySuffix;
+      // Add suffixes to base lot and reference numbers based on grade
+      let qualitySuffix;
       switch (grade) {
         case 'Specialty Grade':
-          qualityAbbreviation = 'S';
           qualitySuffix = '-S';
           break;
         case 'Grade 1':
-          qualityAbbreviation = 'G1';
           qualitySuffix = '-G1';
           break;
         case 'Grade 2':
-          qualityAbbreviation = 'G2';
           qualitySuffix = '-G2';
           break;
         case 'Grade 3':
-          qualityAbbreviation = 'G3';
           qualitySuffix = '-G3';
           break;
         case 'Grade 4':
-          qualityAbbreviation = 'G4';
           qualitySuffix = '-G4';
           break;
         default:
@@ -426,7 +432,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           return res.status(400).json({ error: `Invalid grade: ${grade}.` });
       }
 
-      const newLotNumber = `${baseLotNumber}-${qualityAbbreviation}`;
+      const newLotNumber = `${baseLotNumber}${qualitySuffix}`;
       const newReferenceNumber = baseReferenceNumber ? `${baseReferenceNumber}${qualitySuffix}` : null;
 
       if (!validateLotNumber(newLotNumber)) {
@@ -625,7 +631,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
       return res.status(404).json({ error: 'Sub-batch not found or grade/processingType does not match.' });
     }
 
-    const parentBatchNumber = subBatch.parentBatchNumber;
+    const parentBatchNumber = subBatch.parentBatchNumber || batchNumber;
     const subBatchId = `${parentBatchNumber}-${grade.replace(/\s+/g, '-')}`;
 
     const weights = bagWeights.map(w => {
