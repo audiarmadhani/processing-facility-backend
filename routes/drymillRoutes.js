@@ -1556,16 +1556,16 @@ router.get('/sample-data', async (req, res) => {
 
     const data = await sequelize.query(`
       SELECT 
-  a."batchNumber", 
-  b."lotNumber",
-  b."referenceNumber",
-  a."processingType",
-  a.date_taken, 
-  a.weight_taken,
-  c.drying_weight - a.weight_taken total_current_weight
-FROM "DryMillSamples" a
-LEFT JOIN "PreprocessingData" b on a."batchNumber" = b."batchNumber" AND a."processingType" = b."processingType"
-LEFT JOIN (SELECT "batchNumber", "processingType", sum(weight) drying_weight FROM "DryingWeightMeasurements" GROUP BY "batchNumber", "processingType") c on a."batchNumber" = c."batchNumber" AND a."processingType" = c."processingType"
+        a."batchNumber", 
+        b."lotNumber",
+        b."referenceNumber",
+        a."processingType",
+        a.date_taken, 
+        a.weight_taken,
+        c.drying_weight - a.weight_taken total_current_weight
+      FROM "DryMillSamples" a
+      LEFT JOIN "PreprocessingData" b on a."batchNumber" = b."batchNumber" AND a."processingType" = b."processingType"
+      LEFT JOIN (SELECT "batchNumber", "processingType", sum(weight) drying_weight FROM "DryingWeightMeasurements" GROUP BY "batchNumber", "processingType") c on a."batchNumber" = c."batchNumber" AND a."processingType" = c."processingType"
     `, {
       type: sequelize.QueryTypes.SELECT,
       transaction: t

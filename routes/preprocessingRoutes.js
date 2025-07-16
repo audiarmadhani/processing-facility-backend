@@ -71,9 +71,9 @@ router.get('/new-batch-number', async (req, res) => {
 router.post('/split', async (req, res) => {
   let t;
   try {
-    const { originalBatchNumber, splitCount, splitWeight, createdBy } = req.body;
-    if (!originalBatchNumber || !splitCount || !splitWeight || !createdBy) {
-      return res.status(400).json({ error: 'Original batch number, split count, split weight, and created by are required.' });
+    const { originalBatchNumber, splitCount, splitWeights, createdBy } = req.body;
+    if (!originalBatchNumber || !splitCount || !splitWeights || !createdBy) {
+      return res.status(400).json({ error: 'Original batch number, split count, split weights, and created by are required.' });
     }
 
     const parsedSplitCount = parseInt(splitCount, 10);
@@ -81,12 +81,17 @@ router.post('/split', async (req, res) => {
       return res.status(400).json({ error: 'Split count must be at least 2.' });
     }
 
-    const parsedSplitWeight = parseFloat(splitWeight);
-    if (isNaN(parsedSplitWeight) || parsedSplitWeight <= 0) {
-      return res.status(400).json({ error: 'Split weight must be a positive number.' });
+    // Validate splitWeights array
+    if (!Array.isArray(splitWeights) || splitWeights.length !== parsedSplitCount) {
+      return res.status(400).json({ error: 'splitWeights must be an array with length equal to split count.' });
     }
 
-    const totalSplitWeight = parsedSplitCount * parsedSplitWeight;
+    const weights = splitWeights.map(w => parseFloat(w));
+    if (weights.some(w => isNaN(w) || w <= 0)) {
+      return res.status(400).json({ error: 'All split weights must be positive numbers.' });
+    }
+
+    const totalSplitWeight = weights.reduce((sum, w) => sum + w, 0);
 
     t = await sequelize.transaction();
 
@@ -129,7 +134,7 @@ router.post('/split', async (req, res) => {
 
     // Generate new batch numbers with -SB-xxx suffix
     const today = new Date().toISOString().slice(0, 10);
-    const baseBatchNumber = originalBatchNumber.replace(/(-SB-\d{3})?$/, ''); // Remove existing -SB-xxx if any
+    const baseBatchNumber = originalBatchNumber.replace(/(-SB-\d{3})?$/, '');
     const newBatchNumbers = [];
     for (let i = 1; i <= parsedSplitCount; i++) {
       const suffix = `-SB-${i.toString().padStart(3, '0')}`;
@@ -139,32 +144,9 @@ router.post('/split', async (req, res) => {
     // Retrieve RFIDs: Use original RFID for first batch, scan new RFIDs for others
     const originalRfid = originalBatch.rfid || '';
     const newRfids = [originalRfid]; // First batch uses original RFID
-    const usedRfids = new Set([originalRfid]); // Track all used RFIDs to ensure uniqueness
-    if (parsedSplitCount > 2) {
-      for (let i = 1; i < parsedSplitCount; i++) {
-        const rfidResponse = await fetch(`https://processing-facility-backend.onrender.com/api/get-rfid/Receiving`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        const rfidData = await rfidResponse.json();
-        if (!rfidData.rfid || rfidData.rfid === '') {
-          await t.rollback();
-          return res.status(400).json({ error: `Please scan a new RFID card for split batch ${i + 1}.` });
-        }
-        if (usedRfids.has(rfidData.rfid)) {
-          await t.rollback();
-          return res.status(400).json({ error: `RFID ${rfidData.rfid} is a duplicate. Please scan a different RFID card for split batch ${i + 1}.` });
-        }
-        usedRfids.add(rfidData.rfid);
-        newRfids.push(rfidData.rfid);
-
-        // Clear the RFID scanner after each use
-        await fetch(`https://processing-facility-backend.onrender.com/api/clear-rfid/Receiving`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-    } else if (parsedSplitCount === 2) {
+    const usedRfids = new Set([originalRfid]); // Track all used RFIDs
+    const newRfidsToScan = parsedSplitCount - 1; // Number of new RFIDs to scan
+    for (let i = 0; i < newRfidsToScan; i++) {
       const rfidResponse = await fetch(`https://processing-facility-backend.onrender.com/api/get-rfid/Receiving`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
@@ -172,23 +154,23 @@ router.post('/split', async (req, res) => {
       const rfidData = await rfidResponse.json();
       if (!rfidData.rfid || rfidData.rfid === '') {
         await t.rollback();
-        return res.status(400).json({ error: 'Please scan a new RFID card for the second split batch.' });
+        return res.status(400).json({ error: `Please scan a new RFID card for split batch ${i + 2}.` });
       }
       if (usedRfids.has(rfidData.rfid)) {
         await t.rollback();
-        return res.status(400).json({ error: `RFID ${rfidData.rfid} is a duplicate. Please scan a different RFID card for the second split batch.` });
+        return res.status(400).json({ error: `RFID ${rfidData.rfid} is a duplicate. Please scan a different RFID card for split batch ${i + 2}.` });
       }
       usedRfids.add(rfidData.rfid);
       newRfids.push(rfidData.rfid);
 
-      // Clear the RFID scanner
+      // Clear the RFID scanner after each use
       await fetch(`https://processing-facility-backend.onrender.com/api/clear-rfid/Receiving`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    // Insert new batches into ReceivingData
+    // Insert new batches into ReceivingData with individual weights
     const now = new Date();
     for (let i = 0; i < parsedSplitCount; i++) {
       await sequelize.query(
@@ -200,7 +182,7 @@ router.post('/split', async (req, res) => {
         {
           replacements: {
             batchNumber: newBatchNumbers[i],
-            weight: parsedSplitWeight,
+            weight: weights[i],
             farmerName: originalBatch.farmerName,
             receivingDate: originalBatch.receivingDate,
             type: originalBatch.type,
@@ -229,12 +211,12 @@ router.post('/split', async (req, res) => {
       }
     );
 
-    // Insert into BatchSplits
+    // Insert into BatchSplits (store weights as JSON array for flexibility)
     await sequelize.query(
       `INSERT INTO "BatchSplits" (
-        original_batch_number, new_batch_numbers, split_at, created_by, split_weight
+        original_batch_number, new_batch_numbers, split_at, created_by, split_weights
       ) VALUES (
-        :originalBatchNumber, ARRAY[:newBatchNumbers], :splitAt, :createdBy, :splitWeight
+        :originalBatchNumber, ARRAY[:newBatchNumbers], :splitAt, :createdBy, :splitWeights
       )`,
       {
         replacements: {
@@ -242,7 +224,7 @@ router.post('/split', async (req, res) => {
           newBatchNumbers: newBatchNumbers,
           splitAt: now,
           createdBy: createdBy || 'Unknown',
-          splitWeight: parsedSplitWeight
+          splitWeights: JSON.stringify(weights) // Store as JSON array
         },
         type: sequelize.QueryTypes.INSERT,
         transaction: t
