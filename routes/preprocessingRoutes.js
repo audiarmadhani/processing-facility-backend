@@ -139,9 +139,10 @@ router.post('/split', async (req, res) => {
     // Retrieve RFIDs: Use original RFID for first batch, scan new RFIDs for others
     const originalRfid = originalBatch.rfid || '';
     const newRfids = [originalRfid]; // First batch uses original RFID
+    const usedRfids = new Set([originalRfid]); // Track all used RFIDs to ensure uniqueness
     if (parsedSplitCount > 2) {
       for (let i = 1; i < parsedSplitCount; i++) {
-        const rfidResponse = await fetch(`https://processing-facility-backend.onrender.com/api/get-rfid/Receiving`, { // Adjust URL as needed
+        const rfidResponse = await fetch(`https://processing-facility-backend.onrender.com/api/get-rfid/Receiving`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
         });
@@ -150,16 +151,21 @@ router.post('/split', async (req, res) => {
           await t.rollback();
           return res.status(400).json({ error: `Please scan a new RFID card for split batch ${i + 1}.` });
         }
+        if (usedRfids.has(rfidData.rfid)) {
+          await t.rollback();
+          return res.status(400).json({ error: `RFID ${rfidData.rfid} is a duplicate. Please scan a different RFID card for split batch ${i + 1}.` });
+        }
+        usedRfids.add(rfidData.rfid);
         newRfids.push(rfidData.rfid);
 
         // Clear the RFID scanner after each use
-        await fetch(`https://processing-facility-backend.onrender.com/api/clear-rfid/Receiving`, { // Adjust URL as needed
+        await fetch(`https://processing-facility-backend.onrender.com/api/clear-rfid/Receiving`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
         });
       }
     } else if (parsedSplitCount === 2) {
-      const rfidResponse = await fetch(`https://processing-facility-backend.onrender.com/api/get-rfid`, { // Adjust URL as needed
+      const rfidResponse = await fetch(`https://processing-facility-backend.onrender.com/api/get-rfid/Receiving`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -168,10 +174,15 @@ router.post('/split', async (req, res) => {
         await t.rollback();
         return res.status(400).json({ error: 'Please scan a new RFID card for the second split batch.' });
       }
+      if (usedRfids.has(rfidData.rfid)) {
+        await t.rollback();
+        return res.status(400).json({ error: `RFID ${rfidData.rfid} is a duplicate. Please scan a different RFID card for the second split batch.` });
+      }
+      usedRfids.add(rfidData.rfid);
       newRfids.push(rfidData.rfid);
 
       // Clear the RFID scanner
-      await fetch(`https://processing-facility-backend.onrender.com/api/clear-rfid/Receiving`, { // Adjust URL as needed
+      await fetch(`https://processing-facility-backend.onrender.com/api/clear-rfid/Receiving`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
       });
