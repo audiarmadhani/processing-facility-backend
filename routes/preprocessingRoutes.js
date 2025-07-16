@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 const cors = require('cors');
+const { v4: uuidv4 } = require('uuid'); // Added for generating unique RFIDs
 
 // Configure CORS for this router
 router.use(cors({
@@ -16,7 +17,6 @@ router.use(cors({
 router.options('*', cors());
 
 // Generate new batch number for merge
-// Generate new batch number for merge
 router.get('/new-batch-number', async (req, res) => {
   let t;
   try {
@@ -30,23 +30,20 @@ router.get('/new-batch-number', async (req, res) => {
     );
 
     let sequenceNumber = result.latest_batch_number;
-    // Safely handle last_updated_date, converting to ISO string if it's a Date or parsing if it's a string
     let lastUpdatedDate = result.last_updated_date;
     if (lastUpdatedDate instanceof Date && !isNaN(lastUpdatedDate)) {
       lastUpdatedDate = lastUpdatedDate.toISOString().slice(0, 10);
     } else if (typeof lastUpdatedDate === 'string') {
       lastUpdatedDate = new Date(lastUpdatedDate).toISOString().slice(0, 10);
     } else {
-      lastUpdatedDate = today; // Default to today if invalid
+      lastUpdatedDate = today;
     }
 
-    // Reset sequence if date has changed
     if (lastUpdatedDate !== today) {
       sequenceNumber = 0;
     }
     sequenceNumber += 1;
 
-    // Update latest_m_batch
     await sequelize.query(
       `UPDATE latest_m_batch 
        SET latest_batch_number = :sequenceNumber, last_updated_date = :today 
@@ -70,6 +67,190 @@ router.get('/new-batch-number', async (req, res) => {
   }
 });
 
+// Split batches
+router.post('/split', async (req, res) => {
+  let t;
+  try {
+    const { originalBatchNumber, splitCount, splitWeight, createdBy } = req.body;
+    if (!originalBatchNumber || !splitCount || !splitWeight || !createdBy) {
+      return res.status(400).json({ error: 'Original batch number, split count, split weight, and created by are required.' });
+    }
+
+    const parsedSplitCount = parseInt(splitCount, 10);
+    if (isNaN(parsedSplitCount) || parsedSplitCount < 2) {
+      return res.status(400).json({ error: 'Split count must be at least 2.' });
+    }
+
+    const parsedSplitWeight = parseFloat(splitWeight);
+    if (isNaN(parsedSplitWeight) || parsedSplitWeight <= 0) {
+      return res.status(400).json({ error: 'Split weight must be a positive number.' });
+    }
+
+    const totalSplitWeight = parsedSplitCount * parsedSplitWeight;
+
+    t = await sequelize.transaction();
+
+    // Check available weight and retrieve original batch data
+    const [originalBatch] = await sequelize.query(
+      `SELECT r."batchNumber", r."weight", r."type", r."farmerName", r."receivingDate", r."totalBags", r."commodityType", r."rfid"
+       FROM "ReceivingData" r
+       WHERE LOWER(r."batchNumber") = LOWER(:originalBatchNumber) AND r.merged = FALSE AND r."commodityType" != 'Green Bean'`,
+      { 
+        replacements: { originalBatchNumber: originalBatchNumber.trim() }, 
+        type: sequelize.QueryTypes.SELECT, 
+        transaction: t 
+      }
+    );
+
+    if (!originalBatch) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Original batch not found or already merged/is Green Bean.' });
+    }
+
+    const [processed] = await sequelize.query(
+      `SELECT SUM("weightProcessed") AS "totalWeightProcessed"
+       FROM "PreprocessingData"
+       WHERE LOWER("batchNumber") = LOWER(:originalBatchNumber)`,
+      { 
+        replacements: { originalBatchNumber: originalBatchNumber.trim() }, 
+        type: sequelize.QueryTypes.SELECT, 
+        transaction: t 
+      }
+    );
+
+    const totalWeightProcessed = parseFloat(processed.totalWeightProcessed) || 0;
+    const totalWeight = parseFloat(originalBatch.weight);
+    const weightAvailable = totalWeight - totalWeightProcessed;
+
+    if (totalSplitWeight > weightAvailable) {
+      await t.rollback();
+      return res.status(400).json({ error: `Total split weight (${totalSplitWeight.toFixed(2)} kg) exceeds available weight (${weightAvailable.toFixed(2)} kg).` });
+    }
+
+    // Generate new batch numbers with -SB-xxx suffix
+    const today = new Date().toISOString().slice(0, 10);
+    const baseBatchNumber = originalBatchNumber.replace(/(-SB-\d{3})?$/, ''); // Remove existing -SB-xxx if any
+    const newBatchNumbers = [];
+    for (let i = 1; i <= parsedSplitCount; i++) {
+      const suffix = `-SB-${i.toString().padStart(3, '0')}`;
+      newBatchNumbers.push(`${baseBatchNumber}${suffix}`);
+    }
+
+    // Retrieve RFIDs: Use original RFID for first batch, scan new RFIDs for others
+    const originalRfid = originalBatch.rfid || '';
+    const newRfids = [originalRfid]; // First batch uses original RFID
+    if (parsedSplitCount > 2) {
+      for (let i = 1; i < parsedSplitCount; i++) {
+        const rfidResponse = await fetch(`http://localhost:3000/get-rfid`, { // Adjust URL as needed
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const rfidData = await rfidResponse.json();
+        if (!rfidData.rfid || rfidData.rfid === '') {
+          await t.rollback();
+          return res.status(400).json({ error: `Please scan a new RFID card for split batch ${i + 1}.` });
+        }
+        newRfids.push(rfidData.rfid);
+
+        // Clear the RFID scanner after each use
+        await fetch(`http://localhost:3000/clear-rfid/Receiving`, { // Adjust URL as needed
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    } else if (parsedSplitCount === 2) {
+      const rfidResponse = await fetch(`http://localhost:3000/get-rfid`, { // Adjust URL as needed
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const rfidData = await rfidResponse.json();
+      if (!rfidData.rfid || rfidData.rfid === '') {
+        await t.rollback();
+        return res.status(400).json({ error: 'Please scan a new RFID card for the second split batch.' });
+      }
+      newRfids.push(rfidData.rfid);
+
+      // Clear the RFID scanner
+      await fetch(`http://localhost:3000/clear-rfid/Receiving`, { // Adjust URL as needed
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Insert new batches into ReceivingData
+    const now = new Date();
+    for (let i = 0; i < parsedSplitCount; i++) {
+      await sequelize.query(
+        `INSERT INTO "ReceivingData" (
+          "batchNumber", "weight", "farmerName", "receivingDate", "type", "totalBags", "commodityType", "createdAt", "updatedAt", "rfid"
+        ) VALUES (
+          :batchNumber, :weight, :farmerName, :receivingDate, :type, :totalBags, :commodityType, :createdAt, :updatedAt, :rfid
+        )`,
+        {
+          replacements: {
+            batchNumber: newBatchNumbers[i],
+            weight: parsedSplitWeight,
+            farmerName: originalBatch.farmerName,
+            receivingDate: originalBatch.receivingDate,
+            type: originalBatch.type,
+            totalBags: Math.floor(originalBatch.totalBags / parsedSplitCount) || null,
+            commodityType: originalBatch.commodityType,
+            createdAt: now,
+            updatedAt: now,
+            rfid: newRfids[i]
+          },
+          type: sequelize.QueryTypes.INSERT,
+          transaction: t
+        }
+      );
+    }
+
+    // Update original batch weight
+    const remainingWeight = weightAvailable - totalSplitWeight;
+    await sequelize.query(
+      `UPDATE "ReceivingData" 
+       SET "weight" = :remainingWeight, "updatedAt" = :updatedAt 
+       WHERE LOWER("batchNumber") = LOWER(:originalBatchNumber)`,
+      {
+        replacements: { remainingWeight, updatedAt: now, originalBatchNumber: originalBatchNumber.trim() },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t
+      }
+    );
+
+    // Insert into BatchSplits
+    await sequelize.query(
+      `INSERT INTO "BatchSplits" (
+        original_batch_number, new_batch_numbers, split_at, created_by, split_weight
+      ) VALUES (
+        :originalBatchNumber, ARRAY[:newBatchNumbers], :splitAt, :createdBy, :splitWeight
+      )`,
+      {
+        replacements: {
+          originalBatchNumber: originalBatchNumber.trim(),
+          newBatchNumbers: newBatchNumbers,
+          splitAt: now,
+          createdBy: createdBy || 'Unknown',
+          splitWeight: parsedSplitWeight
+        },
+        type: sequelize.QueryTypes.INSERT,
+        transaction: t
+      }
+    );
+
+    await t.commit();
+    res.json({ 
+      message: `Batch ${originalBatchNumber} split successfully into ${parsedSplitCount} batches with new RFIDs assigned.`,
+      newBatchNumbers,
+      newRfids
+    });
+  } catch (err) {
+    if (t) await t.rollback();
+    console.error('Error splitting batch:', err);
+    res.status(500).json({ error: 'Failed to split batch', details: err.message });
+  }
+});
+
 // Merge batches
 router.post('/merge', async (req, res) => {
   let t;
@@ -81,7 +262,6 @@ router.post('/merge', async (req, res) => {
 
     t = await sequelize.transaction();
 
-    // Validate batches and fetch additional data
     const batches = await sequelize.query(
       `SELECT r."batchNumber", r."type", r."weight", r."farmerName", r."receivingDate", r."totalBags", r."commodityType", r."rfid", q."qcDate", q."ripeness", q."color", q."foreignMatter", q."overallQuality"
        FROM "ReceivingData" r
@@ -99,14 +279,12 @@ router.post('/merge', async (req, res) => {
       return res.status(400).json({ error: 'Some batches not found, already merged, or are Green Bean.' });
     }
 
-    // Validate same type
     const type = batches[0].type;
     if (!batches.every(b => b.type === type)) {
       await t.rollback();
       return res.status(400).json({ error: 'Batches must have the same type.' });
     }
 
-    // Calculate available weight
     const processed = await sequelize.query(
       `SELECT "batchNumber", SUM("weightProcessed") AS "totalProcessed"
        FROM "PreprocessingData"
@@ -129,7 +307,6 @@ router.post('/merge', async (req, res) => {
       return sum + availableWeight;
     }, 0);
 
-    // Generate new batch number
     const today = new Date().toISOString().slice(0, 10);
     const [sequenceResult] = await sequelize.query(
       `SELECT latest_batch_number, last_updated_date 
@@ -156,7 +333,6 @@ router.post('/merge', async (req, res) => {
     const formattedSequence = sequenceNumber.toString().padStart(4, '0');
     const newBatchNumber = `${today}-${formattedSequence}-MB`;
 
-    // Update latest_m_batch
     await sequelize.query(
       `UPDATE latest_m_batch 
        SET latest_batch_number = :sequenceNumber, last_updated_date = :today 
@@ -168,7 +344,6 @@ router.post('/merge', async (req, res) => {
       }
     );
 
-    // Calculate aggregated data
     const farmerNames = [...new Set(batches.map(b => b.farmerName).filter(Boolean))];
     const farmerNamesArray = farmerNames.length > 0 ? farmerNames : null;
     const farmerNamesString = farmerNames.length > 0 ? farmerNames.join(', ') : null;
@@ -189,7 +364,6 @@ router.post('/merge', async (req, res) => {
     const foreignMatters = [...new Set(batches.map(b => b.foreignMatter).filter(Boolean))].join(', ');
     const overallQualities = [...new Set(batches.map(b => b.overallQuality).filter(Boolean))].join(', ');
 
-    // Insert new batch into ReceivingData
     await sequelize.query(
       `INSERT INTO "ReceivingData" (
         "batchNumber", "weight", "farmerName", "receivingDate", "type", "totalBags", "commodityType", merged, "createdAt", "updatedAt", "rfid"
@@ -214,7 +388,6 @@ router.post('/merge', async (req, res) => {
       }
     );
 
-    // Insert into QCData for merged batch
     await sequelize.query(
       `INSERT INTO "QCData" (
         "batchNumber", "qcDate", "ripeness", "color", "foreignMatter", "overallQuality", "createdAt", "updatedAt", merged
@@ -237,7 +410,6 @@ router.post('/merge', async (req, res) => {
       }
     );
 
-    // Update original batches
     await sequelize.query(
       `UPDATE "ReceivingData" SET merged = TRUE WHERE LOWER("batchNumber") IN (:batchNumbers)`,
       {
@@ -263,7 +435,6 @@ router.post('/merge', async (req, res) => {
       }
     );
 
-    // Insert into BatchMerges
     await sequelize.query(
       `INSERT INTO "BatchMerges" (
         new_batch_number, original_batch_numbers, merged_at, created_by, notes
@@ -273,7 +444,7 @@ router.post('/merge', async (req, res) => {
       {
         replacements: {
           newBatchNumber,
-          originalBatchNumbers: batchNumbers, // Pass the array to be cast as a PostgreSQL array
+          originalBatchNumbers: batchNumbers,
           mergedAt: new Date(),
           createdBy: createdBy || 'Unknown',
           notes: notes || null
@@ -310,16 +481,14 @@ router.post('/preprocessing', async (req, res) => {
       return res.status(400).json({ error: 'Batch number, weight processed, producer, product line, processing type, and quality are required.' });
     }
 
-    // Parse and round weightProcessed to 2 decimal places
     const parsedWeight = parseFloat(weightProcessed.toString().replace(',', '.'));
     if (isNaN(parsedWeight) || parsedWeight <= 0) {
       return res.status(400).json({ error: 'Weight processed must be a positive number.' });
     }
-    const roundedWeightProcessed = Math.round(parsedWeight * 100) / 100; // Round to 2 decimal places
+    const roundedWeightProcessed = Math.round(parsedWeight * 100) / 100;
 
     t = await sequelize.transaction();
 
-    // Check available weight and retrieve batch data
     const [batch] = await sequelize.query(
       `SELECT r."batchNumber", r."weight", r."type", r."farmerName", r."receivingDate", r.merged, r."totalBags", q."qcDate"
        FROM "ReceivingData" r 
@@ -338,8 +507,8 @@ router.post('/preprocessing', async (req, res) => {
       return res.status(400).json({ error: 'Batch is already merged.' });
     }
 
-    const totalWeight = parseFloat(batch.weight); // Ensure it's a number
-    const roundedTotalWeight = Math.round(totalWeight * 100) / 100; // Round to 2 decimal places
+    const totalWeight = parseFloat(batch.weight);
+    const roundedTotalWeight = Math.round(totalWeight * 100) / 100;
     const batchType = batch.type;
 
     const [processed] = await sequelize.query(
@@ -350,10 +519,10 @@ router.post('/preprocessing', async (req, res) => {
     );
 
     const totalWeightProcessed = parseFloat(processed.totalWeightProcessed) || 0;
-    const roundedTotalWeightProcessed = Math.round(totalWeightProcessed * 100) / 100; // Round to 2 decimal places
+    const roundedTotalWeightProcessed = Math.round(totalWeightProcessed * 100) / 100;
     const isFinished = processed.finished;
     const weightAvailable = roundedTotalWeight - roundedTotalWeightProcessed;
-    const roundedWeightAvailable = Math.round(weightAvailable * 100) / 100; // Round to 2 decimal places
+    const roundedWeightAvailable = Math.round(weightAvailable * 100) / 100;
 
     if (isFinished) {
       await t.rollback();
@@ -365,7 +534,6 @@ router.post('/preprocessing', async (req, res) => {
       return res.status(400).json({ error: `Cannot process ${roundedWeightProcessed} kg. Only ${roundedWeightAvailable} kg available.` });
     }
 
-    // Fetch product line and processing type abbreviations
     const [productLineEntry] = await sequelize.query(
       `SELECT abbreviation FROM "ProductLines" WHERE LOWER("productLine") = LOWER(:productLine) LIMIT 1`,
       { replacements: { productLine }, type: sequelize.QueryTypes.SELECT, transaction: t }
@@ -784,7 +952,6 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
         { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT }
       );
 
-      // Parse farmerName if it's a JSON string
       let farmerNameString = batch.farmerName;
       if (batch.farmerName && batch.farmerName.startsWith('[')) {
         try {
@@ -822,7 +989,6 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
     const totalWeight = batch?.weight || 0;
     const weightAvailable = totalWeight - totalWeightProcessed;
 
-    // Parse farmerName if it's a JSON string
     let farmerNameString = batch.farmerName;
     if (batch.farmerName && batch.farmerName.startsWith('[')) {
       try {
