@@ -1078,7 +1078,7 @@ router.get('/dry-mill-data', async (req, res) => {
         pp."productLine" AS "productLine",
         COALESCE(pp."processingType", pd."processingType") AS "processingType",
         pd."lotNumber",
-        pp."referenceNumber",
+        pd."referenceNumber",
         CASE
           WHEN dm."entered_at" IS NOT NULL AND dm."exited_at" IS NULL THEN 'In Dry Mill'
           WHEN dm."exited_at" IS NOT NULL THEN 'Processed'
@@ -1113,7 +1113,7 @@ router.get('/dry-mill-data', async (req, res) => {
         pp.weight, rd.weight, pp.quality,
         pp.producer, rd.producer, rd."farmerName",
         pp."productLine", COALESCE(pp."processingType", pd."processingType"),
-        pd."lotNumber", pp."referenceNumber", pp.notes, rd.notes,
+        pd."lotNumber", pd."referenceNumber", pp.notes, rd.notes,
         pp."storedDate", rd.rfid,
         fm."farmVarieties",
         ldw.drying_weight
