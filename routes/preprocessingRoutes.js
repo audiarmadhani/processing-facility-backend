@@ -71,9 +71,9 @@ router.get('/new-batch-number', async (req, res) => {
 router.post('/split', async (req, res) => {
   let t;
   try {
-    const { originalBatchNumber, splitCount, splitWeights, createdBy } = req.body;
-    if (!originalBatchNumber || !splitCount || !splitWeights || !createdBy) {
-      return res.status(400).json({ error: 'Original batch number, split count, split weights, and created by are required.' });
+    const { originalBatchNumber, splitCount, splitWeights, createdBy, scannedRfids } = req.body;
+    if (!originalBatchNumber || !splitCount || !splitWeights || !createdBy || !scannedRfids) {
+      return res.status(400).json({ error: 'Original batch number, split count, split weights, created by, and scanned RFIDs are required.' });
     }
 
     const parsedSplitCount = parseInt(splitCount, 10);
@@ -141,33 +141,28 @@ router.post('/split', async (req, res) => {
       newBatchNumbers.push(`${baseBatchNumber}${suffix}`);
     }
 
-    // Retrieve RFIDs: Use original RFID for first batch, scan new RFIDs for others
+    // Validate and use scanned RFIDs
     const originalRfid = originalBatch.rfid || '';
     const newRfids = [originalRfid]; // First batch uses original RFID
     const usedRfids = new Set([originalRfid]); // Track all used RFIDs
-    const newRfidsToScan = parsedSplitCount - 1; // Number of new RFIDs to scan
-    for (let i = 0; i < newRfidsToScan; i++) {
-      const rfidResponse = await fetch(`https://processing-facility-backend.onrender.com/api/get-rfid/Receiving`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const rfidData = await rfidResponse.json();
-      if (!rfidData.rfid || rfidData.rfid === '') {
-        await t.rollback();
-        return res.status(400).json({ error: `Please scan a new RFID card for split batch ${i + 2}.` });
-      }
-      if (usedRfids.has(rfidData.rfid)) {
-        await t.rollback();
-        return res.status(400).json({ error: `RFID ${rfidData.rfid} is a duplicate. Please scan a different RFID card for split batch ${i + 2}.` });
-      }
-      usedRfids.add(rfidData.rfid);
-      newRfids.push(rfidData.rfid);
+    const expectedNewRfids = parsedSplitCount - 1;
 
-      // Clear the RFID scanner after each use
-      await fetch(`https://processing-facility-backend.onrender.com/api/clear-rfid/Receiving`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-      });
+    if (!Array.isArray(scannedRfids) || scannedRfids.length !== expectedNewRfids) {
+      await t.rollback();
+      return res.status(400).json({ error: `Please provide ${expectedNewRfids} scanned RFID(s) for the split batches.` });
+    }
+
+    for (let rfid of scannedRfids) {
+      if (!rfid || typeof rfid !== 'string' || rfid.trim() === '') {
+        await t.rollback();
+        return res.status(400).json({ error: `Invalid RFID provided. Please scan a new RFID card.` });
+      }
+      if (usedRfids.has(rfid.trim())) {
+        await t.rollback();
+        return res.status(400).json({ error: `RFID ${rfid} is a duplicate. Please scan a different RFID card.` });
+      }
+      usedRfids.add(rfid.trim());
+      newRfids.push(rfid.trim());
     }
 
     // Insert new batches into ReceivingData with individual weights
