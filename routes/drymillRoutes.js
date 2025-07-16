@@ -1548,4 +1548,48 @@ router.get('/postprocessing-data/:batchNumber', async (req, res) => {
   }
 });
 
+// GET route for sample data
+router.get('/sample-data', async (req, res) => {
+  let t;
+  try {
+    t = await sequelize.transaction();
+
+    const data = await sequelize.query(`
+      SELECT 
+  a."batchNumber", 
+  b."lotNumber",
+  b."referenceNumber",
+  a."processingType",
+  a.date_taken, 
+  a.weight_taken,
+  c.drying_weight - a.weight_taken total_current_weight
+FROM "DryMillSamples" a
+LEFT JOIN "PreprocessingData" b on a."batchNumber" = b."batchNumber" AND a."processingType" = b."processingType"
+LEFT JOIN (SELECT "batchNumber", "processingType", sum(weight) drying_weight FROM "DryingWeightMeasurements" GROUP BY "batchNumber", "processingType") c on a."batchNumber" = c."batchNumber" AND a."processingType" = c."processingType"
+    `, {
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t
+    });
+
+    for (const row of data) {
+      if (row.lotNumber && !validateLotNumber(row.lotNumber)) {
+        logger.warn('Invalid lot number in sample data', { batchNumber: row.batchNumber, lotNumber: row.lotNumber, user: req.body.createdBy || 'unknown' });
+        row.lotNumber = 'N/A';
+      }
+      if (!validateReferenceNumber(row.referenceNumber)) {
+        logger.warn('Invalid reference number in sample data', { batchNumber: row.batchNumber, referenceNumber: row.referenceNumber, user: req.body.createdBy || 'unknown' });
+        row.referenceNumber = 'N/A';
+      }
+    }
+
+    await t.commit();
+    logger.info('Fetched sample data successfully', { user: req.body.createdBy || 'unknown' });
+    res.status(200).json(data);
+  } catch (error) {
+    if (t) await t.rollback();
+    logger.error('Error fetching sample data', { error: error.message, stack: error.stack, user: req.body.createdBy || 'unknown' });
+    res.status(500).json({ error: 'Failed to fetch sample data', details: error.message });
+  }
+});
+
 module.exports = router;
