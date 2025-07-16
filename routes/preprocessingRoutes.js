@@ -95,9 +95,10 @@ router.post('/split', async (req, res) => {
 
     t = await sequelize.transaction();
 
-    // Check available weight and retrieve original batch data
+    // Check available weight and retrieve original batch data including additional fields
     const [originalBatch] = await sequelize.query(
-      `SELECT r."batchNumber", r."weight", r."type", r."farmerName", r."receivingDate", r."totalBags", r."commodityType", r."rfid"
+      `SELECT r."batchNumber", r."weight", r."type", r."farmerName", r."receivingDate", r."totalBags", 
+       r."commodityType", r."rfid", r."updatedBy", r."farmerID", r."brix", r."producer", r."currentAssign"
        FROM "ReceivingData" r
        WHERE LOWER(r."batchNumber") = LOWER(:originalBatchNumber) AND r.merged = FALSE AND r."commodityType" != 'Green Bean'`,
       { 
@@ -165,14 +166,16 @@ router.post('/split', async (req, res) => {
       newRfids.push(rfid.trim());
     }
 
-    // Insert new batches into ReceivingData with individual weights
+    // Insert new batches into ReceivingData with individual weights and updated fields
     const now = new Date();
     for (let i = 0; i < parsedSplitCount; i++) {
       await sequelize.query(
         `INSERT INTO "ReceivingData" (
-          "batchNumber", "weight", "farmerName", "receivingDate", "type", "totalBags", "commodityType", "createdAt", "updatedAt", "rfid"
+          "batchNumber", "weight", "farmerName", "receivingDate", "type", "totalBags", "commodityType", "rfid", 
+          "updatedBy", "farmerID", "brix", "producer", "currentAssign", "createdAt", "updatedAt"
         ) VALUES (
-          :batchNumber, :weight, :farmerName, :receivingDate, :type, :totalBags, :commodityType, :createdAt, :updatedAt, :rfid
+          :batchNumber, :weight, :farmerName, :receivingDate, :type, :totalBags, :commodityType, :rfid, 
+          :updatedBy, :farmerID, :brix, :producer, :currentAssign, :createdAt, :updatedAt
         )`,
         {
           replacements: {
@@ -183,9 +186,14 @@ router.post('/split', async (req, res) => {
             type: originalBatch.type,
             totalBags: Math.floor(originalBatch.totalBags / parsedSplitCount) || null,
             commodityType: originalBatch.commodityType,
+            rfid: newRfids[i],
+            updatedBy: originalBatch.updatedBy || null,
+            farmerID: originalBatch.farmerID || null,
+            brix: originalBatch.brix || null,
+            producer: originalBatch.producer || null,
+            currentAssign: 1, // Set to 1 for new batches
             createdAt: now,
-            updatedAt: now,
-            rfid: newRfids[i]
+            updatedAt: now
           },
           type: sequelize.QueryTypes.INSERT,
           transaction: t
@@ -193,11 +201,11 @@ router.post('/split', async (req, res) => {
       );
     }
 
-    // Update original batch weight
+    // Update original batch weight and set currentAssign to 0
     const remainingWeight = weightAvailable - totalSplitWeight;
     await sequelize.query(
       `UPDATE "ReceivingData" 
-       SET "weight" = :remainingWeight, "updatedAt" = :updatedAt 
+       SET "weight" = :remainingWeight, "currentAssign" = 0, "updatedAt" = :updatedAt 
        WHERE LOWER("batchNumber") = LOWER(:originalBatchNumber)`,
       {
         replacements: { remainingWeight, updatedAt: now, originalBatchNumber: originalBatchNumber.trim() },
@@ -206,12 +214,56 @@ router.post('/split', async (req, res) => {
       }
     );
 
-    // Insert into BatchSplits (store weights as JSON array for flexibility)
+    // Insert into QCData for new batches, copying from original batch
+    const [originalQC] = await sequelize.query(
+      `SELECT "qcDate", "ripeness", "color", "foreignMatter", "overallQuality", "unripePercentage", "semiripePercentage", "ripePercentage", "overripePercentage", "paymentMethod", "createdBy", "updatedBy", price
+       FROM "QCData"
+       WHERE LOWER("batchNumber") = LOWER(:originalBatchNumber)`,
+      {
+        replacements: { originalBatchNumber: originalBatchNumber.trim() },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      }
+    );
+
+    for (let i = 0; i < parsedSplitCount; i++) {
+      await sequelize.query(
+        `INSERT INTO "QCData" (
+          "batchNumber", "qcDate", "ripeness", "color", "foreignMatter", "overallQuality", "createdAt", "updatedAt", merged, "unripePercentage", "semiripePercentage", "ripePercentage", "overripePercentage", "paymentMethod", "createdBy", "updatedBy", price
+        ) VALUES (
+          :batchNumber, :qcDate, :ripeness, :color, :foreignMatter, :overallQuality, :createdAt, :updatedAt, FALSE, :unripePercentage, :semiripePercentage, :ripePercentage, :overripePercentage, :paymentMethod, :createdBy, :updatedBy, :price
+        )`,
+        {
+          replacements: {
+            batchNumber: newBatchNumbers[i],
+            qcDate: originalQC[0]?.qcDate || null,
+            ripeness: originalQC[0]?.ripeness || null,
+            color: originalQC[0]?.color || null,
+            foreignMatter: originalQC[0]?.foreignMatter || null,
+            overallQuality: originalQC[0]?.overallQuality || null,
+            createdAt: now,
+            updatedAt: now,
+            unripePercentage: originalQC[0]?.unripePercentage || null,
+            semiripePercentage: originalQC[0]?.semiripePercentage || null,
+            ripePercentage: originalQC[0]?.ripePercentage || null,
+            overripePercentage: originalQC[0]?.overripePercentage || null,
+            paymentMethod: originalQC[0]?.paymentMethod || null,
+            createdBy: originalQC[0]?.createdBy || null,
+            updatedBy: originalQC[0]?.updatedBy || null,
+            price: originalQC[0]?.price || null
+          },
+          type: sequelize.QueryTypes.INSERT,
+          transaction: t
+        }
+      );
+    }
+
+    // Insert into BatchSplits
     await sequelize.query(
       `INSERT INTO "BatchSplits" (
-        original_batch_number, new_batch_numbers, split_at, created_by, split_weights
+        original_batch_number, new_batch_numbers, split_at, created_by, split_weight
       ) VALUES (
-        :originalBatchNumber, ARRAY[:newBatchNumbers], :splitAt, :createdBy, :splitWeights
+        :originalBatchNumber, ARRAY[:newBatchNumbers], :splitAt, :createdBy, :splitWeight
       )`,
       {
         replacements: {
@@ -219,7 +271,7 @@ router.post('/split', async (req, res) => {
           newBatchNumbers: newBatchNumbers,
           splitAt: now,
           createdBy: createdBy || 'Unknown',
-          splitWeights: JSON.stringify(weights) // Store as JSON array
+          splitWeight: totalSplitWeight
         },
         type: sequelize.QueryTypes.INSERT,
         transaction: t
