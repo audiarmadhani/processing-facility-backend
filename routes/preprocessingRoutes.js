@@ -141,7 +141,7 @@ router.post('/split', async (req, res) => {
     const newRfids = [originalRfid]; // First batch uses original RFID
     if (parsedSplitCount > 2) {
       for (let i = 1; i < parsedSplitCount; i++) {
-        const rfidResponse = await fetch(`http://localhost:3000/get-rfid`, { // Adjust URL as needed
+        const rfidResponse = await fetch(`https://processing-facility-backend.onrender.com/api/get-rfid/Receiving`, { // Adjust URL as needed
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
         });
@@ -153,13 +153,13 @@ router.post('/split', async (req, res) => {
         newRfids.push(rfidData.rfid);
 
         // Clear the RFID scanner after each use
-        await fetch(`http://localhost:3000/clear-rfid/Receiving`, { // Adjust URL as needed
+        await fetch(`https://processing-facility-backend.onrender.com/api/clear-rfid/Receiving`, { // Adjust URL as needed
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
         });
       }
     } else if (parsedSplitCount === 2) {
-      const rfidResponse = await fetch(`http://localhost:3000/get-rfid`, { // Adjust URL as needed
+      const rfidResponse = await fetch(`https://processing-facility-backend.onrender.com/api/get-rfid`, { // Adjust URL as needed
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -171,7 +171,7 @@ router.post('/split', async (req, res) => {
       newRfids.push(rfidData.rfid);
 
       // Clear the RFID scanner
-      await fetch(`http://localhost:3000/clear-rfid/Receiving`, { // Adjust URL as needed
+      await fetch(`https://processing-facility-backend.onrender.com/api/clear-rfid/Receiving`, { // Adjust URL as needed
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
       });
