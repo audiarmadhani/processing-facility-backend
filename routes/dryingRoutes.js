@@ -12,7 +12,7 @@ router.get('/drying-data', async (req, res) => {
     const data = await sequelize.query(`
       SELECT rfid, "batchNumber", "dryingArea", entered_at, exited_at, created_at
       FROM "DryingData"
-      ORDER BY created_at DESC
+      ORDER BY exited_at DESC, created_at ASC
     `, { type: sequelize.QueryTypes.SELECT });
 
     res.status(200).json(data);
