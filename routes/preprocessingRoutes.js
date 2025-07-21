@@ -68,6 +68,7 @@ router.get('/new-batch-number', async (req, res) => {
 });
 
 // Split batches
+// Split batches
 router.post('/split', async (req, res) => {
   let t;
   try {
@@ -95,7 +96,7 @@ router.post('/split', async (req, res) => {
 
     t = await sequelize.transaction();
 
-    // Check available weight and retrieve original batch data including additional fields
+    // Check available weight and retrieve original batch data
     const [originalBatch] = await sequelize.query(
       `SELECT r."batchNumber", r."weight", r."type", r."farmerName", r."receivingDate", r."totalBags", 
        r."commodityType", r."rfid", r."updatedBy", r."farmerID", r."brix", r."producer", r."currentAssign"
@@ -166,7 +167,7 @@ router.post('/split', async (req, res) => {
       newRfids.push(rfid.trim());
     }
 
-    // Insert new batches into ReceivingData with individual weights and updated fields
+    // Insert new batches into ReceivingData
     const now = new Date();
     for (let i = 0; i < parsedSplitCount; i++) {
       await sequelize.query(
@@ -191,7 +192,7 @@ router.post('/split', async (req, res) => {
             farmerID: originalBatch.farmerID || null,
             brix: originalBatch.brix || null,
             producer: originalBatch.producer || null,
-            currentAssign: 1, // Set to 1 for new batches
+            currentAssign: 1,
             createdAt: now,
             updatedAt: now
           },
@@ -214,17 +215,32 @@ router.post('/split', async (req, res) => {
       }
     );
 
-    // Insert into QCData for new batches, copying from original batch
+    // Insert into QCData for new batches with debugging
     const [originalQC] = await sequelize.query(
       `SELECT "qcDate", "ripeness", "color", "foreignMatter", "overallQuality", "unripePercentage", "semiripePercentage", "ripePercentage", "overripePercentage", "paymentMethod", "createdBy", "updatedBy", price
        FROM "QCData"
-       WHERE LOWER("batchNumber") = LOWER(:originalBatchNumber)`,
+       WHERE "batchNumber" = :originalBatchNumber`, // Removed LOWER to test exact match
       {
         replacements: { originalBatchNumber: originalBatchNumber.trim() },
         type: sequelize.QueryTypes.SELECT,
         transaction: t
       }
     );
+
+    console.log('Original QC Data:', originalQC); // Debugging log
+
+    if (!originalQC || originalQC.length === 0) {
+      await t.rollback();
+      return res.status(500).json({ error: 'Failed to retrieve QC data for the original batch.', details: 'Query returned no results.' });
+    }
+
+    const qcData = originalQC[0];
+    console.log('QC Data to Insert:', qcData); // Debugging log
+
+    if (!qcData.ripeness) {
+      await t.rollback();
+      return res.status(500).json({ error: 'Ripeness data is missing for the original batch.', details: 'Check QCData table integrity.' });
+    }
 
     for (let i = 0; i < parsedSplitCount; i++) {
       await sequelize.query(
@@ -236,21 +252,21 @@ router.post('/split', async (req, res) => {
         {
           replacements: {
             batchNumber: newBatchNumbers[i],
-            qcDate: originalQC[0]?.qcDate || null,
-            ripeness: originalQC[0]?.ripeness || null,
-            color: originalQC[0]?.color || null,
-            foreignMatter: originalQC[0]?.foreignMatter || null,
-            overallQuality: originalQC[0]?.overallQuality || null,
+            qcDate: qcData.qcDate,
+            ripeness: qcData.ripeness,
+            color: qcData.color,
+            foreignMatter: qcData.foreignMatter,
+            overallQuality: qcData.overallQuality,
             createdAt: now,
             updatedAt: now,
-            unripePercentage: originalQC[0]?.unripePercentage || null,
-            semiripePercentage: originalQC[0]?.semiripePercentage || null,
-            ripePercentage: originalQC[0]?.ripePercentage || null,
-            overripePercentage: originalQC[0]?.overripePercentage || null,
-            paymentMethod: originalQC[0]?.paymentMethod || null,
-            createdBy: originalQC[0]?.createdBy || null,
-            updatedBy: originalQC[0]?.updatedBy || null,
-            price: originalQC[0]?.price || null
+            unripePercentage: qcData.unripePercentage,
+            semiripePercentage: qcData.semiripePercentage,
+            ripePercentage: qcData.ripePercentage,
+            overripePercentage: qcData.overripePercentage,
+            paymentMethod: qcData.paymentMethod,
+            createdBy: qcData.createdBy || createdBy,
+            updatedBy: qcData.updatedBy || createdBy,
+            price: qcData.price
           },
           type: sequelize.QueryTypes.INSERT,
           transaction: t
