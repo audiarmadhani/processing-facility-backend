@@ -68,7 +68,6 @@ router.get('/new-batch-number', async (req, res) => {
 });
 
 // Split batches
-// Split batches
 router.post('/split', async (req, res) => {
   let t;
   try {
@@ -215,7 +214,7 @@ router.post('/split', async (req, res) => {
       }
     );
 
-    // Insert into QCData for new batches with corrected data access
+    // Insert into QCData for new batches
     const originalQC = await sequelize.query(
       `SELECT "qcDate", "ripeness", "color", "foreignMatter", "overallQuality", "unripePercentage", "semiripePercentage", "ripePercentage", "overripePercentage", "paymentMethod", "createdBy", "updatedBy", price
        FROM "QCData"
@@ -227,20 +226,15 @@ router.post('/split', async (req, res) => {
       }
     );
 
-    console.log('Original QC Data:', originalQC); // Debugging log
-
-    // Handle the result structure
     let qcData;
     if (Array.isArray(originalQC) && originalQC.length > 0) {
-      qcData = originalQC[0]; // Use first element if array
+      qcData = originalQC[0];
     } else if (originalQC && !Array.isArray(originalQC) && originalQC.ripeness) {
-      qcData = originalQC; // Use object directly if not an array
+      qcData = originalQC;
     } else {
       await t.rollback();
       return res.status(500).json({ error: 'Failed to retrieve valid QC data for the original batch.', details: 'Check query result structure.' });
     }
-
-    console.log('QC Data to Insert:', qcData); // Debugging log
 
     if (!qcData.ripeness) {
       await t.rollback();
@@ -279,12 +273,12 @@ router.post('/split', async (req, res) => {
       );
     }
 
-    // Insert into BatchSplits
+    // Insert into BatchSplits with correct split_weights
     await sequelize.query(
       `INSERT INTO "BatchSplits" (
         original_batch_number, new_batch_numbers, split_at, created_by, split_weights
       ) VALUES (
-        :originalBatchNumber, ARRAY[:newBatchNumbers], :splitAt, :createdBy, :splitWeight
+        :originalBatchNumber, ARRAY[:newBatchNumbers], :splitAt, :createdBy, :splitWeights
       )`,
       {
         replacements: {
@@ -292,7 +286,7 @@ router.post('/split', async (req, res) => {
           newBatchNumbers: newBatchNumbers,
           splitAt: now,
           createdBy: createdBy || 'Unknown',
-          splitWeight: totalSplitWeight
+          splitWeights: splitWeights // Use the array from payload
         },
         type: sequelize.QueryTypes.INSERT,
         transaction: t
