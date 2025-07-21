@@ -273,7 +273,7 @@ router.post('/split', async (req, res) => {
       );
     }
 
-    // Insert into BatchSplits with explicit JSONB cast
+    // Insert into BatchSplits with JSON stringified array
     await sequelize.query(
       `INSERT INTO "BatchSplits" (
         original_batch_number, new_batch_numbers, split_at, created_by, split_weights
@@ -286,7 +286,7 @@ router.post('/split', async (req, res) => {
           newBatchNumbers: newBatchNumbers,
           splitAt: now,
           createdBy: createdBy || 'Unknown',
-          splitWeights: splitWeights // Array [1000, 326]
+          splitWeights: JSON.stringify(splitWeights) // Convert array to JSON string
         },
         type: sequelize.QueryTypes.INSERT,
         transaction: t
