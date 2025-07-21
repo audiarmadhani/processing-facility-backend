@@ -273,12 +273,12 @@ router.post('/split', async (req, res) => {
       );
     }
 
-    // Insert into BatchSplits with correct split_weights
+    // Insert into BatchSplits with explicit JSONB cast
     await sequelize.query(
       `INSERT INTO "BatchSplits" (
         original_batch_number, new_batch_numbers, split_at, created_by, split_weights
       ) VALUES (
-        :originalBatchNumber, ARRAY[:newBatchNumbers], :splitAt, :createdBy, :splitWeights
+        :originalBatchNumber, ARRAY[:newBatchNumbers], :splitAt, :createdBy, CAST(:splitWeights AS jsonb)
       )`,
       {
         replacements: {
@@ -286,7 +286,7 @@ router.post('/split', async (req, res) => {
           newBatchNumbers: newBatchNumbers,
           splitAt: now,
           createdBy: createdBy || 'Unknown',
-          splitWeights: splitWeights // Use the array from payload
+          splitWeights: splitWeights // Array [1000, 326]
         },
         type: sequelize.QueryTypes.INSERT,
         transaction: t
