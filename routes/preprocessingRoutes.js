@@ -215,11 +215,11 @@ router.post('/split', async (req, res) => {
       }
     );
 
-    // Insert into QCData for new batches with debugging
-    const [originalQC] = await sequelize.query(
+    // Insert into QCData for new batches with corrected data access
+    const originalQC = await sequelize.query(
       `SELECT "qcDate", "ripeness", "color", "foreignMatter", "overallQuality", "unripePercentage", "semiripePercentage", "ripePercentage", "overripePercentage", "paymentMethod", "createdBy", "updatedBy", price
        FROM "QCData"
-       WHERE "batchNumber" = :originalBatchNumber`, // Removed LOWER to test exact match
+       WHERE "batchNumber" = :originalBatchNumber`,
       {
         replacements: { originalBatchNumber: originalBatchNumber.trim() },
         type: sequelize.QueryTypes.SELECT,
@@ -229,12 +229,17 @@ router.post('/split', async (req, res) => {
 
     console.log('Original QC Data:', originalQC); // Debugging log
 
-    if (!originalQC || originalQC.length === 0) {
+    // Handle the result structure
+    let qcData;
+    if (Array.isArray(originalQC) && originalQC.length > 0) {
+      qcData = originalQC[0]; // Use first element if array
+    } else if (originalQC && !Array.isArray(originalQC) && originalQC.ripeness) {
+      qcData = originalQC; // Use object directly if not an array
+    } else {
       await t.rollback();
-      return res.status(500).json({ error: 'Failed to retrieve QC data for the original batch.', details: 'Query returned no results.' });
+      return res.status(500).json({ error: 'Failed to retrieve valid QC data for the original batch.', details: 'Check query result structure.' });
     }
 
-    const qcData = originalQC[0];
     console.log('QC Data to Insert:', qcData); // Debugging log
 
     if (!qcData.ripeness) {
