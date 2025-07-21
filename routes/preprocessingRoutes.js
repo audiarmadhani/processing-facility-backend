@@ -282,7 +282,7 @@ router.post('/split', async (req, res) => {
     // Insert into BatchSplits
     await sequelize.query(
       `INSERT INTO "BatchSplits" (
-        original_batch_number, new_batch_numbers, split_at, created_by, split_weight
+        original_batch_number, new_batch_numbers, split_at, created_by, split_weights
       ) VALUES (
         :originalBatchNumber, ARRAY[:newBatchNumbers], :splitAt, :createdBy, :splitWeight
       )`,
