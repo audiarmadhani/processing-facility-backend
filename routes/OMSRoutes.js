@@ -82,6 +82,26 @@ router.get('/customers/:customer_id', async (req, res) => {
   }
 });
 
+// --- Drivers Routes --- (unchanged)
+router.get('/drivers/:customer_id', async (req, res) => {
+  const { driver_id } = req.params;
+  try {
+    const driver = await sequelize.query(`
+      SELECT * FROM "Drivers"
+      WHERE driver_id = :driver_id
+    `, {
+      replacements: { driver_id },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    if (!driver.length) return res.status(404).json({ error: 'Driver not found' });
+
+    res.json({ ...driver[0] });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch driver details', details: error.message });
+  }
+});
+
 router.get('/customers', async (req, res) => {
   try {
     const customers = await sequelize.query('SELECT * FROM "Customers" ORDER BY created_at DESC', {
