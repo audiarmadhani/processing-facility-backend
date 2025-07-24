@@ -63,6 +63,25 @@ const uploadFileToDrive = async (file, folderId) => {
 };
 
 // --- Customers Routes --- (unchanged)
+router.get('/customers/:customer_id', async (req, res) => {
+  const { order_id } = req.params;
+  try {
+    const customer = await sequelize.query(`
+      SELECT * FROM "Customers"
+      WHERE customer_id = :customer_id
+    `, {
+      replacements: { order_id },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    if (!order.length) return res.status(404).json({ error: 'Customer not found' });
+
+    res.json({ ...customer[0] });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch customer details', details: error.message });
+  }
+});
+
 router.get('/customers', async (req, res) => {
   try {
     const customers = await sequelize.query('SELECT * FROM "Customers" ORDER BY created_at DESC', {
