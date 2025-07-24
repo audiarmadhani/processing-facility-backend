@@ -83,7 +83,7 @@ router.get('/customers/:customer_id', async (req, res) => {
 });
 
 // --- Drivers Routes --- (unchanged)
-router.get('/drivers/:customer_id', async (req, res) => {
+router.get('/drivers/:driver_id', async (req, res) => {
   const { driver_id } = req.params;
   try {
     const driver = await sequelize.query(`
