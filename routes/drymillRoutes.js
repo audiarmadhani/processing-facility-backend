@@ -512,9 +512,9 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           :batchNumber, :lotNumber, :referenceNumber, :processingType, :weight, :totalBags, 
           :notes, :quality, :producer, :parentBatchNumber, NOW(), NOW()
         )
-        ON CONFLICT ("batchNumber", "quality") DO UPDATE SET
-          weight = weight,
-          "totalBags" = "totalBags",
+        ON CONFLICT ("batchNumber", "quality", "processingType") DO UPDATE SET
+          weight = :weight,
+          "totalBags" = :totalBags,
           "updatedAt" = NOW()
       `, {
         replacements: {
