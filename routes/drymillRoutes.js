@@ -1061,7 +1061,7 @@ router.get('/dry-mill-data', async (req, res) => {
         SELECT 
           rd."batchNumber" AS original_batch_number,
           COALESCE(pp."batchNumber", rd."batchNumber") AS batch_number,
-          COALESCE(pp."parentBatchNumber", rd."batchNumber") AS parent_batch_number,
+          pp."parentBatchNumber" AS parent_batch_number,
           rd."type",
           CASE
             WHEN rd."type" = 'Green Beans' THEN 'Green Beans'
