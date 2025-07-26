@@ -827,17 +827,17 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
         });
 
         // Insert default grade if none exist
-        if (grades.length === 0) {
-          await sequelize.query(`
-            INSERT INTO "DryMillGrades" ("batchNumber", processing_type, grade, weight, bagged_at, "lotNumber")
-            VALUES (:batchNumber, :processingType, 'Default', 0, NULL, :lotNumber)
-          `, {
-            replacements: { batchNumber, processingType: pt, lotNumber: batch.lotNumber || 'ID-BTM-A-N' },
-            type: sequelize.QueryTypes.INSERT,
-            transaction: t
-          });
-          grades.push({ grade: 'Default', weight: 0, bagged_at: null, storedDate: null });
-        }
+        // if (grades.length === 0) {
+        //   await sequelize.query(`
+        //     INSERT INTO "DryMillGrades" ("batchNumber", processing_type, grade, weight, bagged_at, "lotNumber")
+        //     VALUES (:batchNumber, :processingType, 'Default', 0, NULL, :lotNumber)
+        //   `, {
+        //     replacements: { batchNumber, processingType: pt, lotNumber: batch.lotNumber || 'ID-BTM-A-N' },
+        //     type: sequelize.QueryTypes.INSERT,
+        //     transaction: t
+        //   });
+        //   grades.push({ grade: 'Default', weight: 0, bagged_at: null, storedDate: null });
+        // }
 
         const hasValidSplits = grades.some(g => 
           (parseFloat(g.weight) >= 0 && g.bagged_at && !g.storedDate) || // Valid split or default with bagged_at
@@ -912,22 +912,22 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
       }
     }
 
-    const [cherryInventory] = await sequelize.query(`
-      SELECT status, orderId
-      FROM "CherryInventoryStatus"
-      WHERE "batchNumber" = :batchNumber
-      AND "exitedAt" IS NULL
-    `, {
-      replacements: { batchNumber },
-      type: sequelize.QueryTypes.SELECT,
-      transaction: t
-    });
+    // const [cherryInventory] = await sequelize.query(`
+    //   SELECT status, orderId
+    //   FROM "CherryInventoryStatus"
+    //   WHERE "batchNumber" = :batchNumber
+    //   AND "exitedAt" IS NULL
+    // `, {
+    //   replacements: { batchNumber },
+    //   type: sequelize.QueryTypes.SELECT,
+    //   transaction: t
+    // });
 
-    if (cherryInventory && cherryInventory.orderId) {
-      await t.rollback();
-      logger.warn('Batch reserved for order', { batchNumber, orderId: cherryInventory.orderId, user: createdBy });
-      return res.status(400).json({ error: 'Cannot complete batch: cherry batch is reserved for an order.' });
-    }
+    // if (cherryInventory && cherryInventory.orderId) {
+    //   await t.rollback();
+    //   logger.warn('Batch reserved for order', { batchNumber, orderId: cherryInventory.orderId, user: createdBy });
+    //   return res.status(400).json({ error: 'Cannot complete batch: cherry batch is reserved for an order.' });
+    // }
 
     const exitedAt = dryMillExited || new Date().toISOString();
     const [result] = await sequelize.query(`
@@ -1032,29 +1032,29 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
       }
     }
 
-    if (cherryInventory) {
-      await sequelize.query(`
-        UPDATE "CherryInventoryStatus"
-        SET status = 'Picked', "exitedAt" = NOW(), "updatedAt" = NOW(), "updatedBy" = :updatedBy
-        WHERE "batchNumber" = :batchNumber AND "exitedAt" IS NULL
-      `, {
-        replacements: { batchNumber, updatedBy },
-        type: sequelize.QueryTypes.UPDATE,
-        transaction: t
-      });
+    // if (cherryInventory) {
+    //   await sequelize.query(`
+    //     UPDATE "CherryInventoryStatus"
+    //     SET status = 'Picked', "exitedAt" = NOW(), "updatedAt" = NOW(), "updatedBy" = :updatedBy
+    //     WHERE "batchNumber" = :batchNumber AND "exitedAt" IS NULL
+    //   `, {
+    //     replacements: { batchNumber, updatedBy },
+    //     type: sequelize.QueryTypes.UPDATE,
+    //     transaction: t
+    //   });
 
-      await sequelize.query(`
-        INSERT INTO "CherryInventoryMovements" (
-          "batchNumber", "movementType", "movedAt", "createdBy"
-        ) VALUES (
-          :batchNumber, 'Exit', NOW(), :createdBy
-        )
-      `, {
-        replacements: { batchNumber, createdBy },
-        type: sequelize.QueryTypes.INSERT,
-        transaction: t
-      });
-    }
+    //   await sequelize.query(`
+    //     INSERT INTO "CherryInventoryMovements" (
+    //       "batchNumber", "movementType", "movedAt", "createdBy"
+    //     ) VALUES (
+    //       :batchNumber, 'Exit', NOW(), :createdBy
+    //     )
+    //   `, {
+    //     replacements: { batchNumber, createdBy },
+    //     type: sequelize.QueryTypes.INSERT,
+    //     transaction: t
+    //   });
+    // }
 
     await t.commit();
     logger.info('Batch marked as processed successfully', { batchNumber, user: createdBy });
