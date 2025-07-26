@@ -464,7 +464,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           "storedDate" = NULL,
           processing_type = :processingType,
           "lotNumber" = :lotNumber,
-          "referenceNumber" = :referenceNumber,
+          "referenceNumber" = :referenceNumber
       `, {
         replacements: {
           batchNumber,
@@ -679,7 +679,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
         "storedDate" = NULL,
         processing_type = :processingType,
         "lotNumber" = :lotNumber,
-        "referenceNumber" = :referenceNumber,
+        "referenceNumber" = :referenceNumber
     `, {
       replacements: {
         parentBatchNumber,
