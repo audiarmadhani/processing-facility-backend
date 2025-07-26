@@ -460,7 +460,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         )
         ON CONFLICT ("subBatchId") DO UPDATE SET
           weight = :weight,
-          bagged_at = :bagged_at,
+          bagged_at = :bagged_at
       `, {
         replacements: {
           batchNumber,
