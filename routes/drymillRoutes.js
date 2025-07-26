@@ -405,9 +405,9 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       });
       const totalWeight = weights.reduce((sum, w) => sum + w, 0);
       const baggedAtValue = bagged_at || new Date().toISOString().split('T')[0];
-      const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '-')}`;
       const formattedSequence = tempSequence || '0001';
 
+      const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '-')}`;
       // Add suffixes to base lot and reference numbers based on grade
       let qualitySuffix;
       switch (grade) {
@@ -516,15 +516,15 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           :batchNumber, :lotNumber, :referenceNumber, :processingType, :weight, :totalBags, 
           :notes, :quality, :producer, :parentBatchNumber, NOW(), NOW()
         )
-        ON CONFLICT ("batchNumber") DO UPDATE SET
-          "lotNumber" = :lotNumber,
-          "referenceNumber" = :referenceNumber,
-          weight = :weight,
-          "totalBags" = :totalBags,
+        ON CONFLICT ("batchNumber", "quality") DO UPDATE SET
+          "lotNumber" = EXCLUDED."lotNumber",
+          "referenceNumber" = EXCLUDED."referenceNumber",
+          weight = EXCLUDED.weight,
+          "totalBags" = EXCLUDED."totalBags",
           "updatedAt" = NOW()
       `, {
         replacements: {
-          batchNumber: newLotNumber,
+          batchNumber: batchNumber, // Use parentBatchNumber as batchNumber
           lotNumber: newLotNumber,
           referenceNumber: newReferenceNumber,
           processingType: batch.type === 'Green Beans' ? 'Dry' : processingType,
@@ -540,7 +540,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       });
 
       results.push({ subBatchId, grade, weight: totalWeight.toFixed(2), bagWeights: weights, bagged_at: baggedAtValue, lotNumber: newLotNumber, referenceNumber: newReferenceNumber });
-      subBatches.push({ batchNumber: newLotNumber, lotNumber: newLotNumber, referenceNumber: newReferenceNumber, quality: grade });
+      subBatches.push({ batchNumber: batchNumber, lotNumber: newLotNumber, referenceNumber: newReferenceNumber, quality: grade });
     }
 
     await t.commit();
@@ -748,7 +748,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
 // POST route to complete a batch
 router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
   const { batchNumber } = req.params;
-  const { createdBy, updatedBy } = req.body;
+  const { createdBy, updatedBy, dryMillExited } = req.body;
 
   if (!batchNumber || !createdBy || !updatedBy) {
     logger.warn('Missing required parameters', { batchNumber, createdBy, updatedBy, user: createdBy || 'unknown' });
@@ -777,7 +777,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
     }
 
     const [dryMillEntry] = await sequelize.query(`
-      SELECT entered_at, exited_at
+      SELECT entered_at, exited_at, status
       FROM "DryMillData"
       WHERE "batchNumber" = :batchNumber
       LIMIT 1
@@ -904,13 +904,14 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
       return res.status(400).json({ error: 'Cannot complete batch: cherry batch is reserved for an order.' });
     }
 
+    const exitedAt = dryMillExited || new Date().toISOString(); // Use frontend-provided timestamp or default to current time
     const [result] = await sequelize.query(`
       UPDATE "DryMillData"
-      SET exited_at = NOW()
+      SET exited_at = :exitedAt, status = 'Processed'
       WHERE "batchNumber" = :batchNumber
       RETURNING exited_at
     `, {
-      replacements: { batchNumber },
+      replacements: { batchNumber, exitedAt },
       type: sequelize.QueryTypes.UPDATE,
       transaction: t
     });
