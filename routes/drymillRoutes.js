@@ -768,7 +768,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
     }
 
     const [dryMillEntry] = await sequelize.query(`
-      SELECT entered_at, exited_at, status
+      SELECT entered_at, exited_at
       FROM "DryMillData"
       WHERE "batchNumber" = :batchNumber
       LIMIT 1
@@ -932,7 +932,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
     const exitedAt = dryMillExited || new Date().toISOString();
     const [result] = await sequelize.query(`
       UPDATE "DryMillData"
-      SET exited_at = :exitedAt, status = 'Processed'
+      SET exited_at = :exitedAt
       WHERE "batchNumber" = :batchNumber
       RETURNING exited_at
     `, {
