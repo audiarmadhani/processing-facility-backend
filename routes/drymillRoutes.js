@@ -128,7 +128,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
     });
 
     let validProcessingType;
-    let isGreenBeans = batch?.type === 'Green Beans';
+    let isGreenBeans = batch?.type === 'NA';
 
     if (isGreenBeans) {
       processingType = 'Dry';
@@ -307,7 +307,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     let productLine = null;
     let producer = batch.producer;
 
-    if (batch.type === 'Green Beans') {
+    if (batch.type === 'NA') {
       [dryMillEntry] = await sequelize.query(`
         SELECT "entered_at"
         FROM "DryMillData"
@@ -345,7 +345,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
     // Retrieve base lotNumber and referenceNumber from PreprocessingData
     let baseLotNumber, baseReferenceNumber;
-    if (batch.type !== 'Green Beans') {
+    if (batch.type !== 'NA') {
       const [preprocessingData] = await sequelize.query(`
         SELECT "lotNumber", "referenceNumber"
         FROM "PreprocessingData"
@@ -468,7 +468,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           grade,
           weight: totalWeight.toFixed(2),
           bagged_at: baggedAtValue,
-          processingType: batch.type === 'Green Beans' ? 'Dry' : processingType,
+          processingType: processingType,
           tempSequence: formattedSequence,
           lotNumber: newLotNumber,
           referenceNumber: newReferenceNumber
@@ -516,7 +516,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         replacements: {
           batchNumber: batchNumber,
           quality: grade,
-          processingType: batch.type === 'Green Beans' ? 'Dry' : processingType
+          processingType: processingType
         },
         type: sequelize.QueryTypes.SELECT,
         transaction: t
@@ -535,7 +535,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           replacements: {
             batchNumber: batchNumber,
             quality: grade,
-            processingType: batch.type === 'Green Beans' ? 'Dry' : processingType,
+            processingType: processingType,
             weight: totalWeight.toFixed(2),
             totalBags: weights.length
           },
@@ -556,7 +556,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
             batchNumber: batchNumber,
             lotNumber: newLotNumber,
             referenceNumber: newReferenceNumber,
-            processingType: batch.type === 'Green Beans' ? 'Dry' : processingType,
+            processingType: processingType,
             weight: totalWeight.toFixed(2),
             totalBags: weights.length,
             notes: '',
@@ -618,7 +618,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
     let productLine = null;
     let producer = batch.producer;
 
-    if (batch.type === 'Green Beans') {
+    if (batch.type === 'NA') {
       validProcessingType = { processingType: 'Dry' };
     } else {
       [validProcessingType] = await sequelize.query(`
@@ -650,7 +650,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
       AND "processingType" = :processingType
       LIMIT 1
     `, {
-      replacements: { batchNumber, grade, processingType: batch.type === 'Green Beans' ? 'Dry' : processingType },
+      replacements: { batchNumber, grade, processingType: processingType },
       type: sequelize.QueryTypes.SELECT,
       transaction: t
     });
@@ -713,7 +713,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
         grade,
         weight: totalWeight.toFixed(2),
         bagged_at: baggedAtValue,
-        processingType: batch.type === 'Green Beans' ? 'Dry' : processingType,
+        processingType: processingType,
         lotNumber: subBatch.lotNumber,
         referenceNumber: subBatch.referenceNumber
       },
@@ -749,7 +749,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
         batchNumber,
         weight: totalWeight.toFixed(2),
         totalBags: weights.length,
-        processingType: batch.type === 'Green Beans' ? 'Dry' : processingType
+        processingType: processingType
       },
       type: sequelize.QueryTypes.UPDATE,
       transaction: t
@@ -821,7 +821,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
     }
 
     let processingTypes = [];
-    if (batch.type !== 'Green Beans') {
+    if (batch.type !== 'NA') {
       processingTypes = await sequelize.query(`
         SELECT DISTINCT "processingType"
         FROM "PreprocessingData"
