@@ -511,10 +511,10 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       await sequelize.query(`
         INSERT INTO "PostprocessingData" (
           "batchNumber", "lotNumber", "referenceNumber", "processingType", weight, "totalBags", 
-          notes, quality, producer, "farmerName", "parentBatchNumber", "createdAt", "updatedAt"
+          notes, quality, producer, "parentBatchNumber", "createdAt", "updatedAt"
         ) VALUES (
           :batchNumber, :lotNumber, :referenceNumber, :processingType, :weight, :totalBags, 
-          :notes, :quality, :producer, :farmerName, :parentBatchNumber, NOW(), NOW()
+          :notes, :quality, :producer, :parentBatchNumber, NOW(), NOW()
         )
         ON CONFLICT ("batchNumber") DO UPDATE SET
           "lotNumber" = :lotNumber,
@@ -533,7 +533,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           notes: '',
           quality: grade,
           producer,
-          farmerName: batch.farmerName,
           parentBatchNumber: batchNumber
         },
         type: sequelize.QueryTypes.INSERT,
