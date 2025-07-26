@@ -1086,7 +1086,7 @@ router.get('/dry-mill-data', async (req, res) => {
           rd."farmerName" AS "farmerName",
           pp."productLine" AS "productLine",
           COALESCE(pp."processingType", pd."processingType") AS "processingType",
-          pd."lotNumber" AS "lotNumber",
+          CASE WHEN pp."batchNumber" IS NOT NULL THEN pp."lotNumber" ELSE pd."lotNumber" END AS "lotNumber",
           COALESCE(pp."referenceNumber", pd."referenceNumber") AS "referenceNumber",
           CASE
             WHEN dm."entered_at" IS NOT NULL AND dm."exited_at" IS NULL THEN 'In Dry Mill'
@@ -1096,6 +1096,7 @@ router.get('/dry-mill-data', async (req, res) => {
           ARRAY_AGG(DISTINCT pd."processingType") FILTER (WHERE pd."processingType" IS NOT NULL) AS "processingTypes",
           COUNT(DISTINCT bd.bag_number) AS total_bags,
           COALESCE(pp.notes, rd.notes) AS notes,
+          SUM(bd.weight) AS "drymillWeight",
           ARRAY_AGG(bd.weight) FILTER (WHERE bd.weight IS NOT NULL) AS bag_details,
           pp."storedDate" AS stored_date,
           rd.rfid,
@@ -1122,17 +1123,47 @@ router.get('/dry-mill-data', async (req, res) => {
           pp.weight, rd.weight, pp.quality,
           pp.producer, rd.producer, rd."farmerName",
           pp."productLine", COALESCE(pp."processingType", pd."processingType"),
-          pd."lotNumber", COALESCE(pp."referenceNumber", pd."referenceNumber"),
+          CASE WHEN pp."batchNumber" IS NOT NULL THEN pp."lotNumber" ELSE pd."lotNumber" END, COALESCE(pp."referenceNumber", pd."referenceNumber"),
           pp.notes, rd.notes,
           pp."storedDate", rd.rfid,
           fm."farmVarieties",
           ldw.drying_weight
+      ),
+      FinalData AS (
+        SELECT 
+          batch_number AS "batchNumber",
+          parent_batch_number AS "parentBatchNumber",
+          type,
+          batch_type AS "batchType",
+          "dryMillEntered",
+          "dryMillExited",
+          storeddatetrunc,
+          weight,
+          quality,
+          cherry_weight,
+          drying_weight,
+          producer,
+          "farmerName",
+          "productLine",
+          "processingType",
+          "lotNumber",
+          "referenceNumber",
+          status,
+          "processingTypes",
+          total_bags AS "totalBags",
+          notes,
+          "drymillWeight",
+          bag_details AS "bagDetails",
+          stored_date AS "storedDate",
+          rfid,
+          "farmVarieties"
+        FROM BaseData
       )
       SELECT 
-        batch_number AS "batchNumber",
-        parent_batch_number AS "parentBatchNumber",
+        "batchNumber",
+        "parentBatchNumber",
         type,
-        batch_type AS "batchType",
+        "batchType",
         "dryMillEntered",
         "dryMillExited",
         storeddatetrunc,
@@ -1148,13 +1179,14 @@ router.get('/dry-mill-data', async (req, res) => {
         "referenceNumber",
         status,
         "processingTypes",
-        total_bags AS "totalBags",
+        "totalBags",
         notes,
-        bag_details AS "bagDetails",
-        stored_date AS "storedDate",
+        "drymillWeight",
+        "bagDetails",
+        "storedDate",
         rfid,
         "farmVarieties"
-      FROM BaseData
+      FROM FinalData
       ORDER BY "dryMillEntered" DESC
     `, {
       type: sequelize.QueryTypes.SELECT,
@@ -1360,7 +1392,7 @@ router.post('/warehouse/scan', async (req, res) => {
 
     await sequelize.query(`
       UPDATE "ReceivingData"
-      SET rfid = NULL, "currentAssign" = 0, "updatedAt" = NOW()
+      SET "currentAssign" = 0, "updatedAt" = NOW()
       WHERE "batchNumber" = :batchNumber
     `, {
       replacements: { batchNumber },
