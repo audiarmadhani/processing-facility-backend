@@ -461,10 +461,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         ON CONFLICT ("subBatchId") DO UPDATE SET
           weight = :weight,
           bagged_at = :bagged_at,
-          "storedDate" = NULL,
-          processing_type = :processingType,
-          "lotNumber" = :lotNumber,
-          "referenceNumber" = :referenceNumber
       `, {
         replacements: {
           batchNumber,
@@ -517,10 +513,8 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           :notes, :quality, :producer, :parentBatchNumber, NOW(), NOW()
         )
         ON CONFLICT ("batchNumber", "quality") DO UPDATE SET
-          "lotNumber" = EXCLUDED."lotNumber",
-          "referenceNumber" = EXCLUDED."referenceNumber",
-          weight = EXCLUDED.weight,
-          "totalBags" = EXCLUDED."totalBags",
+          weight = weight,
+          "totalBags" = "totalBags",
           "updatedAt" = NOW()
       `, {
         replacements: {
@@ -675,10 +669,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
       ON CONFLICT ("subBatchId") DO UPDATE SET
         weight = :weight,
         bagged_at = :bagged_at,
-        "storedDate" = NULL,
-        processing_type = :processingType,
-        "lotNumber" = :lotNumber,
-        "referenceNumber" = :referenceNumber
+        "storedDate" = NOW(),
     `, {
       replacements: {
         parentBatchNumber,
@@ -1353,7 +1344,7 @@ router.post('/warehouse/scan', async (req, res) => {
         :lotNumber, :referenceNumber, NOW(), NOW(), :createdBy
       )
       ON CONFLICT ("batchNumber", "processingType") DO UPDATE
-      SET weight = :weight, "lotNumber" = :lotNumber, "referenceNumber" = :referenceNumber, "updatedAt" = NOW()
+      SET weight = :weight, "updatedAt" = NOW()
     `, {
       replacements: {
         batchNumber,
