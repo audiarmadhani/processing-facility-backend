@@ -453,10 +453,10 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       await sequelize.query(`
         INSERT INTO "DryMillGrades" (
           "batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "storedDate", processing_type, temp_sequence, 
-          "lotNumber", "referenceNumber", "createdAt", "updatedAt"
+          "lotNumber", "referenceNumber"
         ) VALUES (
           :batchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, NULL, :processingType, :tempSequence, 
-          :lotNumber, :referenceNumber, NOW(), NOW()
+          :lotNumber, :referenceNumber
         )
         ON CONFLICT ("subBatchId") DO UPDATE SET
           weight = :weight,
@@ -465,7 +465,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           processing_type = :processingType,
           "lotNumber" = :lotNumber,
           "referenceNumber" = :referenceNumber,
-          "updatedAt" = NOW()
       `, {
         replacements: {
           batchNumber,
@@ -493,9 +492,9 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       for (let i = 0; i < weights.length; i++) {
         await sequelize.query(`
           INSERT INTO "BagDetails" (
-            grade_id, bag_number, weight, bagged_at, "storedDate", "createdAt", "updatedAt"
+            grade_id, bag_number, weight, bagged_at
           ) VALUES (
-            :gradeId, :bagNumber, :weight, :baggedAt, NULL, NOW(), NOW()
+            :gradeId, :bagNumber, :weight, :baggedAt
           )
         `, {
           replacements: {
@@ -669,10 +668,10 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
     await sequelize.query(`
       INSERT INTO "DryMillGrades" (
         "batchNumber", "subBatchId", grade, weight, split_at, bagged_at, "storedDate", processing_type, 
-        "lotNumber", "referenceNumber", "createdAt", "updatedAt"
+        "lotNumber", "referenceNumber"
       ) VALUES (
-        :parentBatchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, NULL, :processingType, 
-        :lotNumber, :referenceNumber, NOW(), NOW()
+        :parentBatchNumber, :subBatchId, :grade, :weight, NOW(), :bagged_at, NOW(), :processingType, 
+        :lotNumber, :referenceNumber
       )
       ON CONFLICT ("subBatchId") DO UPDATE SET
         weight = :weight,
@@ -681,7 +680,6 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
         processing_type = :processingType,
         "lotNumber" = :lotNumber,
         "referenceNumber" = :referenceNumber,
-        "updatedAt" = NOW()
     `, {
       replacements: {
         parentBatchNumber,
@@ -700,9 +698,9 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
     for (let i = 0; i < weights.length; i++) {
       await sequelize.query(`
         INSERT INTO "BagDetails" (
-          grade_id, bag_number, weight, bagged_at, "storedDate", "createdAt", "updatedAt"
+          grade_id, bag_number, weight, bagged_at
         ) VALUES (
-          :gradeId, :bagNumber, :weight, :baggedAt, NULL, NOW(), NOW()
+          :gradeId, :bagNumber, :weight, :baggedAt
         )
       `, {
         replacements: {
@@ -909,7 +907,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
 
     const [result] = await sequelize.query(`
       UPDATE "DryMillData"
-      SET exited_at = NOW(), "updatedAt" = NOW()
+      SET exited_at = NOW()
       WHERE "batchNumber" = :batchNumber
       RETURNING exited_at
     `, {
@@ -1259,7 +1257,7 @@ router.post('/warehouse/scan', async (req, res) => {
 
     await sequelize.query(`
       UPDATE "DryMillGrades"
-      SET "storedDate" = NOW(), "updatedAt" = NOW()
+      SET "storedDate" = NOW()
       WHERE "subBatchId" = :subBatchId
       AND processing_type = :processingType
     `, {
@@ -1273,7 +1271,7 @@ router.post('/warehouse/scan', async (req, res) => {
 
     await sequelize.query(`
       UPDATE "BagDetails"
-      SET "storedDate" = NOW(), "updatedAt" = NOW()
+      SET bagged_at = NOW()
       WHERE grade_id = :subBatchId
     `, {
       replacements: { subBatchId: dryMillGrade.subBatchId },
