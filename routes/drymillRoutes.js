@@ -286,7 +286,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     t = await sequelize.transaction();
 
     const [batch] = await sequelize.query(`
-      SELECT "batchNumber", "type", "producer", "farmerName", "productLine"
+      SELECT "batchNumber", "type", "producer", "farmerName"
       FROM "ReceivingData"
       WHERE "batchNumber" = :batchNumber
       LIMIT 1
@@ -303,7 +303,7 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
     }
 
     let dryMillEntry;
-    let productLine = batch.productLine;
+    let productLine = null;
     let producer = batch.producer;
 
     if (batch.type === 'Green Beans') {
@@ -323,17 +323,16 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       [dryMillEntry] = await sequelize.query(`
         SELECT dm."entered_at", pp."processingType", pp."productLine", pp."producer", pp."lotNumber", pp."referenceNumber"
         FROM "DryMillData" dm
-        JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber"
+        LEFT JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber" AND dm."entered_at" IS NOT NULL
         WHERE dm."batchNumber" = :batchNumber
         AND pp."processingType" = :processingType
-        AND dm."entered_at" IS NOT NULL
         LIMIT 1
       `, {
         replacements: { batchNumber, processingType },
         type: sequelize.QueryTypes.SELECT,
         transaction: t
       });
-      productLine = dryMillEntry?.productLine || productLine;
+      productLine = dryMillEntry?.productLine || null;
       producer = dryMillEntry?.producer || producer;
     }
 
@@ -508,10 +507,10 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 
       await sequelize.query(`
         INSERT INTO "PostprocessingData" (
-          "batchNumber", "lotNumber", "referenceNumber", "processingType", "productLine", weight, "totalBags", 
+          "batchNumber", "lotNumber", "referenceNumber", "processingType", weight, "totalBags", 
           notes, quality, producer, "farmerName", "parentBatchNumber", "createdAt", "updatedAt"
         ) VALUES (
-          :batchNumber, :lotNumber, :referenceNumber, :processingType, :productLine, :weight, :totalBags, 
+          :batchNumber, :lotNumber, :referenceNumber, :processingType, :weight, :totalBags, 
           :notes, :quality, :producer, :farmerName, :parentBatchNumber, NOW(), NOW()
         )
         ON CONFLICT ("batchNumber") DO UPDATE SET
@@ -526,7 +525,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           lotNumber: newLotNumber,
           referenceNumber: newReferenceNumber,
           processingType: batch.type === 'Green Beans' ? 'Dry' : processingType,
-          productLine,
           weight: totalWeight.toFixed(2),
           totalBags: weights.length,
           notes: '',
@@ -568,7 +566,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
     t = await sequelize.transaction();
 
     const [batch] = await sequelize.query(`
-      SELECT "batchNumber", "type", "producer", "farmerName", "productLine"
+      SELECT "batchNumber", "type", "producer", "farmerName"
       FROM "ReceivingData"
       WHERE "batchNumber" = :batchNumber
       LIMIT 1
@@ -585,7 +583,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
     }
 
     let validProcessingType;
-    let productLine = batch.productLine;
+    let productLine = null;
     let producer = batch.producer;
 
     if (batch.type === 'Green Beans') {
@@ -608,12 +606,12 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
         logger.warn('Invalid processing type', { batchNumber, processingType, user: req.body.createdBy || 'unknown' });
         return res.status(400).json({ error: 'Invalid processing type for this batch.' });
       }
-      productLine = validProcessingType.productLine || productLine;
+      productLine = validProcessingType.productLine || null;
       producer = validProcessingType.producer || producer;
     }
 
     const [subBatch] = await sequelize.query(`
-      SELECT "batchNumber", "parentBatchNumber", "quality", "processingType", "lotNumber", "referenceNumber"
+      SELECT "batchNumber", "parentBatchNumber", weight, quality, "processingType", "lotNumber", "referenceNumber"
       FROM "PostprocessingData"
       WHERE "batchNumber" = :batchNumber
       AND "quality" = :grade
