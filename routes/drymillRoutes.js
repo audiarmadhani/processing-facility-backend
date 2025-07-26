@@ -20,8 +20,9 @@ const logger = winston.createLogger({
 
 // Helper function to validate lot number format
 const validateLotNumber = (lotNumber) => {
-  const hqRegex = /^HQ\d{2}[A-Z]+-[A-Z]+-\d{4}$/;
-  const btmRegex = /^ID-BTM-[AR]-[A-Z]$/;
+  if (!lotNumber) return false;
+  const hqRegex = /^HQ\d{2}[A-Z]+-[A-Z]+-\d{4}$/; // e.g., HQ12ABC-XYZ-2025
+  const btmRegex = /^ID-BTM-[AR]-[A-Z](-S|-G[1-4]|-AS)?$/; // e.g., ID-BTM-A-Z or ID-BTM-A-Z-G4 or ID-BTM-A-Z-AS
   return hqRegex.test(lotNumber) || btmRegex.test(lotNumber);
 };
 
@@ -424,6 +425,9 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           break;
         case 'Grade 4':
           qualitySuffix = '-G4';
+          break;
+        case 'Asalan':
+          qualitySuffix = '-AS';
           break;
         default:
           await t.rollback();
