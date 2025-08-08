@@ -122,18 +122,23 @@ router.get('/dashboard-metrics', async (req, res) => {
         SELECT COALESCE(COUNT(*),0) AS count 
         FROM "ReceivingData" 
         WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+        AND merged = FALSE
         `;
         const totalArabicaWeightQuery = `
         SELECT COALESCE(SUM(weight), 0) AS sum 
         FROM "ReceivingData" 
         WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             AND type = 'Arabica'
+            AND merged = FALSE
+            AND "commodityType" = 'Cherry' 
         `;
         const totalRobustaWeightQuery = `
         SELECT COALESCE(SUM(weight), 0) AS sum 
         FROM "ReceivingData" 
         WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             AND type = 'Robusta'
+            AND merged = FALSE
+            AND "commodityType" = 'Cherry' 
         `;
         const totalArabicaCostQuery = `
         SELECT COALESCE(SUM(price * weight), 0) AS sum 
@@ -165,6 +170,8 @@ router.get('/dashboard-metrics', async (req, res) => {
             LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber" 
             WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             AND type = 'Arabica'
+            AND b.merged = FALSE
+            AND "commodityType" = 'Cherry' 
         `;
         const totalRobustaProcessedQuery = `
             SELECT COALESCE(ROUND(SUM("weightProcessed")::numeric, 1), 0) AS sum  
@@ -172,6 +179,8 @@ router.get('/dashboard-metrics', async (req, res) => {
             LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" 
             WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             AND type = 'Robusta'
+            AND b.merged = FALSE
+            AND "commodityType" = 'Cherry' 
         `;
         const activeArabicaFarmersQuery = `
             SELECT COALESCE(SUM(isActive), 0) AS count FROM "Farmers" where "farmType" in ('Arabica', 'Mix', 'Mixed');
@@ -192,12 +201,16 @@ router.get('/dashboard-metrics', async (req, res) => {
         FROM "ReceivingData" 
         WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' 
             AND type = 'Arabica'
+            AND merged = FALSE
+            AND "commodityType" = 'Cherry' 
         `;
         const lastmonthRobustaWeightQuery = `
         SELECT COALESCE(SUM(weight), 0) AS sum 
         FROM "ReceivingData" 
         WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' 
             AND type = 'Robusta'
+            AND merged = FALSE
+            AND "commodityType" = 'Cherry' 
         `;
         const lastmonthArabicaCostQuery = `
         SELECT COALESCE(SUM(price * weight), 0) AS sum 
@@ -224,10 +237,10 @@ router.get('/dashboard-metrics', async (req, res) => {
             AND type = 'Robusta'
         `;
         const lastmonthArabicaProcessedQuery = `
-            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND type = 'Arabica'
+            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND b.type = 'Arabica AND b.merged = FALSE AND b."commodityType" = 'Cherry' '
         `;
         const lastmonthRobustaProcessedQuery = `
-            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND type = 'Robusta'
+            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND b.type = 'Robusta AND b.merged = FALSE AND b."commodityType" = 'Cherry' '
         `;
 
         // Example queries for production data
@@ -260,12 +273,16 @@ router.get('/dashboard-metrics', async (req, res) => {
             LEFT JOIN "QCData" qd ON rd."batchNumber" = qd."batchNumber"
             WHERE qd."batchNumber" IS NULL
             AND rd.type = 'Arabica'
+            AND rd.merged = FALSE
+            AND rd."commodityType" = 'Cherry' 
         `;
         const pendingRobustaQCQuery = `
             SELECT COALESCE(COUNT(*), 0) AS count FROM "ReceivingData" rd
             LEFT JOIN "QCData" qd ON rd."batchNumber" = qd."batchNumber"
             WHERE qd."batchNumber" IS NULL
             AND rd.type = 'Robusta'
+            AND rd.merged = FALSE
+            AND rd."commodityType" = 'Cherry' 
         `;
         const pendingArabicaProcessingQuery = `
             SELECT COALESCE(COUNT(*), 0) AS count FROM "QCData" qd
@@ -273,6 +290,8 @@ router.get('/dashboard-metrics', async (req, res) => {
             LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
             WHERE pd."batchNumber" IS NULL
             AND rd.type = 'Arabica'
+            AND rd.merged = FALSE
+            AND rd."commodityType" = 'Cherry' 
         `;
         const pendingArabicaWeightProcessingQuery = `
             SELECT COALESCE(SUM(rd.weight),0) as SUM FROM "QCData" qd
@@ -280,6 +299,8 @@ router.get('/dashboard-metrics', async (req, res) => {
             LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
             WHERE pd."batchNumber" IS NULL
             AND rd.type = 'Arabica'
+            AND rd.merged = FALSE
+            AND rd."commodityType" = 'Cherry' 
         `;
         const pendingRobustaProcessingQuery = `
             SELECT COALESCE(COUNT(*), 0) AS count FROM "QCData" qd
@@ -287,6 +308,8 @@ router.get('/dashboard-metrics', async (req, res) => {
             LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
             WHERE pd."batchNumber" IS NULL
             AND rd.type = 'Robusta'
+            AND rd.merged = FALSE
+            AND rd."commodityType" = 'Cherry' 
         `;
         const pendingRobustaWeightProcessingQuery = `
             SELECT COALESCE(SUM(rd.weight),0) as SUM FROM "QCData" qd
@@ -294,18 +317,25 @@ router.get('/dashboard-metrics', async (req, res) => {
             LEFT JOIN "ReceivingData" rd on qd."batchNumber" = rd."batchNumber"
             WHERE pd."batchNumber" IS NULL
             AND rd.type = 'Robusta'
+            AND rd.merged = FALSE
+            AND rd."commodityType" = 'Cherry' 
         `;
         const totalWeightBagsbyDateQuery = `
             SELECT DATE("receivingDate") as DATE, COALESCE(SUM(weight), 0) as TOTAL_WEIGHT, COALESCE(SUM("totalBags"), 0) as TOTAL_BAGS 
             FROM "ReceivingData" 
             GROUP BY DATE("receivingDate")
+            AND merged = FALSE
+            AND "commodityType" = 'Cherry' 
         `;
         const totalCostbyDateQuery = `
             SELECT DATE("receivingDate") as DATE, COALESCE(SUM(price), 0) as PRICE FROM "QCData_v" GROUP BY DATE("receivingDate")
         `;
         const arabicaYieldQuery = `
             WITH pre AS (
-            SELECT b.type, sum(b.weight) as weight FROM "PreprocessingData" a left join "ReceivingData" b on a."batchNumber" = b."batchNumber" group by b.type
+            SELECT b.type, sum(b.weight) as weight FROM "PreprocessingData" a left join "ReceivingData" b on a."batchNumber" = b."batchNumber" 
+            WHERE b.merged = FALSE
+            AND b."commodityType" = 'Cherry' 
+            group by b.type
             ),
  
             post as (
@@ -326,7 +356,10 @@ router.get('/dashboard-metrics', async (req, res) => {
         `;
         const robustaYieldQuery = `
             WITH pre AS (
-            SELECT b.type, sum(b.weight) as weight FROM "PreprocessingData" a left join "ReceivingData" b on a."batchNumber" = b."batchNumber" group by b.type
+            SELECT b.type, sum(b.weight) as weight FROM "PreprocessingData" a left join "ReceivingData" b on a."batchNumber" = b."batchNumber" 
+            WHERE b.merged = FALSE
+            AND b."commodityType" = 'Cherry'  
+            group by b.type
             ),
  
             post as (
@@ -428,6 +461,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                     FROM "ReceivingData" 
                     WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                     AND type = 'Arabica'
+                    AND merged = FALSE
+                    AND "commodityType" = 'Cherry' 
                     GROUP BY DATE("receivingDate")::TIMESTAMP
             ),
             RDB AS (
@@ -435,6 +470,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                     FROM "ReceivingData" 
                     WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                     AND type = 'Arabica'
+                    AND merged = FALSE
+                    AND "commodityType" = 'Cherry' 
                     GROUP BY DATE("receivingDate")::TIMESTAMP
             )
             SELECT 
@@ -458,6 +495,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 FROM "ReceivingData" 
                 WHERE "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Robusta'
+                AND merged = FALSE
+                AND "commodityType" = 'Cherry' 
                 GROUP BY DATE("receivingDate")::TIMESTAMP
             ),
             RDB AS (
@@ -465,6 +504,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 FROM "ReceivingData" 
                 WHERE "receivingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND type = 'Robusta'
+                AND merged = FALSE
+                AND "commodityType" = 'Cherry' 
                 GROUP BY DATE("receivingDate")::TIMESTAMP
             )
             SELECT 
@@ -652,13 +693,16 @@ router.get('/dashboard-metrics', async (req, res) => {
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
                 WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Arabica'
+                AND merged = FALSE
+                AND "commodityType" = 'Cherry' 
                 GROUP BY DATE("processingDate")
             ),
             RDB AS (
                 SELECT DATE("processingDate") as "processingDate", COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS "TotalWeightLastMonth"
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
                 WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
-                AND type = 'Arabica'
+                AND type = 'Arabica'AND merged = FALSE
+                AND "commodityType" = 'Cherry' 
                 GROUP BY DATE("processingDate")
             )
             SELECT 
@@ -682,6 +726,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
                 WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 AND type = 'Robusta'
+                AND merged = FALSE
+                AND "commodityType" = 'Cherry' 
                 GROUP BY DATE("processingDate")
             ),
             RDB AS (
@@ -689,6 +735,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
                 WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
                 AND type = 'Robusta'
+                AND merged = FALSE
+                AND "commodityType" = 'Cherry' 
                 GROUP BY DATE("processingDate")
             )
             SELECT 
@@ -781,6 +829,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
                 WHERE "unripePercentage" IS NOT NULL
                 AND b.type = 'Arabica'
+                AND b.merged = FALSE
+                AND b."commodityType" = 'Cherry' 
                 GROUP BY a."batchNumber"
             ) a
             GROUP BY "qcDate"
@@ -805,6 +855,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
                 WHERE "unripePercentage" IS NOT NULL
                 AND b.type = 'Robusta'
+                AND b.merged = FALSE
+                AND b."commodityType" = 'Cherry' 
                 GROUP BY a."batchNumber"
             ) a
             GROUP BY "qcDate"
@@ -837,6 +889,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 GROUP BY a."batchNumber"
             ) b on a."batchNumber" = b."batchNumber"
             WHERE a.type = 'Arabica'
+            AND a.merged = FALSE
+            AND a."commodityType" = 'Cherry' 
             AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             GROUP BY "farmerName"
         `;
@@ -868,6 +922,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 GROUP BY a."batchNumber"
             ) b on a."batchNumber" = b."batchNumber"
             WHERE a.type = 'Robusta'
+            AND a.merged = FALSE
+            AND a."commodityType" = 'Cherry' 
             AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
             GROUP BY "farmerName"
         `;
@@ -878,6 +934,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                     SUM(weight) AS total_cherries_weight
                 FROM "ReceivingData"
                 WHERE type = 'Arabica'
+                AND merged = FALSE
+                AND "commodityType" = 'Cherry' 
                 AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
             ),
             "ProcessedGreenBeans" AS (
@@ -887,6 +945,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 FROM "PreprocessingData" a
                 LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber"
                 WHERE b.type = 'Arabica'
+                AND b.merged = FALSE
+                AND b."commodityType" = 'Cherry' 
                 AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 GROUP BY b."batchNumber"
             ),
@@ -1034,6 +1094,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                     SUM(weight) AS total_cherries_weight
                 FROM "ReceivingData"
                 WHERE type = 'Robusta'
+                AND merged = FALSE
+                AND "commodityType" = 'Cherry' 
                 AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
             ),
             "ProcessedGreenBeans" AS (
@@ -1043,6 +1105,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 FROM "PreprocessingData" a
                 LEFT JOIN "ReceivingData" b ON a."batchNumber" = b."batchNumber"
                 WHERE b.type = 'Robusta'
+                AND b.merged = FALSE
+                AND b."commodityType" = 'Cherry' 
                 AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
                 GROUP BY b."batchNumber"
             ),
@@ -1587,6 +1651,8 @@ router.get('/arabica-targets', async (req, res) => {
             FROM "PreprocessingData" a
             LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
             WHERE a.producer = 'BTM' 
+            AND b.merged = FALSE
+            AND b."commodityType" = 'Cherry' 
             GROUP BY b.type, a."processingType"
             )
 
@@ -1669,6 +1735,8 @@ router.get('/robusta-targets', async (req, res) => {
             FROM "PreprocessingData" a
             LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
             WHERE a.producer = 'BTM' 
+            AND b.merged = FALSE
+            AND b."commodityType" = 'Cherry' 
             GROUP BY b.type, a."processingType"
             )
 
@@ -1730,6 +1798,8 @@ router.get('/land-targets', async (req, res) => {
             FROM "LandContract" a
             LEFT JOIN "Farmers" b on a."farmerName" = b."farmerName"
             LEFT JOIN "ReceivingData" c on b."farmerID" = c."farmerID"
+            WHERE c.merged = FALSE
+            AND c."commodityType" = 'Cherry' 
             GROUP BY 
                 a."farmerName",
                 a."brokerName",
@@ -1793,6 +1863,8 @@ router.get('/heqa-targets', async (req, res) => {
             FROM "PreprocessingData" a
             LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
             WHERE a.producer = 'HQ' 
+            AND b.merged = FALSE
+            AND b."commodityType" = 'Cherry' 
             GROUP BY CASE WHEN a."productLine" = 'Regional Lot' THEN 'Regional Lot' ELSE 'Other Lot' END
             )
 
