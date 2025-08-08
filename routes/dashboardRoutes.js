@@ -692,17 +692,18 @@ router.get('/dashboard-metrics', async (req, res) => {
                 SELECT DATE("processingDate") as "processingDate", COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS "TotalWeightThisMonth"
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
                 WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-                AND type = 'Arabica'
-                AND merged = FALSE
-                AND "commodityType" = 'Cherry' 
+                AND b.type = 'Arabica'
+                AND b.merged = FALSE
+                AND b."commodityType" = 'Cherry' 
                 GROUP BY DATE("processingDate")
             ),
             RDB AS (
                 SELECT DATE("processingDate") as "processingDate", COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS "TotalWeightLastMonth"
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
                 WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
-                AND type = 'Arabica'AND merged = FALSE
-                AND "commodityType" = 'Cherry' 
+                AND b.type = 'Arabica'
+                AND b.merged = FALSE
+                AND b."commodityType" = 'Cherry' 
                 GROUP BY DATE("processingDate")
             )
             SELECT 
@@ -725,18 +726,18 @@ router.get('/dashboard-metrics', async (req, res) => {
                 SELECT DATE("processingDate") as "processingDate", COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS "TotalWeightThisMonth"
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
                 WHERE "processingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
-                AND type = 'Robusta'
-                AND merged = FALSE
-                AND "commodityType" = 'Cherry' 
+                AND b.type = 'Arabica'
+                AND b.merged = FALSE
+                AND b."commodityType" = 'Cherry' 
                 GROUP BY DATE("processingDate")
             ),
             RDB AS (
                 SELECT DATE("processingDate") as "processingDate", COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS "TotalWeightLastMonth"
                 FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
                 WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}'
-                AND type = 'Robusta'
-                AND merged = FALSE
-                AND "commodityType" = 'Cherry' 
+                AND b.type = 'Arabica'
+                AND b.merged = FALSE
+                AND b."commodityType" = 'Cherry' 
                 GROUP BY DATE("processingDate")
             )
             SELECT 
@@ -1901,7 +1902,7 @@ router.get('/batch-tracking', async (req, res) => {
         SELECT 
           "batchNumber",
           "farmerName",
-          "processingtype",
+          processingtype,
           "grade",
           COALESCE(CAST("receiving_weight" AS TEXT), 'N/A') AS "receiving_weight",
           "receiving_date",
