@@ -323,9 +323,9 @@ router.get('/dashboard-metrics', async (req, res) => {
         const totalWeightBagsbyDateQuery = `
             SELECT DATE("receivingDate") as DATE, COALESCE(SUM(weight), 0) as TOTAL_WEIGHT, COALESCE(SUM("totalBags"), 0) as TOTAL_BAGS 
             FROM "ReceivingData" 
-            GROUP BY DATE("receivingDate")
-            AND merged = FALSE
+            WHERE merged = FALSE
             AND "commodityType" = 'Cherry' 
+            GROUP BY DATE("receivingDate")
         `;
         const totalCostbyDateQuery = `
             SELECT DATE("receivingDate") as DATE, COALESCE(SUM(price), 0) as PRICE FROM "QCData_v" GROUP BY DATE("receivingDate")
@@ -1901,7 +1901,7 @@ router.get('/batch-tracking', async (req, res) => {
         SELECT 
           "batchNumber",
           "farmerName",
-          "processingType",
+          "processingtype",
           "grade",
           COALESCE(CAST("receiving_weight" AS TEXT), 'N/A') AS "receiving_weight",
           "receiving_date",
