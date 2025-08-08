@@ -237,10 +237,10 @@ router.get('/dashboard-metrics', async (req, res) => {
             AND type = 'Robusta'
         `;
         const lastmonthArabicaProcessedQuery = `
-            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND b.type = 'Arabica AND b.merged = FALSE AND b."commodityType" = 'Cherry' '
+            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND b.type = 'Arabica' AND b.merged = FALSE AND b."commodityType" = 'Cherry'
         `;
         const lastmonthRobustaProcessedQuery = `
-            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND b.type = 'Robusta AND b.merged = FALSE AND b."commodityType" = 'Cherry' '
+            SELECT COALESCE(ROUND(SUM((b.weight/b."totalBags")*a."bagsProcessed")::numeric, 1), 0) AS sum FROM "PreprocessingData" a LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber" WHERE "processingDate" BETWEEN '${formattedPreviousStartDate}' AND '${formattedPreviousEndDate}' AND b.type = 'Robusta' AND b.merged = FALSE AND b."commodityType" = 'Cherry'
         `;
 
         // Example queries for production data
