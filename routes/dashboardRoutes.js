@@ -21,6 +21,7 @@ const getDateRanges = (timeframe) => {
   
         result.currentRange = [startOfWeek, endOfWeek];
         result.previousRange = [startOfPreviousWeek, endOfPreviousWeek];
+
         break;
   
       case 'last_week':
