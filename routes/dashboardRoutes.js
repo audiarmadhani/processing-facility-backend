@@ -1926,12 +1926,12 @@ router.get('/heqa-targets', async (req, res) => {
             b.type,
             b."productLine",
             b."processingType",
-            a."weightProcessed" as "cherryNow",
-            FLOOR(a."weightProcessed"/5) as "projectedGB",
+            COALESCE(a."weightProcessed",0) as "cherryNow",
+            COALESCE(FLOOR(a."weightProcessed"/5),0) as "projectedGB",
             b."cherryTarget",
             b."gbTarget",
-            FLOOR(a."weightProcessed" - b."cherryTarget") AS "cherryDeficit",
-            FLOOR((a."weightProcessed" - b."cherryTarget")/(DATE '2025-08-15' - CURRENT_DATE)) as "cherryperdTarget"
+            FLOOR(COALESCE(a."weightProcessed",0) - b."cherryTarget") AS "cherryDeficit",
+            FLOOR((COALESCE(a."weightProcessed",0) - b."cherryTarget")/(DATE '2025-08-15' - CURRENT_DATE)) as "cherryperdTarget"
             FROM target b
             LEFT JOIN base a on a."productLine" = b."productLine" AND a.type = b.type AND a."processingType" = b."processingType"
             ) a
