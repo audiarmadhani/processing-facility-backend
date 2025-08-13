@@ -1624,24 +1624,24 @@ router.get('/arabica-targets', async (req, res) => {
             WITH target AS (
             SELECT
                 'Arabica' as type,
-                260000 as "cherryTarget",
-                260000/6 as "gbTarget",
+                15000*6 as "cherryTarget",
+                15000 as "gbTarget",
                 'Washed' as "processingType"
 
             UNION ALL
 
             SELECT
                 'Arabica' as type,
-                120000 as "cherryTarget",
-                120000/6 as "gbTarget",
+                20000*6 as "cherryTarget",
+                20000 as "gbTarget",
                 'Natural' as "processingType"
 
             UNION ALL
 
             SELECT
                 'Robusta' as type,
-                134820 as "cherryTarget",
-                134820/4 as "gbTarget",
+                55000 as "cherryTarget",
+                25000 as "gbTarget",
                 'Natural' as "processingType"
             )
 
@@ -1662,7 +1662,7 @@ router.get('/arabica-targets', async (req, res) => {
             a."processingType",
             a.type,
             a."weightProcessed" as "cherryNow",
-            FLOOR(CASE WHEN a.type = 'Arabica' THEN a."weightProcessed"/6 ELSE a."weightProcessed"/4 END) as "projectedGB",
+            FLOOR(CASE WHEN a.type = 'Arabica' THEN a."weightProcessed"/6 ELSE a."weightProcessed"/2.5 END) as "projectedGB",
             b."cherryTarget",
             b."gbTarget",
             FLOOR(a."weightProcessed" - b."cherryTarget") AS "cherryDeficit",
@@ -1708,24 +1708,24 @@ router.get('/robusta-targets', async (req, res) => {
             WITH target AS (
             SELECT
                 'Arabica' as type,
-                260000 as "cherryTarget",
-                260000/6 as "gbTarget",
+                15000*6 as "cherryTarget",
+                15000 as "gbTarget",
                 'Washed' as "processingType"
 
             UNION ALL
 
             SELECT
                 'Arabica' as type,
-                120000 as "cherryTarget",
-                120000/6 as "gbTarget",
+                20000*6 as "cherryTarget",
+                20000 as "gbTarget",
                 'Natural' as "processingType"
 
             UNION ALL
 
             SELECT
                 'Robusta' as type,
-                134820 as "cherryTarget",
-                134820/4 as "gbTarget",
+                55000 as "cherryTarget",
+                25000 as "gbTarget",
                 'Natural' as "processingType"
             )
 
@@ -1746,7 +1746,7 @@ router.get('/robusta-targets', async (req, res) => {
             a."processingType",
             a.type,
             a."weightProcessed" as "cherryNow",
-            FLOOR(CASE WHEN a.type = 'Arabica' THEN a."weightProcessed"/6 ELSE a."weightProcessed"/4 END) as "projectedGB",
+            FLOOR(CASE WHEN a.type = 'Arabica' THEN a."weightProcessed"/6 ELSE a."weightProcessed"/2.5 END) as "projectedGB",
             b."cherryTarget",
             b."gbTarget",
             FLOOR(a."weightProcessed" - b."cherryTarget") AS "cherryDeficit",
