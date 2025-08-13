@@ -1846,28 +1846,79 @@ router.get('/heqa-targets', async (req, res) => {
         const heqaTargetQuery = `
             WITH target AS (
             SELECT
-                40000 as "cherryTarget",
-                40000/5 as "gbTarget",
-                'Regional Lot' as "productLine"
+                4200*5 as "cherryTarget",
+                4200 as "gbTarget",
+                'Regional Lot' as "productLine",
+                'Pulped Natural' as "processingType",
+                'Arabica' as type
 
             UNION ALL
 
             SELECT
-                20000 as "cherryTarget",
-                20000/5 as "gbTarget",
-                'Other Lot' as "productLine"
+                600*5 as "cherryTarget",
+                600 as "gbTarget",
+                'Micro Lot' as "productLine",
+                'Natural' as "processingType",
+                'Robusta' as type
+
+            UNION ALL
+
+            SELECT
+                475*5 as "cherryTarget",
+                475 as "gbTarget",
+                'Micro Lot' as "productLine",
+                'CM Natural' as "processingType",
+                'Arabica' as type
+
+            UNION ALL
+
+            SELECT
+                600*5 as "cherryTarget",
+                600 as "gbTarget",
+                'Micro Lot' as "productLine",
+                'CM Pulped Natural' as "processingType",
+                'Arabica' as type
+
+            UNION ALL
+
+            SELECT
+                700*5 as "cherryTarget",
+                700 as "gbTarget",
+                'Micro Lot' as "productLine",
+                'Aerobic Natural' as "processingType",
+                'Arabica' as type
+
+            UNION ALL
+
+            SELECT
+                600*5 as "cherryTarget",
+                600 as "gbTarget",
+                'Micro Lot' as "productLine",
+                'Anaerobic Pulped Natural' as "processingType",
+                'Arabica' as type
+
+            UNION ALL
+
+            SELECT
+                5000*5 as "cherryTarget",
+                5000 as "gbTarget",
+                'Regional Lot' as "productLine",
+                'Pulped Natural' as "processingType",
+                'Robusta' as type
             )
 
             , base as (
             SELECT 
-                CASE WHEN a."productLine" = 'Regional Lot' THEN 'Regional Lot' ELSE 'Other Lot' END AS "productLine",
+                a."productLine",
+                a."processingType",
+                b.type,
                 SUM("weightProcessed") as "weightProcessed" 
             FROM "PreprocessingData" a
             LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
             WHERE a.producer = 'HQ' 
             AND b.merged = FALSE
             AND b."commodityType" = 'Cherry' 
-            GROUP BY CASE WHEN a."productLine" = 'Regional Lot' THEN 'Regional Lot' ELSE 'Other Lot' END
+            GROUP BY a."productLine", a."processingType", b.type
             )
 
             SELECT
@@ -1879,7 +1930,7 @@ router.get('/heqa-targets', async (req, res) => {
             FLOOR(a."weightProcessed" - b."cherryTarget") AS "cherryDeficit",
             FLOOR((a."weightProcessed" - b."cherryTarget")/(DATE '2025-08-15' - CURRENT_DATE)) as "cherryperdTarget"
             FROM base a
-            LEFT JOIN target b on a."productLine" = b."productLine";
+            LEFT JOIN target b on a."productLine" = b."productLine" AND a.type = b.type AND a."processingType" = b."processingType" ;
             `;
 
         const [heqaTargetResult] = await sequelize.query(heqaTargetQuery);
