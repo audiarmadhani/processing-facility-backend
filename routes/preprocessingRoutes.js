@@ -632,6 +632,10 @@ router.post('/preprocessing', async (req, res) => {
 
       const formattedSequence = sequenceNumber.toString().padStart(4, '0');
       lotNumber = `${batchPrefix}-${formattedSequence}`;
+      // Add "-R" suffix if batchType is Robusta, otherwise no suffix
+      if (batchType === 'Robusta') {
+        lotNumber = `${lotNumber}-R`;
+      }
 
       await sequelize.query(
         `INSERT INTO "LotNumberSequences" (
