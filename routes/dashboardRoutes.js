@@ -1909,6 +1909,7 @@ router.get('/heqa-targets', async (req, res) => {
 
             , base as (
             SELECT 
+                a."lotNumber",
                 a."productLine",
                 a."processingType",
                 b.type,
@@ -1918,11 +1919,12 @@ router.get('/heqa-targets', async (req, res) => {
             WHERE a.producer = 'HQ' 
             AND b.merged = FALSE
             AND b."commodityType" = 'Cherry' 
-            GROUP BY a."productLine", a."processingType", b.type
+            GROUP BY a."lotNumber",a."productLine", a."processingType", b.type
             )
 
             SELECT * FROM (
             SELECT
+            a."lotNumber",
             b.type,
             b."productLine",
             b."processingType",
@@ -1931,12 +1933,12 @@ router.get('/heqa-targets', async (req, res) => {
             b."cherryTarget",
             b."gbTarget",
             FLOOR(COALESCE(a."weightProcessed",0) - b."cherryTarget") AS "cherryDeficit",
-            FLOOR((COALESCE(a."weightProcessed",0) - b."cherryTarget")/(DATE '2025-08-15' - CURRENT_DATE)) as "cherryperdTarget"
+            FLOOR((COALESCE(a."weightProcessed",0) - b."cherryTarget")/(DATE '2025-09-30' - CURRENT_DATE)) as "cherryperdTarget"
             FROM target b
             LEFT JOIN base a on a."productLine" = b."productLine" AND a.type = b.type AND a."processingType" = b."processingType"
             ) a
             WHERE "cherryTarget" IS NOT NULL
-            ORDER BY type, "productLine", "processingType";
+            ORDER BY a."lotNumber", type, "productLine", "processingType";
             `;
 
         const [heqaTargetResult] = await sequelize.query(heqaTargetQuery);
