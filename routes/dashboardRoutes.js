@@ -1848,6 +1848,7 @@ router.get('/heqa-targets', async (req, res) => {
             SELECT
                 4200*5 as "cherryTarget",
                 4200 as "gbTarget",
+                'HQ25R-PN-0001' as "lotNumber",
                 'Regional Lot' as "productLine",
                 'Pulped Natural' as "processingType",
                 'Arabica' as type
@@ -1857,6 +1858,7 @@ router.get('/heqa-targets', async (req, res) => {
             SELECT
                 600*5 as "cherryTarget",
                 600 as "gbTarget",
+                'HQ25M-N-0001-R' as "lotNumber",
                 'Micro Lot' as "productLine",
                 'Natural' as "processingType",
                 'Robusta' as type
@@ -1866,6 +1868,7 @@ router.get('/heqa-targets', async (req, res) => {
             SELECT
                 475*5 as "cherryTarget",
                 475 as "gbTarget",
+                'HQ25M-CMN-0001' as "lotNumber",
                 'Micro Lot' as "productLine",
                 'CM Natural' as "processingType",
                 'Arabica' as type
@@ -1875,6 +1878,7 @@ router.get('/heqa-targets', async (req, res) => {
             SELECT
                 600*5 as "cherryTarget",
                 600 as "gbTarget",
+                'HQ25M-CMPN-0001' as "lotNumber",
                 'Micro Lot' as "productLine",
                 'CM Pulped Natural' as "processingType",
                 'Arabica' as type
@@ -1882,8 +1886,19 @@ router.get('/heqa-targets', async (req, res) => {
             UNION ALL
 
             SELECT
-                700*5 as "cherryTarget",
-                700 as "gbTarget",
+                400*5 as "cherryTarget",
+                400 as "gbTarget",
+                'HQ25M-AEN-0001' as "lotNumber",
+                'Micro Lot' as "productLine",
+                'Aerobic Natural' as "processingType",
+                'Arabica' as type
+
+            UNION ALL
+
+            SELECT
+                300*5 as "cherryTarget",
+                300 as "gbTarget",
+                'HQ25M-AEN-0002' as "lotNumber",
                 'Micro Lot' as "productLine",
                 'Aerobic Natural' as "processingType",
                 'Arabica' as type
@@ -1893,6 +1908,7 @@ router.get('/heqa-targets', async (req, res) => {
             SELECT
                 600*5 as "cherryTarget",
                 600 as "gbTarget",
+                'HQ25M-ANPN-0002' as "lotNumber",
                 'Micro Lot' as "productLine",
                 'Anaerobic Pulped Natural' as "processingType",
                 'Arabica' as type
@@ -1900,45 +1916,52 @@ router.get('/heqa-targets', async (req, res) => {
             UNION ALL
 
             SELECT
-                5000*5 as "cherryTarget",
-                5000 as "gbTarget",
+                4200*5 as "cherryTarget",
+                4200 as "gbTarget",
+                'HQ25R-PN-0001-R' as "lotNumber",
                 'Regional Lot' as "productLine",
                 'Pulped Natural' as "processingType",
                 'Robusta' as type
             )
 
-            , base as (
-            SELECT 
-                a."lotNumber",
-                a."productLine",
-                a."processingType",
-                b.type,
-                SUM("weightProcessed") as "weightProcessed" 
-            FROM "PreprocessingData" a
-            LEFT JOIN "ReceivingData" b on a."batchNumber" = b."batchNumber"
-            WHERE a.producer = 'HQ' 
-            AND b.merged = FALSE
-            AND b."commodityType" = 'Cherry' 
-            GROUP BY a."lotNumber",a."productLine", a."processingType", b.type
-            )
-
-            SELECT * FROM (
-            SELECT
+            select
             a."lotNumber",
-            b.type,
-            b."productLine",
-            b."processingType",
-            COALESCE(a."weightProcessed",0) as "cherryNow",
-            COALESCE(FLOOR(a."weightProcessed"/5),0) as "projectedGB",
-            b."cherryTarget",
-            b."gbTarget",
-            FLOOR(COALESCE(a."weightProcessed",0) - b."cherryTarget") AS "cherryDeficit",
-            FLOOR((COALESCE(a."weightProcessed",0) - b."cherryTarget")/(DATE '2025-09-30' - CURRENT_DATE)) as "cherryperdTarget"
-            FROM target b
-            LEFT JOIN base a on a."productLine" = b."productLine" AND a.type = b.type AND a."processingType" = b."processingType"
-            ) a
-            WHERE "cherryTarget" IS NOT NULL
-            ORDER BY a."lotNumber", type, "productLine", "processingType";
+            d."productLine",
+            d."processingType",
+            d.type,
+            sum(a."weightProcessed") as "cherryActualWeight",
+            d."cherryTarget",
+            sum(a."weightProcessed") - d."cherryTarget" as "cherryDeficit",
+            sum(b.weight) as "dryingWeight",
+            FLOOR(sum(a."weightProcessed"/5)) as "gbWeightForecast",
+            sum(c.weight) as "gbActualWeight",
+            d."gbTarget",
+            FLOOR(sum(a."weightProcessed"/5)) - d."gbTarget" as "gbDeficitForecast",
+            sum(c.weight) - d."gbTarget" as "gbActualDeficit"
+            from
+            "PreprocessingData" a
+            LEFT JOIN
+            "DryingWeightMeasurements" b on a."batchNumber" = b."batchNumber" and a."processingType" = b."processingType" and a.producer = b .producer
+            LEFT JOIN "PostprocessingData" c on a."batchNumber" = c."batchNumber" and a."processingType" = b."processingType" and a.producer = c.producer
+            LEFT JOIN target d on a."lotNumber" = d."lotNumber"
+            where
+            a."lotNumber" in (
+                'HQ25R-PN-0001',
+                'HQ25M-N-0001-R',
+                'HQ25M-CMN-0001',
+                'HQ25M-CMPN-0001',
+                'HQ25M-AEN-0001',
+                'HQ25M-AEN-0002',
+                'HQ25M-ANPN-0002',
+                'HQ25R-PN-0001-R'
+            )
+            group by
+            a."lotNumber",
+            d."productLine",
+            d."processingType",
+            d.type, 
+            d."cherryTarget", 
+            d."gbTarget";
             `;
 
         const [heqaTargetResult] = await sequelize.query(heqaTargetQuery);
