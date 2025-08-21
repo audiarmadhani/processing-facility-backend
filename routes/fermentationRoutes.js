@@ -69,16 +69,24 @@ router.get('/fermentation/available-batches', async (req, res) => {
 router.post('/fermentation', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { batchNumber, tank, startDate, weight, createdBy } = req.body;
+    const {
+      batchNumber, referenceNumber, experimentNumber, processingType, description, farmerName,
+      type, variety, preStorage, preStorageCondition, prePulped, prePulpedDelva, bulkDensity,
+      gas, pressure, isSubmerged, pH, fermentationTimeTarget, fermentation, fermentationTank,
+      secondFermentation, secondFermentationTank, secondFermentationTimeTarget, secondGas,
+      secondPressure, secondIsSubmerged, secondBulkDensity, dryingArea, secondDrying,
+      secondDryingArea, rehydration, storage, startDate, createdBy
+    } = req.body;
 
-    if (!batchNumber || !tank || !startDate || !createdBy) {
+    const requiredFields = { batchNumber, fermentationTank, startDate, createdBy };
+    if (Object.values(requiredFields).some(field => !field)) {
       await t.rollback();
-      return res.status(400).json({ error: 'batchNumber, tank, startDate, and createdBy are required.' });
+      return res.status(400).json({ error: 'batchNumber, fermentationTank, startDate, and createdBy are required.' });
     }
 
-    if (!['Biomaster', 'Carrybrew', 'Washing Track', 'Fermentation Bucket'].includes(tank) && !/^BB-HQ-\d{4}$/.test(tank)) {
+    if (!['Biomaster', 'Carrybrew', 'Washing Track', 'Fermentation Bucket'].includes(fermentationTank) && !/^BB-HQ-\d{4}$/.test(fermentationTank)) {
       await t.rollback();
-      return res.status(400).json({ error: 'Invalid tank. Must be Biomaster, Carrybrew, Washing Track, Fermentation Bucket, or BB-HQ-XXXX.' });
+      return res.status(400).json({ error: 'Invalid fermentationTank. Must be Biomaster, Carrybrew, Washing Track, Fermentation Bucket, or BB-HQ-XXXX.' });
     }
 
     const parsedStartDate = new Date(startDate);
@@ -87,9 +95,11 @@ router.post('/fermentation', async (req, res) => {
       return res.status(400).json({ error: 'Invalid startDate format.' });
     }
 
-    if (weight !== undefined && (typeof weight !== 'number' || weight <= 0)) {
+    const numericFields = { bulkDensity: parseFloat(bulkDensity), pressure: parseFloat(pressure), pH: parseFloat(pH), fermentationTimeTarget: parseInt(fermentationTimeTarget), 
+      secondPressure: parseFloat(secondPressure), secondBulkDensity: parseFloat(secondBulkDensity), secondFermentationTimeTarget: parseInt(secondFermentationTimeTarget) };
+    if (Object.values(numericFields).some(v => isNaN(v) && v !== null)) {
       await t.rollback();
-      return res.status(400).json({ error: 'Weight must be a positive number if provided.' });
+      return res.status(400).json({ error: 'Invalid numeric field format.' });
     }
 
     const [batchCheck] = await sequelize.query(
@@ -112,14 +122,14 @@ router.post('/fermentation', async (req, res) => {
     const [tankCheck] = await sequelize.query(
       'SELECT 1 FROM "FermentationData" WHERE tank = :tank AND status = :status',
       {
-        replacements: { tank, status: 'In Progress' },
+        replacements: { tank: fermentationTank, status: 'In Progress' },
         transaction: t,
         type: sequelize.QueryTypes.SELECT
       }
     );
     if (tankCheck) {
       await t.rollback();
-      return res.status(400).json({ error: `Tank ${tank} is already in use.` });
+      return res.status(400).json({ error: `Tank ${fermentationTank} is already in use.` });
     }
 
     const [dryingCheck] = await sequelize.query(
@@ -137,16 +147,59 @@ router.post('/fermentation', async (req, res) => {
 
     const [fermentationData] = await sequelize.query(`
       INSERT INTO "FermentationData" (
-        "batchNumber", tank, "startDate", weight, status, "createdBy", "createdAt", "updatedAt"
+        "batchNumber", "referenceNumber", "experimentNumber", "processingType", "description", 
+        "farmerName", "type", "variety", "preStorage", "preStorageCondition", "prePulped", 
+        "prePulpedDelva", "bulkDensity", "gas", "pressure", "isSubmerged", "pH", 
+        "fermentationTimeTarget", "fermentation", "tank", "secondFermentation", 
+        "secondFermentationTank", "secondFermentationTimeTarget", "secondGas", 
+        "secondPressure", "secondIsSubmerged", "secondBulkDensity", "dryingArea", 
+        "secondDrying", "secondDryingArea", "rehydration", "storage", "startDate", 
+        status, "createdBy", "createdAt", "updatedAt"
       ) VALUES (
-        :batchNumber, :tank, :startDate, :weight, :status, :createdBy, NOW(), NOW()
+        :batchNumber, :referenceNumber, :experimentNumber, :processingType, :description, 
+        :farmerName, :type, :variety, :preStorage, :preStorageCondition, :prePulped, 
+        :prePulpedDelva, :bulkDensity, :gas, :pressure, :isSubmerged, :pH, 
+        :fermentationTimeTarget, :fermentation, :tank, :secondFermentation, 
+        :secondFermentationTank, :secondFermentationTimeTarget, :secondGas, 
+        :secondPressure, :secondIsSubmerged, :secondBulkDensity, :dryingArea, 
+        :secondDrying, :secondDryingArea, :rehydration, :storage, :startDate, 
+        :status, :createdBy, NOW(), NOW()
       ) RETURNING *;
     `, {
       replacements: {
         batchNumber,
-        tank,
+        referenceNumber: referenceNumber || null,
+        experimentNumber: experimentNumber || null,
+        processingType: processingType || null,
+        description: description || null,
+        farmerName: farmerName || null,
+        type: type || null,
+        variety: variety || null,
+        preStorage: preStorage || null,
+        preStorageCondition: preStorageCondition || null,
+        prePulped: prePulped || null,
+        prePulpedDelva: prePulpedDelva || null,
+        bulkDensity: bulkDensity || null,
+        gas: gas || null,
+        pressure: pressure || null,
+        isSubmerged: isSubmerged || null,
+        pH: pH || null,
+        fermentationTimeTarget: fermentationTimeTarget || null,
+        fermentation: fermentation || null,
+        tank: fermentationTank,
+        secondFermentation: secondFermentation || null,
+        secondFermentationTank: secondFermentationTank || null,
+        secondFermentationTimeTarget: secondFermentationTimeTarget || null,
+        secondGas: secondGas || null,
+        secondPressure: secondPressure || null,
+        secondIsSubmerged: secondIsSubmerged || null,
+        secondBulkDensity: secondBulkDensity || null,
+        dryingArea: dryingArea || null,
+        secondDrying: secondDrying || null,
+        secondDryingArea: secondDryingArea || null,
+        rehydration: rehydration || null,
+        storage: storage || null,
         startDate: parsedStartDate,
-        weight: weight || null,
         status: 'In Progress',
         createdBy,
       },
@@ -156,7 +209,7 @@ router.post('/fermentation', async (req, res) => {
 
     await t.commit();
     res.status(201).json({
-      message: `Fermentation started for batch ${batchNumber} in ${tank}${weight ? ` with weight ${weight}kg` : ''}`,
+      message: `Fermentation started for batch ${batchNumber} in ${fermentationTank}`,
       fermentationData: fermentationData[0],
     });
   } catch (err) {
@@ -172,23 +225,10 @@ router.get('/fermentation', async (req, res) => {
     const [rows] = await sequelize.query(
       `SELECT 
         f.*, 
-        (f."startDate") as "startDate",
-        (f."endDate") as "endDate",
         r."farmerName",
-        r.weight AS receiving_weight,
-        COALESCE((
-          SELECT SUM(fwm.weight)
-          FROM "FermentationWeightMeasurements" fwm
-          WHERE fwm."batchNumber" = f."batchNumber"
-          AND fwm.measurement_date = (
-            SELECT MAX(measurement_date)
-            FROM "FermentationWeightMeasurements"
-            WHERE "batchNumber" = f."batchNumber"
-          )
-        ), 0) as latest_weight
+        r.weight AS receiving_weight
       FROM "FermentationData" f
       LEFT JOIN "ReceivingData" r ON f."batchNumber" = r."batchNumber"
-      LEFT JOIN (SELECT DISTINCT "batchNumber" FROM "PreprocessingData") p ON f."batchNumber" = p."batchNumber"
       WHERE r.merged = FALSE
       ORDER BY f."startDate" DESC;`
     );
@@ -197,6 +237,46 @@ router.get('/fermentation', async (req, res) => {
   } catch (err) {
     console.error('Error fetching fermentation data:', err);
     res.status(500).json({ message: 'Failed to fetch fermentation data.', details: err.message });
+  }
+});
+
+// Route for fetching detailed data (after fields)
+router.get('/fermentation/details/:batchNumber', async (req, res) => {
+  const { batchNumber } = req.params;
+
+  try {
+    const [rows] = await sequelize.query(
+      `SELECT 
+        f."harvestDate", f."harvestAt", f."receivedAt", f."receivedWeight", f."rejectWeight",
+        f."defectWeight", f."damagedWeight", f."lostWeight", f."preprocessingWeight",
+        f."quality", f."brix", f."prePulpedWeight", f."cherryType", f."starterType",
+        f."totalVolume", f."waterUsed", f."starterUsed", f."stirring", f."fermentationTemperature",
+        f."fermentationStart", f."fermentationEnd", f."fermentationTimeActual", f."finalPH",
+        f."finalTDS", f."finalTemperature", f."postWeight", f."postPulpedWeight", f."ratio",
+        f."secondStarterType", f."secondTotalVolume", f."secondWaterUsed", f."secondMosstoUsed",
+        f."secondActualVolume", f."secondTemperature", f."secondFermentationStart",
+        f."secondFermentationEnd", f."secondFermentationTimeActual", f."avgTemperature",
+        f."preDryingWeight", f."finalMoisture", f."postDryingWeight", f."dryingStart",
+        f."dryingEnd", f."totalDryingTime", f."secondAverageTemperature", f."secondFinalMoisture",
+        f."secondPostDryingWeight", f."secondDryingStart", f."secondDryingEnd",
+        f."secondTotalDryingTime", f."storageTemperature", f."hullingTime", f."bagType",
+        f."postHullingWeight", f."cherryDryRatio", f."sortedCherryDryRatio"
+      FROM "FermentationData" f
+      WHERE f."batchNumber" = :batchNumber`,
+      {
+        replacements: { batchNumber },
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Batch not found.' });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching fermentation details:', err);
+    res.status(500).json({ error: 'Failed to fetch fermentation details.', details: err.message });
   }
 });
 
@@ -236,7 +316,6 @@ router.post('/fermentation-weight-measurement', async (req, res) => {
       return res.status(400).json({ error: 'Batch not found in fermentation data.' });
     }
 
-    // If processingType is not provided or empty, fetch default processing types
     let finalProcessingType = processingType;
     if (!finalProcessingType) {
       const [processingTypes] = await sequelize.query(
