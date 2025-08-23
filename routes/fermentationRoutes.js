@@ -427,13 +427,13 @@ router.get('/fermentation', async (req, res) => {
   }
 });
 
-// Route for fetching detailed data
 router.get('/fermentation/details/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
+  const { referenceNumber, experimentNumber } = req.query;
 
   try {
-    const [rows] = await sequelize.query(
-      `SELECT 
+    let query = `
+      SELECT 
         f."batchNumber", f."referenceNumber", f."experimentNumber", f."processingType", f."description",
         f."farmerName", f."type", f."variety", f."harvestDate", f."harvestAt", f."receivedAt",
         f."receivedWeight", f."rejectWeight", f."defectWeight", f."damagedWeight", f."lostWeight",
@@ -458,15 +458,27 @@ router.get('/fermentation/details/:batchNumber', async (req, res) => {
         f."tankAmount", f."leachateTarget", f."leachate", f."brewTankTemperature", f."waterTemperature",
         f."coolerTemperature", f."drying"
       FROM "FermentationData" f
-      WHERE f."batchNumber" = :batchNumber`,
-      {
-        replacements: { batchNumber },
-        type: sequelize.QueryTypes.SELECT
-      }
-    );
+      WHERE LOWER(f."batchNumber") = LOWER(:batchNumber)
+    `;
+    const replacements = { batchNumber: batchNumber.trim() };
+
+    if (referenceNumber) {
+      query += ` AND LOWER(f."referenceNumber") = LOWER(:referenceNumber)`;
+      replacements.referenceNumber = referenceNumber.trim();
+    }
+
+    if (experimentNumber) {
+      query += ` AND LOWER(f."experimentNumber") = LOWER(:experimentNumber)`;
+      replacements.experimentNumber = experimentNumber.trim();
+    }
+
+    const [rows] = await sequelize.query(query, {
+      replacements,
+      type: sequelize.QueryTypes.SELECT
+    });
 
     if (!rows.length) {
-      return res.status(404).json({ error: 'Batch not found' });
+      return res.status(404).json({ error: 'No fermentation data found for the specified criteria' });
     }
 
     res.json(rows[0]);
