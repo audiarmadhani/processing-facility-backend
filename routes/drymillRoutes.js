@@ -303,44 +303,49 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       return res.status(404).json({ error: 'Batch not found.' });
     }
 
-    let dryMillEntry;
+    const [dryMillEntry] = await sequelize.query(`
+      SELECT "entered_at"
+      FROM "DryMillData"
+      WHERE "batchNumber" = :batchNumber
+      AND "entered_at" IS NOT NULL
+      LIMIT 1
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t
+    });
+
+    if (!dryMillEntry) {
+      await t.rollback();
+      logger.warn('Batch not entered', { batchNumber, processingType, user: req.body.createdBy || 'unknown' });
+      return res.status(400).json({ error: 'Batch must be entered into dry mill first.' });
+    }
+
     let productLine = null;
     let producer = batch.producer;
 
     if (batch.type === 'NA') {
-      [dryMillEntry] = await sequelize.query(`
-        SELECT "entered_at"
-        FROM "DryMillData"
-        WHERE "batchNumber" = :batchNumber
-        AND "entered_at" IS NOT NULL
-        LIMIT 1
-      `, {
-        replacements: { batchNumber },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t
-      });
       processingType = 'Dry';
     } else {
-      [dryMillEntry] = await sequelize.query(`
-        SELECT dm."entered_at", pp."processingType", pp."productLine", pp."producer", pp."lotNumber", pp."referenceNumber"
-        FROM "DryMillData" dm
-        LEFT JOIN "PreprocessingData" pp ON dm."batchNumber" = pp."batchNumber" AND dm."entered_at" IS NOT NULL
-        WHERE dm."batchNumber" = :batchNumber
-        AND pp."processingType" = :processingType
+      const [preprocessingData] = await sequelize.query(`
+        SELECT "processingType", "productLine", "producer", "lotNumber", "referenceNumber"
+        FROM "PreprocessingData"
+        WHERE "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
         LIMIT 1
       `, {
         replacements: { batchNumber, processingType },
         type: sequelize.QueryTypes.SELECT,
         transaction: t
       });
-      productLine = dryMillEntry?.productLine || null;
-      producer = dryMillEntry?.producer || producer;
-    }
 
-    if (!dryMillEntry) {
-      await t.rollback();
-      logger.warn('Batch not entered', { batchNumber, processingType, user: req.body.createdBy || 'unknown' });
-      return res.status(400).json({ error: 'Batch must be entered into dry mill first.' });
+      if (!preprocessingData) {
+        await t.rollback();
+        logger.warn('Invalid processing type', { batchNumber, processingType, user: req.body.createdBy || 'unknown' });
+        return res.status(400).json({ error: 'Invalid processing type for this batch.' });
+      }
+      productLine = preprocessingData.productLine || null;
+      producer = preprocessingData.producer || producer;
     }
 
     // Retrieve base lotNumber and referenceNumber from PreprocessingData
@@ -1052,7 +1057,7 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
   }
 });
 
-// GET route for dry mill data
+// GET route for dry mill data (updated to include dryMillMerged)
 router.get('/dry-mill-data', async (req, res) => {
   let t;
   try {
@@ -1100,7 +1105,8 @@ router.get('/dry-mill-data', async (req, res) => {
           ARRAY_AGG(bd.weight) FILTER (WHERE bd.weight IS NOT NULL) AS bag_details,
           pp."storedDate" AS stored_date,
           rd.rfid,
-          fm."farmVarieties"
+          fm."farmVarieties",
+          dm."dryMillMerged"
         FROM "ReceivingData" rd
         LEFT JOIN "DryMillData" dm ON rd."batchNumber" = dm."batchNumber"
         LEFT JOIN "PostprocessingData" pp ON rd."batchNumber" = pp."parentBatchNumber" OR rd."batchNumber" = pp."batchNumber"
@@ -1127,7 +1133,7 @@ router.get('/dry-mill-data', async (req, res) => {
           pp.notes, rd.notes,
           pp."storedDate", rd.rfid,
           fm."farmVarieties",
-          ldw.drying_weight
+          dm."dryMillMerged"
       ),
       FinalData AS (
         SELECT 
@@ -1156,7 +1162,8 @@ router.get('/dry-mill-data', async (req, res) => {
           bag_details AS "bagDetails",
           stored_date AS "storedDate",
           rfid,
-          "farmVarieties"
+          "farmVarieties",
+          "dryMillMerged"
         FROM BaseData
       )
       SELECT 
@@ -1185,7 +1192,8 @@ router.get('/dry-mill-data', async (req, res) => {
         "bagDetails",
         "storedDate",
         rfid,
-        "farmVarieties"
+        "farmVarieties",
+        "dryMillMerged"
       FROM FinalData
       ORDER BY "dryMillEntered" DESC
     `, {
@@ -1659,6 +1667,224 @@ router.get('/sample-data', async (req, res) => {
     if (t) await t.rollback();
     logger.error('Error fetching sample data', { error: error.message, stack: error.stack, user: req.body.createdBy || 'unknown' });
     res.status(500).json({ error: 'Failed to fetch sample data', details: error.message });
+  }
+});
+
+router.post('/dry-mill/merge', async (req, res) => {
+  let t;
+  try {
+    const { batchNumbers, notes, createdBy } = req.body;
+    if (!batchNumbers || !Array.isArray(batchNumbers) || batchNumbers.length < 2) {
+      logger.warn('Invalid merge request', { batchNumbers, user: createdBy || 'unknown' });
+      return res.status(400).json({ error: 'At least two batch numbers are required.' });
+    }
+
+    t = await sequelize.transaction();
+
+    // Fetch batches from DryMillData, allowing previously merged batches
+    const batches = await sequelize.query(
+      `SELECT rd."batchNumber", rd."type", rd."farmerName", rd."receivingDate", rd."totalBags",
+              rd."commodityType", rd."rfid", rd."producer", pp."processingType",
+              ldw.drying_weight AS weight, dm."entered_at" AS dryMillEntered,
+              dm."exited_at" AS dryMillExited, dm."dryMillMerged"
+       FROM "ReceivingData" rd
+       LEFT JOIN "PreprocessingData" pp ON LOWER(rd."batchNumber") = LOWER(pp."batchNumber")
+       LEFT JOIN (
+         SELECT "batchNumber", "processingType", SUM(weight) AS drying_weight
+         FROM "DryingWeightMeasurements"
+         GROUP BY "batchNumber", "processingType"
+       ) ldw ON LOWER(rd."batchNumber") = LOWER(ldw."batchNumber") AND pp."processingType" = ldw."processingType"
+       LEFT JOIN "DryMillData" dm ON LOWER(rd."batchNumber") = LOWER(dm."batchNumber")
+       WHERE LOWER(rd."batchNumber") IN (:batchNumbers)
+         AND rd."commodityType" != 'Green Bean'
+         AND dm."entered_at" IS NOT NULL
+         AND dm."exited_at" IS NULL`,
+      {
+        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      }
+    );
+
+    if (batches.length !== batchNumbers.length) {
+      await t.rollback();
+      logger.warn('Invalid batches selected', { batchNumbers, user: createdBy || 'unknown' });
+      return res.status(400).json({ error: 'Some batches not found, already processed, or are Green Bean.' });
+    }
+
+    const processingType = batches[0].processingType;
+    if (!batches.every(b => b.processingType === processingType)) {
+      await t.rollback();
+      logger.warn('Mismatched processing types', { batchNumbers, user: createdBy || 'unknown' });
+      return res.status(400).json({ error: 'Batches must have the same processing type.' });
+    }
+
+    const totalWeight = batches.reduce((sum, b) => sum + parseFloat(b.weight || 0), 0);
+    if (totalWeight < 1000) {
+      await t.rollback();
+      logger.warn('Insufficient total weight', { totalWeight, batchNumbers, user: createdBy || 'unknown' });
+      return res.status(400).json({ error: `Total weight (${totalWeight.toFixed(2)} kg) must be at least 1000 kg.` });
+    }
+
+    // Check for sub-batches
+    const subBatches = await sequelize.query(
+      `SELECT "batchNumber" FROM "PostprocessingData" WHERE "parentBatchNumber" IN (:batchNumbers)`,
+      {
+        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      }
+    );
+    if (subBatches.length > 0) {
+      await t.rollback();
+      logger.warn('Batches have sub-batches', { batchNumbers, user: createdBy || 'unknown' });
+      return res.status(400).json({ error: 'Cannot merge batches that have sub-batches.' });
+    }
+
+    // Generate new batch number
+    const today = new Date().toISOString().slice(0, 10);
+    const [sequenceResult] = await sequelize.query(
+      `SELECT latest_batch_number, last_updated_date 
+       FROM latest_m_batch 
+       WHERE id = 1 FOR UPDATE`,
+      { type: sequelize.QueryTypes.SELECT, transaction: t }
+    );
+
+    let sequenceNumber = sequenceResult.latest_batch_number;
+    let lastUpdatedDate = sequenceResult.last_updated_date;
+    if (lastUpdatedDate instanceof Date && !isNaN(lastUpdatedDate)) {
+      lastUpdatedDate = lastUpdatedDate.toISOString().slice(0, 10);
+    } else if (typeof lastUpdatedDate === 'string') {
+      lastUpdatedDate = new Date(lastUpdatedDate).toISOString().slice(0, 10);
+    } else {
+      lastUpdatedDate = today;
+    }
+
+    if (lastUpdatedDate !== today) {
+      sequenceNumber = 0;
+    }
+    sequenceNumber += 1;
+
+    const formattedSequence = sequenceNumber.toString().padStart(4, '0');
+    const newBatchNumber = `${today}-${formattedSequence}-MB`;
+
+    await sequelize.query(
+      `UPDATE latest_m_batch 
+       SET latest_batch_number = :sequenceNumber, last_updated_date = :today 
+       WHERE id = 1`,
+      {
+        replacements: { sequenceNumber, today },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t
+      }
+    );
+
+    const farmerNames = [...new Set(batches.map(b => b.farmerName).filter(Boolean))];
+    const farmerNamesString = farmerNames.length > 0 ? farmerNames.join(', ') : 'Multiple';
+    const earliestReceivingDate = batches.reduce((earliest, b) => {
+      const date = new Date(b.receivingDate);
+      return date < new Date(earliest) ? b.receivingDate : earliest;
+    }, batches[0].receivingDate);
+    const totalBags = batches.reduce((sum, b) => sum + (parseInt(b.totalBags) || 0), 0);
+    const rfids = batches.flatMap(b => b.rfid ? b.rfid.split(',').map(s => s.trim()) : []).filter(Boolean);
+
+    // Insert new batch into ReceivingData
+    await sequelize.query(
+      `INSERT INTO "ReceivingData" (
+        "batchNumber", "weight", "farmerName", "receivingDate", "type", "totalBags", 
+        "commodityType", "producer", merged, "createdAt", "updatedAt", "rfid", "currentAssign"
+      ) VALUES (
+        :batchNumber, :weight, :farmerName, :receivingDate, :type, :totalBags, 
+        :commodityType, :producer, FALSE, :createdAt, :updatedAt, :rfid, 1
+      )`,
+      {
+        replacements: {
+          batchNumber: newBatchNumber,
+          weight: totalWeight,
+          farmerName: farmerNamesString,
+          receivingDate: earliestReceivingDate,
+          type: batches[0].type,
+          totalBags: totalBags || null,
+          commodityType: batches[0].commodityType,
+          producer: batches[0].producer,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          rfid: rfids.length > 0 ? rfids.join(',') : null
+        },
+        type: sequelize.QueryTypes.INSERT,
+        transaction: t
+      }
+    );
+
+    // Insert into DryMillData
+    await sequelize.query(
+      `INSERT INTO "DryMillData" (
+        "batchNumber", "entered_at", "dryMillMerged"
+      ) VALUES (
+        :batchNumber, :enteredAt, FALSE
+      )`,
+      {
+        replacements: {
+          batchNumber: newBatchNumber,
+          enteredAt: batches.reduce((min, b) => {
+            const date = new Date(b.dryMillEntered);
+            return date < new Date(min) ? b.dryMillEntered : min;
+          }, batches[0].dryMillEntered),
+        },
+        type: sequelize.QueryTypes.INSERT,
+        transaction: t
+      }
+    );
+
+    // Update original batches in DryMillData
+    await sequelize.query(
+      `UPDATE "DryMillData" 
+       SET "dryMillMerged" = TRUE 
+       WHERE LOWER("batchNumber") IN (:batchNumbers)`,
+      {
+        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t
+      }
+    );
+
+    // Insert into DryMillBatchMerges
+    await sequelize.query(
+      `INSERT INTO "DryMillBatchMerges" (
+        new_batch_number, original_batch_numbers, merged_at, created_by, notes, total_weight, processing_type
+      ) VALUES (
+        :newBatchNumber, ARRAY[:originalBatchNumbers], :mergedAt, :createdBy, :notes, :totalWeight, :processingType
+      )`,
+      {
+        replacements: {
+          newBatchNumber,
+          originalBatchNumbers: batchNumbers,
+          mergedAt: new Date(),
+          createdBy: createdBy || 'Unknown',
+          notes: notes || null,
+          totalWeight: totalWeight.toFixed(2),
+          processingType
+        },
+        type: sequelize.QueryTypes.INSERT,
+        transaction: t
+      }
+    );
+
+    await t.commit();
+    logger.info('Batches merged successfully in dry mill', { newBatchNumber, batchNumbers, user: createdBy });
+    res.json({
+      success: true,
+      newBatchNumber,
+      totalWeight,
+      farmerName: farmerNamesString,
+      receivingDate: earliestReceivingDate,
+      totalBags,
+      rfid: rfids.length > 0 ? rfids.join(',') : null
+    });
+  } catch (err) {
+    if (t) await t.rollback();
+    logger.error('Error merging batches in dry mill', { error: err.message, stack: err.stack, user: createdBy || 'unknown' });
+    res.status(400).json({ error: 'Failed to merge batches', details: err.message });
   }
 });
 
