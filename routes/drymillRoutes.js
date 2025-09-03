@@ -1133,7 +1133,7 @@ router.get('/dry-mill-data', async (req, res) => {
           pp.notes, rd.notes,
           pp."storedDate", rd.rfid,
           fm."farmVarieties",
-          dm."dryMillMerged"
+          dm."dryMillMerged",drying_weight
       ),
       FinalData AS (
         SELECT 
