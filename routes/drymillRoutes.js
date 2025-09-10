@@ -1087,7 +1087,7 @@ router.get('/dry-mill-data', async (req, res) => {
           COALESCE(pp.quality, 'N/A') AS quality,
           rd.weight AS cherry_weight,
           COALESCE(ldw.drying_weight, 0.00) AS drying_weight,
-          COALESCE(pp.producer, rd.producer) AS producer,
+          COALESCE(pd.producer, rd.producer) AS producer,
           rd."farmerName" AS "farmerName",
           pp."productLine" AS "productLine",
           COALESCE(pp."processingType", pd."processingType") AS "processingType",
@@ -1120,14 +1120,14 @@ router.get('/dry-mill-data', async (req, res) => {
         LEFT JOIN LatestDryingWeights ldw 
           ON COALESCE(pp."batchNumber", rd."batchNumber") = ldw."batchNumber" 
           AND COALESCE(pp."processingType", pd."processingType") = ldw."processingType" 
-          AND COALESCE(pp.producer, rd.producer, 'Unknown') = COALESCE(ldw.producer, 'Unknown')
+          AND COALESCE(pd.producer, rd.producer, 'Unknown') = COALESCE(ldw.producer, 'Unknown')
         WHERE dm."entered_at" IS NOT NULL
         GROUP BY 
           rd."batchNumber", pp."batchNumber", pp."parentBatchNumber",
           rd."type",
           dm."entered_at", dm."exited_at", pp."storedDate",
           pp.weight, rd.weight, pp.quality,
-          pp.producer, rd.producer, rd."farmerName",
+          pd.producer, rd.producer, rd."farmerName",
           pp."productLine", COALESCE(pp."processingType", pd."processingType"),
           CASE WHEN pp."batchNumber" IS NOT NULL THEN pp."lotNumber" ELSE pd."lotNumber" END, COALESCE(pp."referenceNumber", pd."referenceNumber"),
           pp.notes, rd.notes,
