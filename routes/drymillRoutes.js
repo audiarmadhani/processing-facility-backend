@@ -181,9 +181,9 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
           ARRAY_AGG(bd.weight) FILTER (WHERE bd.weight IS NOT NULL) AS bagWeights,
           COALESCE(dg.temp_sequence, '0001') AS temp_sequence
         FROM "DryMillGrades" dg
-        LEFT JOIN "BagDetails" bd ON LOWER(dg."subBatchId") = LOWER(bd.grade_id)
+        LEFT JOIN "BagDetails" bd ON UPPER(dg."subBatchId") = UPPER(bd.grade_id)
         WHERE dg."batchNumber" = :parentBatchNumber
-          AND LOWER(dg.grade) = LOWER(:quality)
+          AND UPPER(dg.grade) = UPPER(:quality)
           AND dg.processing_type = :processingType
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg."storedDate", 
                  dg."lotNumber", dg."referenceNumber", dg.temp_sequence
@@ -200,7 +200,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
           ARRAY_AGG(bd.weight) FILTER (WHERE bd.weight IS NOT NULL) AS bagWeights,
           COALESCE(dg.temp_sequence, '0001') AS temp_sequence
         FROM "DryMillGrades" dg
-        LEFT JOIN "BagDetails" bd ON LOWER(dg."subBatchId") = LOWER(bd.grade_id)
+        LEFT JOIN "BagDetails" bd ON UPPER(dg."subBatchId") = UPPER(bd.grade_id)
         WHERE dg."batchNumber" = :batchNumber
           AND dg.processing_type = :processingType
         GROUP BY dg."subBatchId", dg.grade, dg.weight, dg.bagged_at, dg."storedDate", 
@@ -217,7 +217,7 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
         const bagDetails = await sequelize.query(`
           SELECT weight
           FROM "BagDetails"
-          WHERE LOWER(grade_id) = LOWER(:subBatchId)
+          WHERE UPPER(grade_id) = UPPER(:subBatchId)
           ORDER BY bag_number
         `, {
           replacements: { subBatchId: grade.subBatchId },
@@ -1111,10 +1111,10 @@ router.get('/dry-mill-data', async (req, res) => {
         LEFT JOIN "PostprocessingData" pp ON rd."batchNumber" = pp."parentBatchNumber" OR rd."batchNumber" = pp."batchNumber"
         LEFT JOIN "PreprocessingData" pd ON rd."batchNumber" = pd."batchNumber"
         LEFT JOIN "DryMillGrades" dg ON (
-          (pp."batchNumber" IS NOT NULL AND LOWER(dg."subBatchId") = LOWER(CONCAT(pp."parentBatchNumber", '-', REPLACE(pp.quality, ' ', '-'))))
+          (pp."batchNumber" IS NOT NULL AND UPPER(dg."subBatchId") = UPPER(CONCAT(pp."parentBatchNumber", '-', REPLACE(pp.quality, ' ', '-'))))
           OR (pp."batchNumber" IS NULL AND dg."batchNumber" = rd."batchNumber")
         )
-        LEFT JOIN "BagDetails" bd ON LOWER(dg."subBatchId") = LOWER(bd.grade_id)
+        LEFT JOIN "BagDetails" bd ON UPPER(dg."subBatchId") = UPPER(bd.grade_id)
         LEFT JOIN "Farmers" fm ON rd."farmerID" = fm."farmerID"
         LEFT JOIN LatestDryingWeights ldw 
           ON COALESCE(pp."batchNumber", rd."batchNumber") = ldw."batchNumber" 
@@ -1700,14 +1700,14 @@ router.post('/dry-mill/merge', async (req, res) => {
               ldw.drying_weight AS weight, dm."entered_at" AS dryMillEntered,
               dm."exited_at" AS dryMillExited, dm."dryMillMerged"
        FROM "ReceivingData" rd
-       LEFT JOIN "PreprocessingData" pp ON LOWER(rd."batchNumber") = LOWER(pp."batchNumber") AND pp."processingType" = :processingType
+       LEFT JOIN "PreprocessingData" pp ON UPPER(rd."batchNumber") = UPPER(pp."batchNumber") AND pp."processingType" = :processingType
        LEFT JOIN (
          SELECT "batchNumber", "processingType", SUM(weight) AS drying_weight
          FROM "DryingWeightMeasurements"
          GROUP BY "batchNumber", "processingType"
-       ) ldw ON LOWER(rd."batchNumber") = LOWER(ldw."batchNumber") AND ldw."processingType" = :processingType
-       LEFT JOIN "DryMillData" dm ON LOWER(rd."batchNumber") = LOWER(dm."batchNumber")
-       WHERE LOWER(rd."batchNumber") IN (:batchNumbers)
+       ) ldw ON UPPER(rd."batchNumber") = UPPER(ldw."batchNumber") AND ldw."processingType" = :processingType
+       LEFT JOIN "DryMillData" dm ON UPPER(rd."batchNumber") = UPPER(dm."batchNumber")
+       WHERE UPPER(rd."batchNumber") IN (:batchNumbers)
          AND rd."commodityType" != 'Green Bean'
          AND dm."entered_at" IS NOT NULL
          AND dm."exited_at" IS NULL
@@ -1880,7 +1880,7 @@ router.post('/dry-mill/merge', async (req, res) => {
     await sequelize.query(
       `UPDATE "DryMillData" 
        SET "dryMillMerged" = TRUE 
-       WHERE LOWER("batchNumber") IN (:batchNumbers)`,
+       WHERE UPPER("batchNumber") IN (:batchNumbers)`,
       {
         replacements: { batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()) },
         type: sequelize.QueryTypes.UPDATE,
