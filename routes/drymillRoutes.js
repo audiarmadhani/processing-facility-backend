@@ -1677,7 +1677,7 @@ router.post('/dry-mill/merge', async (req, res) => {
       return res.status(400).json({ error: 'Invalid request body.' });
     }
 
-    const { batchNumbers, notes, createdBy = 'unknown' } = req.body; // Default createdBy
+    const { batchNumbers, notes, createdBy = 'unknown' } = req.body;
     if (!batchNumbers || !Array.isArray(batchNumbers) || batchNumbers.length < 2) {
       console.error('Invalid merge request:', { batchNumbers, user: createdBy });
       logger.warn('Invalid merge request', { batchNumbers, user: createdBy });
@@ -1752,6 +1752,7 @@ router.post('/dry-mill/merge', async (req, res) => {
 
     let batches = [];
     for (const chunk of batchChunks) {
+      console.log('Fetching batch chunk:', chunk.map(b => b.batchNumber));
       const chunkBatches = await sequelize.query(
         `SELECT rd."batchNumber", rd."type", rd."farmerName", rd."receivingDate", rd."totalBags",
                 rd."commodityType", rd."rfid", rd."producer", pp."processingType",
@@ -1813,7 +1814,18 @@ router.post('/dry-mill/merge', async (req, res) => {
       return res.status(400).json({ error: 'Batches must have the same producer and processing type in the database.' });
     }
 
+    const totalWeight = batches.reduce((sum, b) => sum + parseFloat(b.weight || 0), 0);
+    console.log('Calculated total weight:', { totalWeight, batchNumbers });
+    // Temporarily bypass weight limit for debugging
+    // if (totalWeight < 1000) {
+    //   console.log('Insufficient total weight:', { totalWeight, batchNumbers });
+    //   await t.rollback();
+    //   logger.warn('Insufficient total weight', { totalWeight, batchNumbers, user: createdBy });
+    //   return res.status(400).json({ error: `Total weight (${totalWeight.toFixed(2)} kg) must be at least 1000 kg.` });
+    // }
+
     // Check for sub-batches
+    console.log('Checking for sub-batches:', batchNumbers);
     const subBatches = await sequelize.query(
       `SELECT "batchNumber" FROM "PostprocessingData" 
        WHERE LOWER("parentBatchNumber") IN (:batchNumbers) 
@@ -1876,6 +1888,7 @@ router.post('/dry-mill/merge', async (req, res) => {
     console.log('Aggregated batch data:', { farmerNamesString, earliestReceivingDate, totalBags, rfids });
 
     // Insert new batch into ReceivingData
+    console.log('Inserting into ReceivingData:', { batchNumber: newBatchNumber });
     await sequelize.query(
       `INSERT INTO "ReceivingData" (
         "batchNumber", "weight", "farmerName", "receivingDate", "type", "totalBags", 
@@ -1893,7 +1906,7 @@ router.post('/dry-mill/merge', async (req, res) => {
           type: batches[0].type,
           totalBags: totalBags || null,
           commodityType: batches[0].commodityType,
-          producer: producer, // Use validated producer
+          producer: producer,
           createdAt: new Date(),
           updatedAt: new Date(),
           rfid: rfids.length > 0 ? rfids.join(',') : null
@@ -1904,6 +1917,7 @@ router.post('/dry-mill/merge', async (req, res) => {
     );
 
     // Insert into PreprocessingData for the new batch
+    console.log('Inserting into PreprocessingData:', { batchNumber: newBatchNumber });
     await sequelize.query(
       `INSERT INTO "PreprocessingData" (
         "batchNumber", "processingType", "producer", "createdAt", "updatedAt", "createdBy"
@@ -1925,6 +1939,7 @@ router.post('/dry-mill/merge', async (req, res) => {
     );
 
     // Insert into DryMillData
+    console.log('Inserting into DryMillData:', { batchNumber: newBatchNumber });
     await sequelize.query(
       `INSERT INTO "DryMillData" (
         "batchNumber", "entered_at", "dryMillMerged"
@@ -1945,6 +1960,7 @@ router.post('/dry-mill/merge', async (req, res) => {
     );
 
     // Update original batches in DryMillData
+    console.log('Updating DryMillData for original batches:', batchNumbers);
     await sequelize.query(
       `UPDATE "DryMillData" 
        SET "dryMillMerged" = TRUE 
@@ -1957,6 +1973,7 @@ router.post('/dry-mill/merge', async (req, res) => {
     );
 
     // Insert into DryMillBatchMerges
+    console.log('Inserting into DryMillBatchMerges:', { newBatchNumber });
     await sequelize.query(
       `INSERT INTO "DryMillBatchMerges" (
         new_batch_number, original_batch_numbers, merged_at, created_by, notes, total_weight, processing_type
@@ -1995,10 +2012,15 @@ router.post('/dry-mill/merge', async (req, res) => {
     console.error('Error in merge route:', {
       error: err.message,
       stack: err.stack,
-      batchNumbers,
+      batchNumbers: req.body.batchNumbers || 'unknown',
       user: req.body.createdBy || 'unknown'
     });
-    logger.error('Error merging batches in dry mill', { error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
+    logger.error('Error merging batches in dry mill', { 
+      error: err.message, 
+      stack: err.stack, 
+      batchNumbers: req.body.batchNumbers || 'unknown', 
+      user: req.body.createdBy || 'unknown' 
+    });
     res.status(500).json({ error: 'Failed to merge batches', details: err.message });
   }
 });
