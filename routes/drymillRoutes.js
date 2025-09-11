@@ -1754,13 +1754,13 @@ router.post('/dry-mill/merge', async (req, res) => {
       return res.status(400).json({ error: 'Batches must have the same processing type in the database.' });
     }
 
-    const totalWeight = batches.reduce((sum, b) => sum + parseFloat(b.weight || 0), 0);
-    if (totalWeight < 1000) {
-      console.log('Insufficient total weight:', { totalWeight, batchNumbers });
-      await t.rollback();
-      logger.warn('Insufficient total weight', { totalWeight, batchNumbers, user: createdBy || 'unknown' });
-      return res.status(400).json({ error: `Total weight (${totalWeight.toFixed(2)} kg) must be at least 1000 kg.` });
-    }
+    // const totalWeight = batches.reduce((sum, b) => sum + parseFloat(b.weight || 0), 0);
+    // if (totalWeight < 1000) {
+    //   console.log('Insufficient total weight:', { totalWeight, batchNumbers });
+    //   await t.rollback();
+    //   logger.warn('Insufficient total weight', { totalWeight, batchNumbers, user: createdBy || 'unknown' });
+    //   return res.status(400).json({ error: `Total weight (${totalWeight.toFixed(2)} kg) must be at least 1000 kg.` });
+    // }
 
     // Check for sub-batches
     const subBatches = await sequelize.query(
