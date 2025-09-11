@@ -1678,6 +1678,21 @@ router.post('/dry-mill/merge', async (req, res) => {
 
     t = await sequelize.transaction();
 
+    // Parse batchNumbers to extract batchNumber and processingType
+    const parsedBatches = batchNumbers.map(id => {
+      const [batchNumber, producer, ...processingTypeParts] = id.split('-');
+      const processingType = processingTypeParts.join('-'); // Rejoin processingType parts in case it contains hyphens
+      return { batchNumber, processingType };
+    });
+
+    // Validate that all batches have the same processingType
+    const processingType = parsedBatches[0].processingType;
+    if (!parsedBatches.every(b => b.processingType === processingType)) {
+      await t.rollback();
+      logger.warn('Mismatched processing types', { batchNumbers, user: createdBy || 'unknown' });
+      return res.status(400).json({ error: 'All batches must have the same processing type.' });
+    }
+
     // Fetch batches from DryMillData, allowing previously merged batches
     const batches = await sequelize.query(
       `SELECT rd."batchNumber", rd."type", rd."farmerName", rd."receivingDate", rd."totalBags",
@@ -1685,19 +1700,23 @@ router.post('/dry-mill/merge', async (req, res) => {
               ldw.drying_weight AS weight, dm."entered_at" AS dryMillEntered,
               dm."exited_at" AS dryMillExited, dm."dryMillMerged"
        FROM "ReceivingData" rd
-       LEFT JOIN "PreprocessingData" pp ON LOWER(rd."batchNumber") = LOWER(pp."batchNumber")
+       LEFT JOIN "PreprocessingData" pp ON LOWER(rd."batchNumber") = LOWER(pp."batchNumber") AND pp."processingType" = :processingType
        LEFT JOIN (
          SELECT "batchNumber", "processingType", SUM(weight) AS drying_weight
          FROM "DryingWeightMeasurements"
          GROUP BY "batchNumber", "processingType"
-       ) ldw ON LOWER(rd."batchNumber") = LOWER(ldw."batchNumber") AND pp."processingType" = ldw."processingType"
+       ) ldw ON LOWER(rd."batchNumber") = LOWER(ldw."batchNumber") AND ldw."processingType" = :processingType
        LEFT JOIN "DryMillData" dm ON LOWER(rd."batchNumber") = LOWER(dm."batchNumber")
        WHERE LOWER(rd."batchNumber") IN (:batchNumbers)
          AND rd."commodityType" != 'Green Bean'
          AND dm."entered_at" IS NOT NULL
-         AND dm."exited_at" IS NULL`,
+         AND dm."exited_at" IS NULL
+         AND pp."processingType" = :processingType`,
       {
-        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        replacements: { 
+          batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()),
+          processingType
+        },
         type: sequelize.QueryTypes.SELECT,
         transaction: t
       }
@@ -1706,14 +1725,14 @@ router.post('/dry-mill/merge', async (req, res) => {
     if (batches.length !== batchNumbers.length) {
       await t.rollback();
       logger.warn('Invalid batches selected', { batchNumbers, user: createdBy || 'unknown' });
-      return res.status(400).json({ error: 'Some batches not found, already processed, or are Green Bean.' });
+      return res.status(400).json({ error: 'Some batches not found, already processed, are Green Bean, or do not match the processing type.' });
     }
 
-    const processingType = batches[0].processingType;
+    // Verify all batches have the same processingType (redundant but ensures data consistency)
     if (!batches.every(b => b.processingType === processingType)) {
       await t.rollback();
-      logger.warn('Mismatched processing types', { batchNumbers, user: createdBy || 'unknown' });
-      return res.status(400).json({ error: 'Batches must have the same processing type.' });
+      logger.warn('Mismatched processing types in database', { batchNumbers, user: createdBy || 'unknown' });
+      return res.status(400).json({ error: 'Batches must have the same processing type in the database.' });
     }
 
     const totalWeight = batches.reduce((sum, b) => sum + parseFloat(b.weight || 0), 0);
@@ -1725,9 +1744,12 @@ router.post('/dry-mill/merge', async (req, res) => {
 
     // Check for sub-batches
     const subBatches = await sequelize.query(
-      `SELECT "batchNumber" FROM "PostprocessingData" WHERE "parentBatchNumber" IN (:batchNumbers)`,
+      `SELECT "batchNumber" FROM "PostprocessingData" WHERE "parentBatchNumber" IN (:batchNumbers) AND "processingType" = :processingType`,
       {
-        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        replacements: { 
+          batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()),
+          processingType
+        },
         type: sequelize.QueryTypes.SELECT,
         transaction: t
       }
@@ -1813,6 +1835,27 @@ router.post('/dry-mill/merge', async (req, res) => {
       }
     );
 
+    // Insert into PreprocessingData for the new batch
+    await sequelize.query(
+      `INSERT INTO "PreprocessingData" (
+        "batchNumber", "processingType", "producer", "createdAt", "updatedAt", "createdBy"
+      ) VALUES (
+        :batchNumber, :processingType, :producer, :createdAt, :updatedAt, :createdBy
+      )`,
+      {
+        replacements: {
+          batchNumber: newBatchNumber,
+          processingType,
+          producer: batches[0].producer,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          createdBy: createdBy || 'Unknown'
+        },
+        type: sequelize.QueryTypes.INSERT,
+        transaction: t
+      }
+    );
+
     // Insert into DryMillData
     await sequelize.query(
       `INSERT INTO "DryMillData" (
@@ -1839,7 +1882,7 @@ router.post('/dry-mill/merge', async (req, res) => {
        SET "dryMillMerged" = TRUE 
        WHERE LOWER("batchNumber") IN (:batchNumbers)`,
       {
-        replacements: { batchNumbers: batchNumbers.map(b => b.trim().toLowerCase()) },
+        replacements: { batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()) },
         type: sequelize.QueryTypes.UPDATE,
         transaction: t
       }
@@ -1855,7 +1898,7 @@ router.post('/dry-mill/merge', async (req, res) => {
       {
         replacements: {
           newBatchNumber,
-          originalBatchNumbers: batchNumbers,
+          originalBatchNumbers: parsedBatches.map(b => b.batchNumber),
           mergedAt: new Date(),
           createdBy: createdBy || 'Unknown',
           notes: notes || null,
