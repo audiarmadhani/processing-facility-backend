@@ -1887,6 +1887,21 @@ router.post('/dry-mill/merge', async (req, res) => {
     const rfids = batches.flatMap(b => b.rfid ? b.rfid.split(',').map(s => s.trim()) : []).filter(Boolean);
     console.log('Aggregated batch data:', { farmerNamesString, earliestReceivingDate, totalBags, rfids });
 
+    // Validate dryMillEntered dates
+    const validBatches = batches.filter(b => b.dryMillEntered && !isNaN(new Date(b.dryMillEntered)));
+    if (validBatches.length === 0) {
+      console.log('No valid dryMillEntered dates found:', batches.map(b => ({ batchNumber: b.batchNumber, dryMillEntered: b.dryMillEntered })));
+      await t.rollback();
+      logger.warn('No valid dryMillEntered dates found', { batchNumbers, user: createdBy });
+      return res.status(400).json({ error: 'No valid dryMillEntered dates found for the batches.' });
+    }
+
+    const enteredAt = validBatches.reduce((min, b) => {
+      const date = new Date(b.dryMillEntered);
+      return date < new Date(min) ? b.dryMillEntered : min;
+    }, validBatches[0].dryMillEntered);
+    console.log('Calculated enteredAt:', enteredAt);
+
     // Insert new batch into ReceivingData
     console.log('Inserting into ReceivingData:', { batchNumber: newBatchNumber });
     await sequelize.query(
@@ -1939,7 +1954,7 @@ router.post('/dry-mill/merge', async (req, res) => {
     );
 
     // Insert into DryMillData
-    console.log('Inserting into DryMillData:', { batchNumber: newBatchNumber });
+    console.log('Inserting into DryMillData:', { batchNumber: newBatchNumber, enteredAt });
     await sequelize.query(
       `INSERT INTO "DryMillData" (
         "batchNumber", "entered_at", "dryMillMerged"
@@ -1949,10 +1964,7 @@ router.post('/dry-mill/merge', async (req, res) => {
       {
         replacements: {
           batchNumber: newBatchNumber,
-          enteredAt: batches.reduce((min, b) => {
-            const date = new Date(b.dryMillEntered);
-            return date < new Date(min) ? b.dryMillEntered : min;
-          }, batches[0].dryMillEntered),
+          enteredAt: enteredAt
         },
         type: sequelize.QueryTypes.INSERT,
         transaction: t
