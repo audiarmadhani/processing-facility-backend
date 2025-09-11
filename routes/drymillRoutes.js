@@ -1678,56 +1678,93 @@ router.post('/dry-mill/merge', async (req, res) => {
 
     t = await sequelize.transaction();
 
-    // Parse batchNumbers to extract batchNumber and processingType
+    // Parse batchNumbers to extract batchNumber, producer, and processingType
     const parsedBatches = batchNumbers.map(id => {
-      const [batchNumber, producer, ...processingTypeParts] = id.split('-');
-      const processingType = processingTypeParts.join('-'); // Rejoin processingType parts in case it contains hyphens
-      return { batchNumber, processingType };
+      const parts = id.split(',');
+      if (parts.length >= 3) {
+        // Format: batchNumber,producer,processingType (e.g., "2025-06-09-0002,BTM,Washed")
+        const [batchNumber, producer, ...processingTypeParts] = parts;
+        const processingType = processingTypeParts.join(','); // Rejoin in case processingType contains commas
+        return { batchNumber, producer, processingType };
+      } else {
+        console.log('Invalid batch number format:', id);
+        return { batchNumber: id, producer: null, processingType: null };
+      }
     });
     console.log('Parsed batches with processing types:', parsedBatches);
 
-    // Validate that all batches have the same processingType
-    const processingType = parsedBatches[0].processingType;
-    if (!parsedBatches.every(b => b.processingType === processingType)) {
-      console.log('Mismatched processing types detected:', {
-        expected: processingType,
+    // If any processingType is null, fetch from PreprocessingData
+    let processingType = parsedBatches[0].processingType;
+    let producer = parsedBatches[0].producer;
+    if (!processingType || !producer) {
+      const [firstBatch] = await sequelize.query(
+        `SELECT "processingType", "producer" FROM "PreprocessingData" 
+         WHERE LOWER("batchNumber") = :batchNumber 
+         LIMIT 1`,
+        {
+          replacements: { batchNumber: parsedBatches[0].batchNumber.toLowerCase() },
+          type: sequelize.QueryTypes.SELECT,
+          transaction: t
+        }
+      );
+      if (!firstBatch || !firstBatch.processingType || !firstBatch.producer) {
+        await t.rollback();
+        logger.warn('No processing type or producer found for batch', { batchNumber: parsedBatches[0].batchNumber, user: createdBy || 'unknown' });
+        return res.status(400).json({ error: 'No processing type or producer found for the first batch.' });
+      }
+      processingType = firstBatch.processingType;
+      producer = firstBatch.producer;
+      parsedBatches.forEach(b => {
+        b.processingType = processingType;
+        b.producer = producer;
+      });
+    }
+    console.log('Selected processing type and producer:', { processingType, producer });
+
+    // Validate that all batches have the same producer and processingType
+    if (!parsedBatches.every(b => b.producer === producer && b.processingType === processingType)) {
+      console.log('Mismatched producer or processing types detected:', {
+        expected: { producer, processingType },
         parsedBatches
       });
       await t.rollback();
-      logger.warn('Mismatched processing types', { batchNumbers, user: createdBy || 'unknown' });
-      return res.status(400).json({ error: 'All batches must have the same processing type.' });
+      logger.warn('Mismatched producer or processing types', { batchNumbers, user: createdBy || 'unknown' });
+      return res.status(400).json({ error: 'All batches must have the same producer and processing type.' });
     }
 
     // Fetch batches from DryMillData, allowing previously merged batches
     const batches = await sequelize.query(
       `SELECT rd."batchNumber", rd."type", rd."farmerName", rd."receivingDate", rd."totalBags",
               rd."commodityType", rd."rfid", rd."producer", pp."processingType",
-              ldw.drying_weight AS weight, dm."entered_at" AS dryMillEntered,
+              COALESCE(ldw.drying_weight, 0) AS weight, dm."entered_at" AS dryMillEntered,
               dm."exited_at" AS dryMillExited, dm."dryMillMerged"
        FROM "ReceivingData" rd
-       LEFT JOIN "PreprocessingData" pp ON UPPER(rd."batchNumber") = UPPER(pp."batchNumber") AND pp."processingType" = :processingType
+       LEFT JOIN "PreprocessingData" pp ON LOWER(rd."batchNumber") = LOWER(pp."batchNumber") AND pp."processingType" = :processingType AND pp."producer" = :producer
        LEFT JOIN (
-         SELECT "batchNumber", "processingType", SUM(weight) AS drying_weight
+         SELECT "batchNumber", "processingType", "producer", SUM(weight) AS drying_weight
          FROM "DryingWeightMeasurements"
-         GROUP BY "batchNumber", "processingType"
-       ) ldw ON UPPER(rd."batchNumber") = UPPER(ldw."batchNumber") AND ldw."processingType" = :processingType
-       LEFT JOIN "DryMillData" dm ON UPPER(rd."batchNumber") = UPPER(dm."batchNumber")
-       WHERE UPPER(rd."batchNumber") IN (:batchNumbers)
+         GROUP BY "batchNumber", "processingType", "producer"
+       ) ldw ON LOWER(rd."batchNumber") = LOWER(ldw."batchNumber") AND ldw."processingType" = :processingType AND ldw."producer" = :producer
+       LEFT JOIN "DryMillData" dm ON LOWER(rd."batchNumber") = LOWER(dm."batchNumber")
+       WHERE LOWER(rd."batchNumber") IN (:batchNumbers)
          AND rd."commodityType" != 'Green Bean'
          AND dm."entered_at" IS NOT NULL
          AND dm."exited_at" IS NULL
-         AND pp."processingType" = :processingType`,
+         AND (pp."processingType" = :processingType OR pp."processingType" IS NULL)
+         AND (pp."producer" = :producer OR pp."producer" IS NULL)`,
       {
         replacements: { 
-          batchNumbers: parsedBatches.map(b => b.batchNumber.toUpperCase()),
-          processingType
+          batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()),
+          processingType,
+          producer
         },
         type: sequelize.QueryTypes.SELECT,
         transaction: t
       }
     );
-    console.log('Fetched batches with processing types:', batches.map(b => ({
+    console.log('Fetched batches with processing types and producers:', batches.map(b => ({
       batchNumber: b.batchNumber,
+      producer: b.producer,
       processingType: b.processingType
     })));
 
@@ -1740,35 +1777,31 @@ router.post('/dry-mill/merge', async (req, res) => {
       });
       await t.rollback();
       logger.warn('Invalid batches selected', { batchNumbers, user: createdBy || 'unknown' });
-      return res.status(400).json({ error: 'Some batches not found, already processed, are Green Bean, or do not match the processing type.' });
+      return res.status(400).json({ error: 'Some batches not found, already processed, are Green Bean, or do not match the processing type or producer.' });
     }
 
-    // Verify all batches have the same processingType (redundant but ensures data consistency)
-    if (!batches.every(b => b.processingType === processingType)) {
-      console.log('Mismatched processing types in database:', {
-        expected: processingType,
-        batches: batches.map(b => ({ batchNumber: b.batchNumber, processingType: b.processingType }))
+    // Verify all batches have the same producer and processingType
+    if (!batches.every(b => (b.producer === producer || b.producer === null) && (b.processingType === processingType || b.processingType === null))) {
+      console.log('Mismatched producer or processing types in database:', {
+        expected: { producer, processingType },
+        batches: batches.map(b => ({ batchNumber: b.batchNumber, producer: b.producer, processingType: b.processingType }))
       });
       await t.rollback();
-      logger.warn('Mismatched processing types in database', { batchNumbers, user: createdBy || 'unknown' });
-      return res.status(400).json({ error: 'Batches must have the same processing type in the database.' });
+      logger.warn('Mismatched producer or processing types in database', { batchNumbers, user: createdBy || 'unknown' });
+      return res.status(400).json({ error: 'Batches must have the same producer and processing type in the database.' });
     }
-
-    // const totalWeight = batches.reduce((sum, b) => sum + parseFloat(b.weight || 0), 0);
-    // if (totalWeight < 1000) {
-    //   console.log('Insufficient total weight:', { totalWeight, batchNumbers });
-    //   await t.rollback();
-    //   logger.warn('Insufficient total weight', { totalWeight, batchNumbers, user: createdBy || 'unknown' });
-    //   return res.status(400).json({ error: `Total weight (${totalWeight.toFixed(2)} kg) must be at least 1000 kg.` });
-    // }
 
     // Check for sub-batches
     const subBatches = await sequelize.query(
-      `SELECT "batchNumber" FROM "PostprocessingData" WHERE UPPER("parentBatchNumber") IN (:batchNumbers) AND "processingType" = :processingType`,
+      `SELECT "batchNumber" FROM "PostprocessingData" 
+       WHERE LOWER("parentBatchNumber") IN (:batchNumbers) 
+       AND "processingType" = :processingType 
+       AND "producer" = :producer`,
       {
         replacements: { 
-          batchNumbers: parsedBatches.map(b => b.batchNumber.toUpperCase()),
-          processingType
+          batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()),
+          processingType,
+          producer
         },
         type: sequelize.QueryTypes.SELECT,
         transaction: t
@@ -1901,9 +1934,9 @@ router.post('/dry-mill/merge', async (req, res) => {
     await sequelize.query(
       `UPDATE "DryMillData" 
        SET "dryMillMerged" = TRUE 
-       WHERE UPPER("batchNumber") IN (:batchNumbers)`,
+       WHERE LOWER("batchNumber") IN (:batchNumbers)`,
       {
-        replacements: { batchNumbers: parsedBatches.map(b => b.batchNumber.toUpperCase()) },
+        replacements: { batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()) },
         type: sequelize.QueryTypes.UPDATE,
         transaction: t
       }
