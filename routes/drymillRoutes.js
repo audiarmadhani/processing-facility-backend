@@ -39,7 +39,7 @@ const sanitizeInput = (req, res, next) => {
     for (const key in obj) {
       if (typeof obj[key] === 'string') {
         obj[key] = validator.trim(obj[key]);
-        if (key.toLowerCase().includes('number') || key.toLowerCase().includes('id')) {
+        if (key.toUpperCase().includes('number') || key.toUpperCase().includes('id')) {
           obj[key] = validator.escape(obj[key]);
         }
       } else if (typeof obj[key] === 'object' && obj[key] !== null) {
@@ -1684,10 +1684,15 @@ router.post('/dry-mill/merge', async (req, res) => {
       const processingType = processingTypeParts.join('-'); // Rejoin processingType parts in case it contains hyphens
       return { batchNumber, processingType };
     });
+    console.log('Parsed batches with processing types:', parsedBatches);
 
     // Validate that all batches have the same processingType
     const processingType = parsedBatches[0].processingType;
     if (!parsedBatches.every(b => b.processingType === processingType)) {
+      console.log('Mismatched processing types detected:', {
+        expected: processingType,
+        parsedBatches
+      });
       await t.rollback();
       logger.warn('Mismatched processing types', { batchNumbers, user: createdBy || 'unknown' });
       return res.status(400).json({ error: 'All batches must have the same processing type.' });
@@ -1714,15 +1719,25 @@ router.post('/dry-mill/merge', async (req, res) => {
          AND pp."processingType" = :processingType`,
       {
         replacements: { 
-          batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()),
+          batchNumbers: parsedBatches.map(b => b.batchNumber.toUpperCase()),
           processingType
         },
         type: sequelize.QueryTypes.SELECT,
         transaction: t
       }
     );
+    console.log('Fetched batches with processing types:', batches.map(b => ({
+      batchNumber: b.batchNumber,
+      processingType: b.processingType
+    })));
 
     if (batches.length !== batchNumbers.length) {
+      console.log('Batch count mismatch:', {
+        expected: batchNumbers.length,
+        found: batches.length,
+        batchNumbers,
+        fetchedBatches: batches.map(b => b.batchNumber)
+      });
       await t.rollback();
       logger.warn('Invalid batches selected', { batchNumbers, user: createdBy || 'unknown' });
       return res.status(400).json({ error: 'Some batches not found, already processed, are Green Bean, or do not match the processing type.' });
@@ -1730,6 +1745,10 @@ router.post('/dry-mill/merge', async (req, res) => {
 
     // Verify all batches have the same processingType (redundant but ensures data consistency)
     if (!batches.every(b => b.processingType === processingType)) {
+      console.log('Mismatched processing types in database:', {
+        expected: processingType,
+        batches: batches.map(b => ({ batchNumber: b.batchNumber, processingType: b.processingType }))
+      });
       await t.rollback();
       logger.warn('Mismatched processing types in database', { batchNumbers, user: createdBy || 'unknown' });
       return res.status(400).json({ error: 'Batches must have the same processing type in the database.' });
@@ -1737,6 +1756,7 @@ router.post('/dry-mill/merge', async (req, res) => {
 
     const totalWeight = batches.reduce((sum, b) => sum + parseFloat(b.weight || 0), 0);
     if (totalWeight < 1000) {
+      console.log('Insufficient total weight:', { totalWeight, batchNumbers });
       await t.rollback();
       logger.warn('Insufficient total weight', { totalWeight, batchNumbers, user: createdBy || 'unknown' });
       return res.status(400).json({ error: `Total weight (${totalWeight.toFixed(2)} kg) must be at least 1000 kg.` });
@@ -1744,10 +1764,10 @@ router.post('/dry-mill/merge', async (req, res) => {
 
     // Check for sub-batches
     const subBatches = await sequelize.query(
-      `SELECT "batchNumber" FROM "PostprocessingData" WHERE "parentBatchNumber" IN (:batchNumbers) AND "processingType" = :processingType`,
+      `SELECT "batchNumber" FROM "PostprocessingData" WHERE UPPER("parentBatchNumber") IN (:batchNumbers) AND "processingType" = :processingType`,
       {
         replacements: { 
-          batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()),
+          batchNumbers: parsedBatches.map(b => b.batchNumber.toUpperCase()),
           processingType
         },
         type: sequelize.QueryTypes.SELECT,
@@ -1755,6 +1775,7 @@ router.post('/dry-mill/merge', async (req, res) => {
       }
     );
     if (subBatches.length > 0) {
+      console.log('Sub-batches detected:', { subBatches, batchNumbers });
       await t.rollback();
       logger.warn('Batches have sub-batches', { batchNumbers, user: createdBy || 'unknown' });
       return res.status(400).json({ error: 'Cannot merge batches that have sub-batches.' });
@@ -1882,7 +1903,7 @@ router.post('/dry-mill/merge', async (req, res) => {
        SET "dryMillMerged" = TRUE 
        WHERE UPPER("batchNumber") IN (:batchNumbers)`,
       {
-        replacements: { batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()) },
+        replacements: { batchNumbers: parsedBatches.map(b => b.batchNumber.toUpperCase()) },
         type: sequelize.QueryTypes.UPDATE,
         transaction: t
       }
