@@ -1670,11 +1670,21 @@ router.get('/sample-data', async (req, res) => {
 router.post('/dry-mill/merge', async (req, res) => {
   let t;
   try {
-    const { batchNumbers, notes, createdBy } = req.body;
+    // Validate request body early
+    if (!req.body || typeof req.body !== 'object') {
+      console.error('Invalid request body:', req.body);
+      logger.warn('Invalid request body received', { body: req.body });
+      return res.status(400).json({ error: 'Invalid request body.' });
+    }
+
+    const { batchNumbers, notes, createdBy = 'unknown' } = req.body; // Default createdBy
     if (!batchNumbers || !Array.isArray(batchNumbers) || batchNumbers.length < 2) {
-      logger.warn('Invalid merge request', { batchNumbers, user: createdBy || 'unknown' });
+      console.error('Invalid merge request:', { batchNumbers, user: createdBy });
+      logger.warn('Invalid merge request', { batchNumbers, user: createdBy });
       return res.status(400).json({ error: 'At least two batch numbers are required.' });
     }
+
+    console.log('Received merge request:', { batchNumbers, notes, createdBy });
 
     t = await sequelize.transaction();
 
@@ -1693,10 +1703,11 @@ router.post('/dry-mill/merge', async (req, res) => {
     });
     console.log('Parsed batches with processing types:', parsedBatches);
 
-    // If any processingType is null, fetch from PreprocessingData
+    // If any processingType or producer is null, fetch from PreprocessingData
     let processingType = parsedBatches[0].processingType;
     let producer = parsedBatches[0].producer;
     if (!processingType || !producer) {
+      console.log('Fetching processingType and producer for batch:', parsedBatches[0].batchNumber);
       const [firstBatch] = await sequelize.query(
         `SELECT "processingType", "producer" FROM "PreprocessingData" 
          WHERE LOWER("batchNumber") = :batchNumber 
@@ -1709,7 +1720,8 @@ router.post('/dry-mill/merge', async (req, res) => {
       );
       if (!firstBatch || !firstBatch.processingType || !firstBatch.producer) {
         await t.rollback();
-        logger.warn('No processing type or producer found for batch', { batchNumber: parsedBatches[0].batchNumber, user: createdBy || 'unknown' });
+        console.log('No processing type or producer found for batch:', parsedBatches[0].batchNumber);
+        logger.warn('No processing type or producer found for batch', { batchNumber: parsedBatches[0].batchNumber, user: createdBy });
         return res.status(400).json({ error: 'No processing type or producer found for the first batch.' });
       }
       processingType = firstBatch.processingType;
@@ -1728,44 +1740,54 @@ router.post('/dry-mill/merge', async (req, res) => {
         parsedBatches
       });
       await t.rollback();
-      logger.warn('Mismatched producer or processing types', { batchNumbers, user: createdBy || 'unknown' });
+      logger.warn('Mismatched producer or processing types', { batchNumbers, user: createdBy });
       return res.status(400).json({ error: 'All batches must have the same producer and processing type.' });
     }
 
-    // Fetch batches from DryMillData, allowing previously merged batches
-    const batches = await sequelize.query(
-      `SELECT rd."batchNumber", rd."type", rd."farmerName", rd."receivingDate", rd."totalBags",
-              rd."commodityType", rd."rfid", rd."producer", pp."processingType",
-              COALESCE(ldw.drying_weight, 0) AS weight, dm."entered_at" AS dryMillEntered,
-              dm."exited_at" AS dryMillExited, dm."dryMillMerged"
-       FROM "ReceivingData" rd
-       LEFT JOIN "PreprocessingData" pp ON LOWER(rd."batchNumber") = LOWER(pp."batchNumber") AND pp."processingType" = :processingType AND pp."producer" = :producer
-       LEFT JOIN (
-         SELECT "batchNumber", "processingType", "producer", SUM(weight) AS drying_weight
-         FROM "DryingWeightMeasurements"
-         GROUP BY "batchNumber", "processingType", "producer"
-       ) ldw ON LOWER(rd."batchNumber") = LOWER(ldw."batchNumber") AND ldw."processingType" = :processingType AND ldw."producer" = :producer
-       LEFT JOIN "DryMillData" dm ON LOWER(rd."batchNumber") = LOWER(dm."batchNumber")
-       WHERE LOWER(rd."batchNumber") IN (:batchNumbers)
-         AND rd."commodityType" != 'Green Bean'
-         AND dm."entered_at" IS NOT NULL
-         AND dm."exited_at" IS NULL
-         AND (pp."processingType" = :processingType OR pp."processingType" IS NULL)
-         AND (pp."producer" = :producer OR pp."producer" IS NULL)`,
-      {
-        replacements: { 
-          batchNumbers: parsedBatches.map(b => b.batchNumber.toLowerCase()),
-          processingType,
-          producer
-        },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t
-      }
-    );
+    // Fetch batches in chunks to avoid query timeouts
+    const batchChunks = [];
+    for (let i = 0; i < parsedBatches.length; i += 10) {
+      batchChunks.push(parsedBatches.slice(i, i + 10));
+    }
+
+    let batches = [];
+    for (const chunk of batchChunks) {
+      const chunkBatches = await sequelize.query(
+        `SELECT rd."batchNumber", rd."type", rd."farmerName", rd."receivingDate", rd."totalBags",
+                rd."commodityType", rd."rfid", rd."producer", pp."processingType",
+                COALESCE(ldw.drying_weight, 0) AS weight, dm."entered_at" AS dryMillEntered,
+                dm."exited_at" AS dryMillExited, dm."dryMillMerged"
+         FROM "ReceivingData" rd
+         LEFT JOIN "PreprocessingData" pp ON LOWER(rd."batchNumber") = LOWER(pp."batchNumber") AND pp."processingType" = :processingType AND pp."producer" = :producer
+         LEFT JOIN (
+           SELECT "batchNumber", "processingType", "producer", SUM(weight) AS drying_weight
+           FROM "DryingWeightMeasurements"
+           GROUP BY "batchNumber", "processingType", "producer"
+         ) ldw ON LOWER(rd."batchNumber") = LOWER(ldw."batchNumber") AND ldw."processingType" = :processingType AND ldw."producer" = :producer
+         LEFT JOIN "DryMillData" dm ON LOWER(rd."batchNumber") = LOWER(dm."batchNumber")
+         WHERE LOWER(rd."batchNumber") IN (:batchNumbers)
+           AND rd."commodityType" != 'Green Bean'
+           AND dm."entered_at" IS NOT NULL
+           AND dm."exited_at" IS NULL
+           AND (pp."processingType" = :processingType OR pp."processingType" IS NULL)
+           AND (pp."producer" = :producer OR pp."producer" IS NULL)`,
+        {
+          replacements: { 
+            batchNumbers: chunk.map(b => b.batchNumber.toLowerCase()),
+            processingType,
+            producer
+          },
+          type: sequelize.QueryTypes.SELECT,
+          transaction: t
+        }
+      );
+      batches = [...batches, ...chunkBatches];
+    }
     console.log('Fetched batches with processing types and producers:', batches.map(b => ({
       batchNumber: b.batchNumber,
       producer: b.producer,
-      processingType: b.processingType
+      processingType: b.processingType,
+      weight: b.weight
     })));
 
     if (batches.length !== batchNumbers.length) {
@@ -1776,7 +1798,7 @@ router.post('/dry-mill/merge', async (req, res) => {
         fetchedBatches: batches.map(b => b.batchNumber)
       });
       await t.rollback();
-      logger.warn('Invalid batches selected', { batchNumbers, user: createdBy || 'unknown' });
+      logger.warn('Invalid batches selected', { batchNumbers, user: createdBy });
       return res.status(400).json({ error: 'Some batches not found, already processed, are Green Bean, or do not match the processing type or producer.' });
     }
 
@@ -1787,7 +1809,7 @@ router.post('/dry-mill/merge', async (req, res) => {
         batches: batches.map(b => ({ batchNumber: b.batchNumber, producer: b.producer, processingType: b.processingType }))
       });
       await t.rollback();
-      logger.warn('Mismatched producer or processing types in database', { batchNumbers, user: createdBy || 'unknown' });
+      logger.warn('Mismatched producer or processing types in database', { batchNumbers, user: createdBy });
       return res.status(400).json({ error: 'Batches must have the same producer and processing type in the database.' });
     }
 
@@ -1810,12 +1832,13 @@ router.post('/dry-mill/merge', async (req, res) => {
     if (subBatches.length > 0) {
       console.log('Sub-batches detected:', { subBatches, batchNumbers });
       await t.rollback();
-      logger.warn('Batches have sub-batches', { batchNumbers, user: createdBy || 'unknown' });
+      logger.warn('Batches have sub-batches', { batchNumbers, user: createdBy });
       return res.status(400).json({ error: 'Cannot merge batches that have sub-batches.' });
     }
 
     // Generate new batch number
     const today = new Date().toISOString().slice(0, 10);
+    console.log('Generating new batch number for date:', today);
     const [sequenceResult] = await sequelize.query(
       `SELECT latest_batch_number, last_updated_date 
        FROM latest_m_batch 
@@ -1840,17 +1863,7 @@ router.post('/dry-mill/merge', async (req, res) => {
 
     const formattedSequence = sequenceNumber.toString().padStart(4, '0');
     const newBatchNumber = `${today}-${formattedSequence}-MB`;
-
-    await sequelize.query(
-      `UPDATE latest_m_batch 
-       SET latest_batch_number = :sequenceNumber, last_updated_date = :today 
-       WHERE id = 1`,
-      {
-        replacements: { sequenceNumber, today },
-        type: sequelize.QueryTypes.UPDATE,
-        transaction: t
-      }
-    );
+    console.log('Generated new batch number:', newBatchNumber);
 
     const farmerNames = [...new Set(batches.map(b => b.farmerName).filter(Boolean))];
     const farmerNamesString = farmerNames.length > 0 ? farmerNames.join(', ') : 'Multiple';
@@ -1860,6 +1873,7 @@ router.post('/dry-mill/merge', async (req, res) => {
     }, batches[0].receivingDate);
     const totalBags = batches.reduce((sum, b) => sum + (parseInt(b.totalBags) || 0), 0);
     const rfids = batches.flatMap(b => b.rfid ? b.rfid.split(',').map(s => s.trim()) : []).filter(Boolean);
+    console.log('Aggregated batch data:', { farmerNamesString, earliestReceivingDate, totalBags, rfids });
 
     // Insert new batch into ReceivingData
     await sequelize.query(
@@ -1879,7 +1893,7 @@ router.post('/dry-mill/merge', async (req, res) => {
           type: batches[0].type,
           totalBags: totalBags || null,
           commodityType: batches[0].commodityType,
-          producer: batches[0].producer,
+          producer: producer, // Use validated producer
           createdAt: new Date(),
           updatedAt: new Date(),
           rfid: rfids.length > 0 ? rfids.join(',') : null
@@ -1900,10 +1914,10 @@ router.post('/dry-mill/merge', async (req, res) => {
         replacements: {
           batchNumber: newBatchNumber,
           processingType,
-          producer: batches[0].producer,
+          producer,
           createdAt: new Date(),
           updatedAt: new Date(),
-          createdBy: createdBy || 'Unknown'
+          createdBy: createdBy
         },
         type: sequelize.QueryTypes.INSERT,
         transaction: t
@@ -1954,7 +1968,7 @@ router.post('/dry-mill/merge', async (req, res) => {
           newBatchNumber,
           originalBatchNumbers: parsedBatches.map(b => b.batchNumber),
           mergedAt: new Date(),
-          createdBy: createdBy || 'Unknown',
+          createdBy: createdBy,
           notes: notes || null,
           totalWeight: totalWeight.toFixed(2),
           processingType
@@ -1965,6 +1979,7 @@ router.post('/dry-mill/merge', async (req, res) => {
     );
 
     await t.commit();
+    console.log('Merge completed successfully:', { newBatchNumber, totalWeight });
     logger.info('Batches merged successfully in dry mill', { newBatchNumber, batchNumbers, user: createdBy });
     res.json({
       success: true,
@@ -1977,8 +1992,14 @@ router.post('/dry-mill/merge', async (req, res) => {
     });
   } catch (err) {
     if (t) await t.rollback();
-    logger.error('Error merging batches in dry mill', { error: err.message, stack: err.stack, user: createdBy || 'unknown' });
-    res.status(400).json({ error: 'Failed to merge batches', details: err.message });
+    console.error('Error in merge route:', {
+      error: err.message,
+      stack: err.stack,
+      batchNumbers,
+      user: req.body.createdBy || 'unknown'
+    });
+    logger.error('Error merging batches in dry mill', { error: err.message, stack: err.stack, user: req.body.createdBy || 'unknown' });
+    res.status(500).json({ error: 'Failed to merge batches', details: err.message });
   }
 });
 
