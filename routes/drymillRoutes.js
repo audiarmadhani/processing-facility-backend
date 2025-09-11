@@ -1090,15 +1090,14 @@ router.get('/dry-mill-data', async (req, res) => {
           COALESCE(pd.producer, rd.producer) AS producer,
           rd."farmerName" AS "farmerName",
           pp."productLine" AS "productLine",
-          COALESCE(pp."processingType", pd."processingType") AS "processingType",
-          CASE WHEN pp."batchNumber" IS NOT NULL THEN pp."lotNumber" ELSE pd."lotNumber" END AS "lotNumber",
+          pd."processingType" AS "processingType",
+          pd."lotNumber" AS "lotNumber",
           COALESCE(pp."referenceNumber", pd."referenceNumber") AS "referenceNumber",
           CASE
             WHEN dm."entered_at" IS NOT NULL AND dm."exited_at" IS NULL THEN 'In Dry Mill'
             WHEN dm."exited_at" IS NOT NULL THEN 'Processed'
             ELSE 'Not Started'
           END AS status,
-          ARRAY_AGG(DISTINCT pd."processingType") FILTER (WHERE pd."processingType" IS NOT NULL) AS "processingTypes",
           COUNT(DISTINCT bd.bag_number) AS total_bags,
           COALESCE(pp.notes, rd.notes) AS notes,
           SUM(bd.weight) AS "drymillWeight",
@@ -1108,7 +1107,7 @@ router.get('/dry-mill-data', async (req, res) => {
           fm."farmVarieties",
           dm."dryMillMerged"
         FROM "ReceivingData" rd
-        LEFT JOIN "DryMillData" dm ON rd."batchNumber" = dm."batchNumber"
+        LEFT JOIN (SELECT "batchNumber", MIN(entered_at) AS entered_at, MAX(exited_at) AS exited_at, MIN(created_at) AS created_at, rfid, "dryMillMerged" FROM "DryMillData" GROUP BY "batchNumber", rfid, "dryMillMerged") dm ON rd."batchNumber" = dm."batchNumber"
         LEFT JOIN "PostprocessingData" pp ON rd."batchNumber" = pp."parentBatchNumber" OR rd."batchNumber" = pp."batchNumber"
         LEFT JOIN "PreprocessingData" pd ON rd."batchNumber" = pd."batchNumber"
         LEFT JOIN "DryMillGrades" dg ON (
@@ -1128,8 +1127,8 @@ router.get('/dry-mill-data', async (req, res) => {
           dm."entered_at", dm."exited_at", pp."storedDate",
           pp.weight, rd.weight, pp.quality,
           pd.producer, rd.producer, rd."farmerName",
-          pp."productLine", COALESCE(pp."processingType", pd."processingType"),
-          CASE WHEN pp."batchNumber" IS NOT NULL THEN pp."lotNumber" ELSE pd."lotNumber" END, COALESCE(pp."referenceNumber", pd."referenceNumber"),
+          pp."productLine", pd."processingType",
+          pd."lotNumber", COALESCE(pp."referenceNumber", pd."referenceNumber"),
           pp.notes, rd.notes,
           pp."storedDate", rd.rfid,
           fm."farmVarieties",
@@ -1155,7 +1154,6 @@ router.get('/dry-mill-data', async (req, res) => {
           "lotNumber",
           "referenceNumber",
           status,
-          "processingTypes",
           total_bags AS "totalBags",
           notes,
           "drymillWeight",
@@ -1166,7 +1164,7 @@ router.get('/dry-mill-data', async (req, res) => {
           "dryMillMerged"
         FROM BaseData
       )
-      SELECT 
+      SELECT
         "batchNumber",
         "parentBatchNumber",
         type,
@@ -1185,7 +1183,6 @@ router.get('/dry-mill-data', async (req, res) => {
         "lotNumber",
         "referenceNumber",
         status,
-        "processingTypes",
         "totalBags",
         notes,
         "drymillWeight",
