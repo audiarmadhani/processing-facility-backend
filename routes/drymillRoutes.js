@@ -1192,6 +1192,7 @@ router.get('/dry-mill-data', async (req, res) => {
         "farmVarieties",
         "dryMillMerged"
       FROM FinalData
+      WHERE "dryMillMerged" = FALSE
       ORDER BY "dryMillEntered" DESC
     `, {
       type: sequelize.QueryTypes.SELECT,
