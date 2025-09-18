@@ -1797,7 +1797,7 @@ router.get('/land-targets', async (req, res) => {
                 a."gbEstimate",
                 COALESCE(SUM(c.weight),0) as currentcherrytotal,
                 COALESCE(SUM(c.weight),0) - a."cherryEstimate" as difference,
-                a."askingPrice"/COALESCE(SUM(c.weight),0) as averageCherryPrice
+                a."askingPrice"/COALESCE(SUM(c.weight),0) as "averageCherryPrice"
             FROM "LandContract" a
             LEFT JOIN "Farmers" b on a."farmerName" = b."farmerName"
             LEFT JOIN "ReceivingData" c on b."farmerID" = c."farmerID"
