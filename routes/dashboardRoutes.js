@@ -2112,5 +2112,49 @@ router.get('/environmental-metrics', async (req, res) => {
     }
 });
 
+router.get('/environmental-metrics/raw', async (req, res) => {
+    try {
+        const { device_id, timeframe = 'this_month' } = req.query;
+        if (!device_id) {
+            return res.status(400).json({ message: 'device_id is required' });
+        }
+
+        let currentStartDate, currentEndDate;
+        try {
+            const dateRanges = getDateRanges(timeframe);
+            [currentStartDate, currentEndDate] = dateRanges.currentRange;
+        } catch (error) {
+            return res.status(400).json({ message: error.message });
+        }
+
+        // Format dates for SQL queries
+        const formattedCurrentStartDate = currentStartDate.toISOString().split('T')[0];
+        const formattedCurrentEndDate = currentEndDate.toISOString().split('T')[0];
+
+        // Query for raw environmental data
+        const rawDataQuery = `
+            SELECT 
+                id,
+                device_id,
+                temperature,
+                humidity,
+                recorded_at
+            FROM "GreenhouseData"
+            WHERE device_id = '${device_id}'
+            AND recorded_at BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+            ORDER BY recorded_at ASC
+        `;
+
+        // Execute query
+        const [rawDataResult] = await sequelize.query(rawDataQuery);
+
+        // Return the raw data
+        res.json(rawDataResult);
+    } catch (err) {
+        console.error('Error fetching raw environmental data:', err);
+        res.status(500).json({ message: 'Failed to fetch raw environmental data.' });
+    }
+});
+
  
 module.exports = router;
