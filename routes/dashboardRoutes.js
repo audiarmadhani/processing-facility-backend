@@ -2035,5 +2035,82 @@ router.get('/batch-tracking', async (req, res) => {
     }
   });
 
+// Add this new route below the existing routes in the dashboard-routes.js file
+router.get('/environmental-metrics', async (req, res) => {
+    try {
+        const { timeframe = 'this_month' } = req.query;
+        let currentStartDate, currentEndDate;
+        try {
+            const dateRanges = getDateRanges(timeframe);
+            [currentStartDate, currentEndDate] = dateRanges.currentRange;
+        } catch (error) {
+            return res.status(400).json({ message: error.message });
+        }
+
+        // Format dates for SQL queries
+        const formattedCurrentStartDate = currentStartDate.toISOString().split('T')[0];
+        const formattedCurrentEndDate = currentEndDate.toISOString().split('T')[0];
+
+        // Queries for warehouse and wetmill environmental data
+        const warehouseSensorQuery = `
+            SELECT 
+                COALESCE(ROUND(AVG(temperature::numeric), 1), 0) AS avg_temperature,
+                COALESCE(ROUND(AVG(humidity::numeric), 1), 0) AS avg_humidity,
+                COALESCE(ROUND(MAX(temperature::numeric), 1), 0) AS max_temperature,
+                COALESCE(ROUND(MIN(temperature::numeric), 1), 0) AS min_temperature,
+                COALESCE(ROUND(MAX(humidity::numeric), 1), 0) AS max_humidity,
+                COALESCE(ROUND(MIN(humidity::numeric), 1), 0) AS min_humidity
+            FROM "GreenhouseData"
+            WHERE device_id = 'WAREHOUSE_SENSOR'
+            AND recorded_at BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+        `;
+
+        const wetmillSensorQuery = `
+            SELECT 
+                COALESCE(ROUND(AVG(temperature::numeric), 1), 0) AS avg_temperature,
+                COALESCE(ROUND(AVG(humidity::numeric), 1), 0) AS avg_humidity,
+                COALESCE(ROUND(MAX(temperature::numeric), 1), 0) AS max_temperature,
+                COALESCE(ROUND(MIN(temperature::numeric), 1), 0) AS min_temperature,
+                COALESCE(ROUND(MAX(humidity::numeric), 1), 0) AS max_humidity,
+                COALESCE(ROUND(MIN(humidity::numeric), 1), 0) AS min_humidity
+            FROM "GreenhouseData"
+            WHERE device_id = 'WETMILL_SENSOR'
+            AND recorded_at BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'
+        `;
+
+        // Execute queries
+        const [warehouseSensorResult] = await sequelize.query(warehouseSensorQuery);
+        const [wetmillSensorResult] = await sequelize.query(wetmillSensorQuery);
+
+        // Extract values and convert to numbers
+        const warehouseMetrics = {
+            avgTemperature: Number(warehouseSensorResult[0]?.avg_temperature) || 0,
+            avgHumidity: Number(warehouseSensorResult[0]?.avg_humidity) || 0,
+            maxTemperature: Number(warehouseSensorResult[0]?.max_temperature) || 0,
+            minTemperature: Number(warehouseSensorResult[0]?.min_temperature) || 0,
+            maxHumidity: Number(warehouseSensorResult[0]?.max_humidity) || 0,
+            minHumidity: Number(warehouseSensorResult[0]?.min_humidity) || 0,
+        };
+
+        const wetmillMetrics = {
+            avgTemperature: Number(wetmillSensorResult[0]?.avg_temperature) || 0,
+            avgHumidity: Number(wetmillSensorResult[0]?.avg_humidity) || 0,
+            maxTemperature: Number(wetmillSensorResult[0]?.max_temperature) || 0,
+            minTemperature: Number(wetmillSensorResult[0]?.min_temperature) || 0,
+            maxHumidity: Number(wetmillSensorResult[0]?.max_humidity) || 0,
+            minHumidity: Number(wetmillSensorResult[0]?.min_humidity) || 0,
+        };
+
+        // Return the metrics
+        res.json({
+            warehouse: warehouseMetrics,
+            wetmill: wetmillMetrics,
+        });
+    } catch (err) {
+        console.error('Error fetching environmental metrics:', err);
+        res.status(500).json({ message: 'Failed to fetch environmental metrics.' });
+    }
+});
+
  
 module.exports = router;
