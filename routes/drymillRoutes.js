@@ -1755,7 +1755,7 @@ router.post('/dry-mill/merge', async (req, res) => {
       console.log('Fetching batch chunk:', chunk.map(b => b.batchNumber));
       const chunkBatches = await sequelize.query(
         `SELECT rd."batchNumber", rd."type", rd."farmerName", rd."receivingDate", rd."totalBags",
-                rd."commodityType", rd."rfid", rd."producer", pp."processingType",
+                rd."commodityType", rd."rfid", pp."producer", pp."processingType",
                 COALESCE(ldw.drying_weight, 0) AS weight, dm."entered_at" AS dryMillEntered,
                 dm."exited_at" AS dryMillExited, dm."dryMillMerged"
          FROM "ReceivingData" rd
