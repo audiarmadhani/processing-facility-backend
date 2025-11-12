@@ -437,16 +437,16 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
             WHEN :status = 'Ready for Shipment' AND ready_at IS NULL THEN NOW()
             ELSE ready_at
           END,
-          in_transit_at = CASE
-            WHEN :status = 'In Transit' AND in_transit_at IS NULL THEN NOW()
+          ship_at = CASE
+            WHEN :status = 'In Transit' AND ship_at IS NULL THEN NOW()
             ELSE ship_at
           END,
-          arrived_at = CASE
-            WHEN :status = 'Arrived' AND arrived_at IS NULL THEN NOW()
+          arrive_at = CASE
+            WHEN :status = 'Arrived' AND arrive_at IS NULL THEN NOW()
             ELSE arrive_at
           END,
-          rejected_at = CASE
-            WHEN :status = 'Rejected' AND rejected_at IS NULL THEN NOW()
+          reject_at = CASE
+            WHEN :status = 'Rejected' AND reject_at IS NULL THEN NOW()
             ELSE reject_at
           END,
           updated_at = NOW()
