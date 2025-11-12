@@ -420,26 +420,46 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
 
     const [updatedOrder] = await sequelize.query(`
       UPDATE "Orders"
-      SET customer_id = :customer_id, 
-          driver_id = :driver_id, 
-          shipping_method = :shipping_method, 
-          driver_details = :driver_details, 
-          price = :price, 
+      SET customer_id = :customer_id,
+          driver_id = :driver_id,
+          shipping_method = :shipping_method,
+          driver_details = :driver_details,
+          price = :price,
           tax_percentage = :tax_percentage,
           shipping_address = :shipping_address,
           billing_address = :billing_address,
-          status = :status, 
+          status = :status,
+          process_at = CASE
+            WHEN :status = 'Processing' AND process_at IS NULL THEN NOW()
+            ELSE process_at
+          END,
+          ready_at = CASE
+            WHEN :status = 'Ready for Shipment' AND ready_at IS NULL THEN NOW()
+            ELSE ready_at
+          END,
+          in_transit_at = CASE
+            WHEN :status = 'In Transit' AND in_transit_at IS NULL THEN NOW()
+            ELSE ship_at
+          END,
+          arrived_at = CASE
+            WHEN :status = 'Arrived' AND arrived_at IS NULL THEN NOW()
+            ELSE arrive_at
+          END,
+          rejected_at = CASE
+            WHEN :status = 'Rejected' AND rejected_at IS NULL THEN NOW()
+            ELSE reject_at
+          END,
           updated_at = NOW()
       WHERE order_id = :order_id
       RETURNING *;
     `, {
-      replacements: { 
-        order_id, 
-        customer_id, 
-        driver_id: shipping_method === 'Self' ? driver_id : null, 
-        shipping_method, 
-        driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
-        price: parsedPrice, 
+      replacements: {
+        order_id,
+        customer_id,
+        driver_id: shipping_method === 'Self' ? driver_id : null,
+        shipping_method,
+        driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null,
+        price: parsedPrice,
         tax_percentage: parsedTaxPercentage,
         shipping_address,
         billing_address,
