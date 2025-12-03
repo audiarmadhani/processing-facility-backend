@@ -125,10 +125,15 @@ router.post('/receiving', async (req, res) => {
 });
 
 // Route for creating green bean receiving data
+// --- receiving-green-beans route (replace the existing handler) ---
 router.post('/receiving-green-beans', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { farmerID, farmerName, weight, totalBags, notes, type, producer, processingType, grade, bagPayload, createdBy, updatedBy, rfid } = req.body;
+    const {
+      farmerID, farmerName, weight, totalBags, notes,
+      type, producer, processingType, grade, bagPayload,
+      createdBy, updatedBy, rfid, price, moisture
+    } = req.body;
 
     // Basic validation
     if (!farmerID || !farmerName || weight === undefined || !totalBags || !type || !producer || !createdBy || !updatedBy || !processingType || !grade) {
@@ -139,6 +144,15 @@ router.post('/receiving-green-beans', async (req, res) => {
       await t.rollback();
       return res.status(400).json({ error: 'RFID tag is required.' });
     }
+    // price and moisture are optional; validate if provided
+    if (price !== undefined && (isNaN(Number(price)) || Number(price) < 0)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Price must be a non-negative number.' });
+    }
+    if (moisture !== undefined && (isNaN(Number(moisture)) || Number(moisture) < 0)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Moisture must be a non-negative number.' });
+    }
 
     // Get current date and format it
     const currentDate = new Date();
@@ -147,38 +161,44 @@ router.post('/receiving-green-beans', async (req, res) => {
     const year = currentDate.getFullYear();
     const currentBatchDate = `${year}-${month}-${day}`;
 
-    // Retrieve or initialize the latest green bean batch number with locking
-    let [latestBatchResults] = await sequelize.query(
+    // Retrieve or initialize the latest green bean batch number with locking.
+    // Use a robust SELECT that returns rows array consistently.
+    const latestRows = await sequelize.query(
       'SELECT latest_green_bean_batch_number FROM latest_gb_batch LIMIT 1 FOR UPDATE',
       { transaction: t, type: sequelize.QueryTypes.SELECT }
     );
 
-    let latestBatchNumber = latestBatchResults[0]?.latest_green_bean_batch_number || 'GB-1970-01-01-0000';
-
-    if (!latestBatchResults[0]) {
+    let latestBatchNumber = 'GB-1970-01-01-0000';
+    if (Array.isArray(latestRows) && latestRows.length > 0 && latestRows[0].latest_green_bean_batch_number) {
+      latestBatchNumber = latestRows[0].latest_green_bean_batch_number;
+    } else {
+      // initialize table if missing or empty
       await sequelize.query(
         'INSERT INTO latest_gb_batch (latest_green_bean_batch_number) VALUES (:initialValue)',
-        { replacements: { initialValue: 'GB-1970-01-01-0000' }, transaction: t, type: sequelize.QueryTypes.INSERT }
+        { replacements: { initialValue: latestBatchNumber }, transaction: t, type: sequelize.QueryTypes.INSERT }
       );
     }
 
-    // Parse the latest batch number
-    const parts = latestBatchNumber.split('-');
-    const lastBatchDate = parts.slice(1, 4).join('-');
-    const lastSeqNumber = parseInt(parts[3], 10) || 0;
+    // Parse the latest batch number properly.
+    // Format is: GB-YYYY-MM-DD-XXXX -> parts[0]='GB', parts[1]=YYYY, parts[2]=MM, parts[3]=DD, parts[4]=SEQ
+    const parts = String(latestBatchNumber).split('-');
+    const lastBatchDate = parts.slice(1, 4).join('-');   // YYYY-MM-DD
+    const lastSeqNumber = parseInt(parts[4], 10) || 0;   // sequence is at index 4
     const sequenceNumber = (lastBatchDate === currentBatchDate) ? lastSeqNumber + 1 : 1;
     const batchNumber = `GB-${currentBatchDate}-${String(sequenceNumber).padStart(4, '0')}`;
 
-    // Insert ReceivingData
+    // Insert ReceivingData with optional price and moisture fields
     const [receivingData] = await sequelize.query(`
       INSERT INTO "ReceivingData" (
         "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type, producer,
         "processingType", "grade", "commodityType", "receivingDate", "createdAt", "updatedAt",
-        "createdBy", "updatedBy", "rfid", "currentAssign"
+        "createdBy", "updatedBy", "rfid", "currentAssign",
+        price, moisture
       ) VALUES (
         :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type, :producer,
         :processingType, :grade, :commodityType, :receivingDate, :createdAt, :updatedAt,
-        :createdBy, :updatedBy, :rfid, :currentAssign
+        :createdBy, :updatedBy, :rfid, :currentAssign,
+        :price, :moisture
       ) RETURNING *;
     `, {
       replacements: {
@@ -200,12 +220,14 @@ router.post('/receiving-green-beans', async (req, res) => {
         updatedBy,
         rfid,
         currentAssign: 1,
+        price: price !== undefined ? Number(price) : null,
+        moisture: moisture !== undefined ? Number(moisture) : null
       },
       transaction: t,
       type: sequelize.QueryTypes.INSERT
     });
 
-    // Insert BagData
+    // Insert BagData (unchanged)
     if (Array.isArray(bagPayload) && bagPayload.length > 0) {
       const bagInsertQuery = `
         INSERT INTO "BagData" ("batchNumber", "bagNumber", weight, "createdAt", "updatedAt")
