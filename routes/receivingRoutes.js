@@ -286,6 +286,21 @@ router.get('/receiving', async (req, res) => {
       }
     );
 
+    const [noQCRows] = await sequelize.query(
+      `SELECT a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
+       b."contractType", c.price*a.weight total_price, c.price, b.broker, b."farmVarieties"
+       FROM "ReceivingData" a 
+       LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
+       LEFT JOIN (SELECT "batchNumber", MAX(price) price FROM "QCData" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
+       WHERE a.merged = FALSE
+       AND a."commodityType" = 'Cherry'
+       AND a."batchNumber" NOT LIKE '%MB'
+       ORDER BY a."receivingDate" DESC;`,
+      {
+        replacements: commodityType ? { commodityType } : {},
+      }
+    );
+
     const [todayData] = await sequelize.query(
       `SELECT a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
        b."contractType", c.price*a.weight total_price, c.price, b.broker, b."farmVarieties"
@@ -317,7 +332,7 @@ router.get('/receiving', async (req, res) => {
       }
     );
 
-    res.json({ allRows, todayData, noTransportData });
+    res.json({ allRows, noQCRows, todayData, noTransportData });
   } catch (err) {
     console.error('Error fetching Receiving data:', err);
     res.status(500).json({ message: 'Failed to fetch Receiving data.' });
