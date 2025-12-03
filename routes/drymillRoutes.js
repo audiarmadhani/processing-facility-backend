@@ -105,9 +105,9 @@ router.get('/dry-mill-grades/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
   let { processingType } = req.query;
 
-  if (!batchNumber || !processingType) {
+  if (!batchNumber) {
     logger.warn('Missing required parameters', { batchNumber, processingType, user: req.body.createdBy || 'unknown' });
-    return res.status(400).json({ error: 'batchNumber and processingType query parameter are required.' });
+    return res.status(400).json({ error: 'batchNumber is required.' });
   }
 
   let t;
@@ -708,9 +708,12 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
         :lotNumber, :referenceNumber
       )
       ON CONFLICT ("subBatchId") DO UPDATE SET
-        weight = :weight,
-        bagged_at = :bagged_at,
-        "storedDate" = NOW(),
+        weight = EXCLUDED.weight,
+        bagged_at = EXCLUDED.bagged_at,
+        "storedDate" = EXCLUDED."storedDate",
+        processing_type = EXCLUDED.processing_type,
+        "lotNumber" = EXCLUDED."lotNumber",
+        "referenceNumber" = EXCLUDED."referenceNumber";
     `, {
       replacements: {
         parentBatchNumber,
@@ -1971,11 +1974,12 @@ router.post('/dry-mill/merge', async (req, res) => {
 
     // Insert into DryMillBatchMerges
     console.log('Inserting into DryMillBatchMerges:', { newBatchNumber });
+    // Insert into DryMillBatchMerges (use text[] replacement)
     await sequelize.query(
       `INSERT INTO "DryMillBatchMerges" (
         new_batch_number, original_batch_numbers, merged_at, created_by, notes, total_weight, processing_type
       ) VALUES (
-        :newBatchNumber, ARRAY[:originalBatchNumbers], :mergedAt, :createdBy, :notes, :totalWeight, :processingType
+        :newBatchNumber, :originalBatchNumbers::text[], :mergedAt, :createdBy, :notes, :totalWeight, :processingType
       )`,
       {
         replacements: {
@@ -2019,6 +2023,178 @@ router.post('/dry-mill/merge', async (req, res) => {
       user: req.body.createdBy || 'unknown' 
     });
     res.status(500).json({ error: 'Failed to merge batches', details: err.message });
+  }
+});
+
+// GET /drymill/grades-aggregate/:batchNumber
+router.get('/drymill/grades-aggregate/:batchNumber', async (req, res) => {
+  try {
+    const { batchNumber } = req.params;
+    const rows = await sequelize.query(`
+      SELECT grade,
+             COUNT(*)::int AS bag_count,
+             SUM(weight)::numeric(10,2) AS total_weight,
+             AVG(weight)::numeric(10,2) AS avg_weight
+      FROM "DryMillGrades"
+      WHERE batchNumber = :batchNumber
+      GROUP BY grade
+      ORDER BY grade;
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT,
+    });
+    return res.json(rows);
+  } catch (err) {
+    console.error('grades-aggregate error', err);
+    return res.status(500).json({ error: 'Failed to aggregate grades', details: err.message });
+  }
+});
+
+// GET /drymill/grades-rows/:batchNumber
+router.get('/drymill/grades-rows/:batchNumber', async (req, res) => {
+  try {
+    const { batchNumber } = req.params;
+    const rows = await sequelize.query(`
+      SELECT id, batchNumber, subBatchId, grade, weight, sorted_at, split_at, bagged_at,
+             is_stored, temp_sequence, processing_type, lotNumber, referenceNumber, storedDate, to_char(split_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as split_at_iso
+      FROM "DryMillGrades"
+      WHERE batchNumber = :batchNumber
+      ORDER BY grade, subBatchId NULLS FIRST, id;
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT,
+    });
+    return res.json(rows);
+  } catch (err) {
+    console.error('grades-rows error', err);
+    return res.status(500).json({ error: 'Failed to fetch grade rows', details: err.message });
+  }
+});
+
+// POST /drymill/grade
+router.post('/drymill/grade', async (req, res) => {
+  try {
+    const { batchNumber, subBatchId, grade, weight, processing_type, lotNumber, referenceNumber, temp_sequence } = req.body;
+    if (!batchNumber || !grade || weight === undefined || weight === null) {
+      return res.status(400).json({ error: 'batchNumber, grade and weight are required' });
+    }
+    const parsedWeight = Number(weight);
+    if (isNaN(parsedWeight) || parsedWeight <= 0) return res.status(400).json({ error: 'Invalid weight' });
+
+    const [created] = await sequelize.query(`
+      INSERT INTO "DryMillGrades" (batchNumber, subBatchId, grade, weight, processing_type, temp_sequence, lotNumber, referenceNumber, split_at, created_at)
+      VALUES (:batchNumber, :subBatchId, :grade, :weight, :processing_type, :temp_sequence, :lotNumber, :referenceNumber, NOW(), NOW())
+      RETURNING *;
+    `, {
+      replacements: {
+        batchNumber,
+        subBatchId: subBatchId || null,
+        grade,
+        weight: parsedWeight,
+        processing_type: processing_type || null,
+        temp_sequence: temp_sequence || null,
+        lotNumber: lotNumber || null,
+        referenceNumber: referenceNumber || null,
+      },
+      type: sequelize.QueryTypes.INSERT,
+    });
+
+    return res.status(201).json(created);
+  } catch (err) {
+    console.error('create drymill grade error', err);
+    return res.status(500).json({ error: 'Failed to create grade row', details: err.message });
+  }
+});
+
+// PUT /drymill/grade/:id
+router.put('/drymill/grade/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { subBatchId, grade, weight, processing_type, lotNumber, referenceNumber, storedDate, is_stored, bagged_at } = req.body;
+
+    const parsedWeight = weight !== undefined ? Number(weight) : undefined;
+    if (parsedWeight !== undefined && (isNaN(parsedWeight) || parsedWeight <= 0)) {
+      return res.status(400).json({ error: 'Invalid weight' });
+    }
+
+    const [updated] = await sequelize.query(`
+      UPDATE "DryMillGrades"
+      SET subBatchId = COALESCE(:subBatchId, subBatchId),
+          grade = COALESCE(:grade, grade),
+          weight = COALESCE(:weight, weight),
+          processing_type = COALESCE(:processing_type, processing_type),
+          lotNumber = COALESCE(:lotNumber, lotNumber),
+          referenceNumber = COALESCE(:referenceNumber, referenceNumber),
+          storedDate = COALESCE(:storedDate, storedDate),
+          is_stored = COALESCE(:is_stored, is_stored),
+          bagged_at = COALESCE(:bagged_at, bagged_at),
+          updated_at = NOW()
+      WHERE id = :id
+      RETURNING *;
+    `, {
+      replacements: {
+        id,
+        subBatchId: subBatchId || null,
+        grade: grade || null,
+        weight: parsedWeight !== undefined ? parsedWeight : null,
+        processing_type: processing_type || null,
+        lotNumber: lotNumber || null,
+        referenceNumber: referenceNumber || null,
+        storedDate: storedDate ? new Date(storedDate) : null,
+        is_stored: typeof is_stored === 'boolean' ? is_stored : null,
+        bagged_at: bagged_at ? new Date(bagged_at) : null,
+      },
+      type: sequelize.QueryTypes.UPDATE,
+    });
+
+    if (!updated) return res.status(404).json({ error: 'Row not found' });
+    return res.json(updated);
+  } catch (err) {
+    console.error('update drymill grade error', err);
+    return res.status(500).json({ error: 'Failed to update grade row', details: err.message });
+  }
+});
+
+// POST /drymill/grades/mark-stored
+router.post('/drymill/grades/mark-stored', async (req, res) => {
+  try {
+    const { ids, storedDate } = req.body;
+    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids array required' });
+    const dateToSet = storedDate ? new Date(storedDate) : new Date();
+    await sequelize.query(`
+      UPDATE "DryMillGrades"
+      SET storedDate = COALESCE(storedDate, :dateToSet),
+          is_stored = TRUE,
+          updated_at = NOW()
+      WHERE id = ANY(:ids::int[])
+    `, {
+      replacements: { ids, dateToSet },
+      type: sequelize.QueryTypes.UPDATE,
+    });
+    return res.json({ success: true, updated: ids.length });
+  } catch (err) {
+    console.error('mark-stored error', err);
+    return res.status(500).json({ error: 'Failed to mark stored', details: err.message });
+  }
+});
+
+// GET /drymill/grades/:batchNumber/:grade/max-subbatchid
+router.get('/drymill/grades/:batchNumber/:grade/max-subbatchid', async (req, res) => {
+  try {
+    const { batchNumber, grade } = req.params;
+    const [row] = await sequelize.query(`
+      SELECT MAX(COALESCE(NULLIF(subBatchId,''), '0')::int) AS max_sub
+      FROM "DryMillGrades"
+      WHERE batchNumber = :batchNumber AND grade = :grade
+    `, {
+      replacements: { batchNumber, grade },
+      type: sequelize.QueryTypes.SELECT,
+    });
+    const maxSub = row && row.max_sub ? parseInt(row.max_sub, 10) : 0;
+    return res.json({ max_sub: maxSub });
+  } catch (err) {
+    console.error('max-sub error', err);
+    return res.status(500).json({ error: 'Failed to fetch max subBatchId', details: err.message });
   }
 });
 
