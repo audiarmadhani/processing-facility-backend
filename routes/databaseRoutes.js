@@ -128,53 +128,57 @@ router.delete('/tables/:tableName/:id', async (req, res) => {
 
 router.get('/farmersTable', async (req, res) => {
   try {
-    const [tables] = await sequelize.query(`
+    const data = await sequelize.query(`
       SELECT *
       FROM "Farmers"
-    `);
-    res.json(tables.map((table) => table.table_name));
-  } catch (err) {
-    console.error('Error fetching tables:', err);
-    res.status(500).json({ message: 'Failed to fetch tables.' });
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('Error fetching drying data:', error);
+    res.status(500).json({ error: 'Failed to fetch drying data', details: error.message });
   }
 });
 
 router.get('/goodsTable', async (req, res) => {
   try {
-    const [tables] = await sequelize.query(`
+    const data = await sequelize.query(`
       SELECT *
       FROM "PostprocessingData"
-    `);
-    res.json(tables.map((table) => table.table_name));
-  } catch (err) {
-    console.error('Error fetching tables:', err);
-    res.status(500).json({ message: 'Failed to fetch tables.' });
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('Error fetching drying data:', error);
+    res.status(500).json({ error: 'Failed to fetch drying data', details: error.message });
   }
 });
 
-router.get('/goodsTable', async (req, res) => {
+router.get('/receivingTable', async (req, res) => {
   try {
-    const [tables] = await sequelize.query(`
+    const data = await sequelize.query(`
       SELECT *
       FROM "ReceivingData"
-    `);
-    res.json(tables.map((table) => table.table_name));
-  } catch (err) {
-    console.error('Error fetching tables:', err);
-    res.status(500).json({ message: 'Failed to fetch tables.' });
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('Error fetching drying data:', error);
+    res.status(500).json({ error: 'Failed to fetch drying data', details: error.message });
   }
 });
 
 router.get('/priceTable', async (req, res) => {
   try {
-    const [tables] = await sequelize.query(`
+    const data = await sequelize.query(`
       SELECT *
       FROM "QCData_v"
-    `);
-    res.json(tables.map((table) => table.table_name));
-  } catch (err) {
-    console.error('Error fetching tables:', err);
-    res.status(500).json({ message: 'Failed to fetch tables.' });
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('Error fetching drying data:', error);
+    res.status(500).json({ error: 'Failed to fetch drying data', details: error.message });
   }
 });
 
