@@ -126,4 +126,56 @@ router.delete('/tables/:tableName/:id', async (req, res) => {
   }
 });
 
+router.get('/farmersTable', async (req, res) => {
+  try {
+    const [tables] = await sequelize.query(`
+      SELECT *
+      FROM "Farmers"
+    `);
+    res.json(tables.map((table) => table.table_name));
+  } catch (err) {
+    console.error('Error fetching tables:', err);
+    res.status(500).json({ message: 'Failed to fetch tables.' });
+  }
+});
+
+router.get('/goodsTable', async (req, res) => {
+  try {
+    const [tables] = await sequelize.query(`
+      SELECT *
+      FROM "PostprocessingData"
+    `);
+    res.json(tables.map((table) => table.table_name));
+  } catch (err) {
+    console.error('Error fetching tables:', err);
+    res.status(500).json({ message: 'Failed to fetch tables.' });
+  }
+});
+
+router.get('/goodsTable', async (req, res) => {
+  try {
+    const [tables] = await sequelize.query(`
+      SELECT *
+      FROM "ReceivingData"
+    `);
+    res.json(tables.map((table) => table.table_name));
+  } catch (err) {
+    console.error('Error fetching tables:', err);
+    res.status(500).json({ message: 'Failed to fetch tables.' });
+  }
+});
+
+router.get('/priceTable', async (req, res) => {
+  try {
+    const [tables] = await sequelize.query(`
+      SELECT *
+      FROM "QCData_v"
+    `);
+    res.json(tables.map((table) => table.table_name));
+  } catch (err) {
+    console.error('Error fetching tables:', err);
+    res.status(500).json({ message: 'Failed to fetch tables.' });
+  }
+});
+
 module.exports = router;
