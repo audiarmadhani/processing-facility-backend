@@ -2,6 +2,15 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 
+const toNullableFloat = (v) =>
+  v === '' || v === undefined || v === null ? null : parseFloat(v);
+
+const toNullableInt = (v) =>
+  v === '' || v === undefined || v === null ? null : parseInt(v, 10);
+
+const toNullableDate = (v) =>
+  v ? new Date(v) : null;
+
 // Route for fetching available tanks
 router.get('/fermentation/available-tanks', async (req, res) => {
   try {
@@ -68,81 +77,85 @@ router.get('/fermentation/available-batches', async (req, res) => {
 
 // Route for creating fermentation data
 router.post('/fermentation', async (req, res) => {
-  const t = await sequelize.transaction();
   try {
     const {
-      batchNumber, referenceNumber, experimentNumber, processingType, description, farmerName,
-      type, variety, harvestDate, harvestAt, receivedAt, receivedWeight, rejectWeight,
-      defectWeight, damagedWeight, lostWeight, preprocessingWeight, quality, brix,
-      preStorage, preStorageCondition, preFermentationStorageGoal, preFermentationStorageStart,
-      preFermentationStorageEnd, prePulped, prePulpedDelva, preFermentationTimeAfterPulping,
-      prePulpedWeight, cherryType, fermentationCherryWeight, fermentation, fermentationTank,
-      fermentationStarter, fermentationStarterAmount, gas, pressure, isSubmerged, totalVolume,
-      waterUsed, starterUsed, stirring, fermentationTemperature, pH, fermentationTimeTarget,
-      fermentationStart, fermentationEnd, finalPH, finalTDS, finalTemperature, postFermentationWeight,
-      postPulped, secondFermentation, secondFermentationTank, secondWashedDelva, secondWashed,
-      secondFermentationCherryWeight, secondFermentationPulpedWeight, secondStarterType, secondGas,
-      secondPressure, secondIsSubmerged, secondTotalVolume, secondWaterUsed, secondMosstoUsed,
-      secondActualVolume, secondTemperature, secondFermentationTimeTarget, secondFermentationStart,
-      secondFermentationEnd, dryingArea, avgTemperature, preDryingWeight, finalMoisture,
-      postDryingWeight, dryingStart, dryingEnd, secondDrying, secondDryingArea, secondAverageTemperature,
-      secondFinalMoisture, secondPostDryingWeight, secondDryingStart, secondDryingEnd, rehydration,
-      storage, storageTemperature, hullingTime, bagType, postHullingWeight, createdBy,
-      productLine, wesorter, preClassifier, airlock, tankAmount, leachateTarget, leachate,
-      brewTankTemperature, waterTemperature, coolerTemperature, drying
+      batchNumber,
+      fermentationTank,
+      fermentationStart,
+      fermentationEnd,
+      createdBy,
+      processingType,
+      referenceNumber,
+      experimentNumber,
+      description,
+      farmerName,
+      type,
+      variety,
+      fermentation,
+      secondFermentation,
+      secondFermentationTank,
+      gas,
+      pressure,
+      isSubmerged,
+      pH,
+      fermentationTimeTarget,
+      totalVolume,
+      waterUsed,
+      starterUsed,
+      stirring,
+      fermentationTemperature,
+      avgTemperature,
+      harvestAt,
+      receivedAt,
+      receivedWeight,
+      rejectWeight,
+      defectWeight,
+      damagedWeight,
+      lostWeight,
+      preprocessingWeight,
+      quality,
+      brix,
+      tankAmount,
+      leachateTarget,
+      leachate,
+      brewTankTemperature,
+      waterTemperature,
+      coolerTemperature,
+      secondGas,
+      secondPressure,
+      secondIsSubmerged,
+      secondFermentationTimeTarget,
+      secondTemperature,
     } = req.body;
 
-    const requiredFields = { batchNumber, fermentationTank, fermentationStart, createdBy };
-    if (Object.values(requiredFields).some(field => !field)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'batchNumber, fermentationTank, fermentationStart, and createdBy are required.' });
+    // ---- required guards ----
+    if (!batchNumber || !fermentationTank || !fermentationStart || !createdBy) {
+      return res.status(400).json({
+        error: 'batchNumber, fermentationTank, fermentationStart, and createdBy are required',
+      });
     }
 
-    if (!['Biomaster', 'Carrybrew', 'Washing Track', 'Fermentation Bucket'].includes(fermentationTank) && !/^BB-HQ-\d{4}$/.test(fermentationTank)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid fermentationTank. Must be Biomaster, Carrybrew, Washing Track, Fermentation Bucket, or BB-HQ-XXXX.' });
+    // ---- canonical dates ----
+    const startDate = new Date(fermentationStart);
+    const endDate = toNullableDate(fermentationEnd);
+
+    if (isNaN(startDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid fermentationStart' });
     }
 
-    const parsedStartDate = new Date(fermentationStart);
-    if (isNaN(parsedStartDate)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid fermentationStart format.' });
+    if (startDate > new Date()) {
+      return res.status(400).json({ error: 'fermentationStart cannot be in the future' });
     }
 
-    const now = new Date();
-    if (parsedStartDate > now) {
-      await t.rollback();
-      return res.status(400).json({ error: 'fermentationStart cannot be in the future.' });
-    }
-
-    const parsedFermentationEnd = fermentationEnd ? new Date(fermentationEnd) : null;
-    if (fermentationEnd && isNaN(parsedFermentationEnd)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid fermentationEnd format.' });
-    }
-
-    if (parsedFermentationEnd && parsedFermentationEnd < parsedStartDate) {
-      await t.rollback();
-      return res.status(400).json({ error: 'fermentationEnd cannot be before fermentationStart.' });
-    }
-
-    if (parsedFermentationEnd && parsedFermentationEnd > now) {
-      await t.rollback();
-      return res.status(400).json({ error: 'fermentationEnd cannot be in the future.' });
-    }
-
-    if (drying && !['Pulped Natural', 'Natural', 'Washed'].includes(drying)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid drying value. Must be Pulped Natural, Natural, or Washed.' });
-    }
-
-    const toNullableFloat = (v) =>
-      v === '' || v === undefined || v === null ? null : parseFloat(v);
-
-    const toNullableInt = (v) =>
-      v === '' || v === undefined || v === null ? null : parseInt(v, 10);
-
-    const numericFields = {
+    // ---- normalize numeric fields ----
+    const numeric = {
+      pressure: toNullableFloat(pressure),
+      totalVolume: toNullableFloat(totalVolume),
+      waterUsed: toNullableFloat(waterUsed),
+      starterUsed: toNullableFloat(starterUsed),
+      stirring: toNullableFloat(stirring),
+      fermentationTemperature: toNullableFloat(fermentationTemperature),
+      avgTemperature: toNullableFloat(avgTemperature),
       receivedWeight: toNullableFloat(receivedWeight),
       rejectWeight: toNullableFloat(rejectWeight),
       defectWeight: toNullableFloat(defectWeight),
@@ -151,268 +164,190 @@ router.post('/fermentation', async (req, res) => {
       preprocessingWeight: toNullableFloat(preprocessingWeight),
       quality: toNullableFloat(quality),
       brix: toNullableFloat(brix),
-      preFermentationStorageGoal: toNullableFloat(preFermentationStorageGoal),
-      preFermentationTimeAfterPulping: toNullableFloat(preFermentationTimeAfterPulping),
-      prePulpedWeight: toNullableFloat(prePulpedWeight),
-      fermentationCherryWeight: toNullableFloat(fermentationCherryWeight),
-      fermentationStarterAmount: toNullableFloat(fermentationStarterAmount),
-      pressure: toNullableFloat(pressure),
-      totalVolume: toNullableFloat(totalVolume),
-      waterUsed: toNullableFloat(waterUsed),
-      starterUsed: toNullableFloat(starterUsed),
-      stirring: toNullableFloat(stirring),
-      fermentationTemperature: toNullableFloat(fermentationTemperature),
       pH: toNullableFloat(pH),
-      fermentationTimeTarget: toNullableInt(fermentationTimeTarget),
-      finalPH: toNullableFloat(finalPH),
-      finalTDS: toNullableFloat(finalTDS),
-      finalTemperature: toNullableFloat(finalTemperature),
-      postFermentationWeight: toNullableFloat(postFermentationWeight),
-      secondFermentationCherryWeight: toNullableFloat(secondFermentationCherryWeight),
-      secondFermentationPulpedWeight: toNullableFloat(secondFermentationPulpedWeight),
-      secondPressure: toNullableFloat(secondPressure),
-      secondTotalVolume: toNullableFloat(secondTotalVolume),
-      secondWaterUsed: toNullableFloat(secondWaterUsed),
-      secondMosstoUsed: toNullableFloat(secondMosstoUsed),
-      secondActualVolume: toNullableFloat(secondActualVolume),
-      secondTemperature: toNullableFloat(secondTemperature),
-      secondFermentationTimeTarget: toNullableInt(secondFermentationTimeTarget),
-      avgTemperature: toNullableFloat(avgTemperature),
-      preDryingWeight: toNullableFloat(preDryingWeight),
-      finalMoisture: toNullableFloat(finalMoisture),
-      postDryingWeight: toNullableFloat(postDryingWeight),
-      secondAverageTemperature: toNullableFloat(secondAverageTemperature),
-      secondFinalMoisture: toNullableFloat(secondFinalMoisture),
-      secondPostDryingWeight: toNullableFloat(secondPostDryingWeight),
-      storageTemperature: toNullableFloat(storageTemperature),
-      postHullingWeight: toNullableFloat(postHullingWeight),
       tankAmount: toNullableInt(tankAmount),
       leachateTarget: toNullableFloat(leachateTarget),
       leachate: toNullableFloat(leachate),
       brewTankTemperature: toNullableFloat(brewTankTemperature),
       waterTemperature: toNullableFloat(waterTemperature),
-      coolerTemperature: toNullableFloat(coolerTemperature)
+      coolerTemperature: toNullableFloat(coolerTemperature),
+      secondPressure: toNullableFloat(secondPressure),
+      secondTemperature: toNullableFloat(secondTemperature),
+      fermentationTimeTarget: toNullableInt(fermentationTimeTarget),
+      secondFermentationTimeTarget: toNullableInt(secondFermentationTimeTarget),
     };
-    if (Object.values(numericFields).some(v => isNaN(v) && v !== null)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid numeric field format.', details: `Invalid value in one of: ${Object.keys(numericFields).join(', ')}` });
+
+    if (Object.values(numeric).some((v) => isNaN(v) && v !== null)) {
+      return res.status(400).json({ error: 'Invalid numeric field format' });
     }
 
-    const [batchCheck] = await sequelize.query(
-      `SELECT 1 
-      FROM "ReceivingData" r
-      WHERE r."batchNumber" = :batchNumber 
-      AND r.merged = FALSE 
-      AND r."commodityType" = 'Cherry'`,
-      {
-        replacements: { batchNumber },
-        transaction: t,
-        type: sequelize.QueryTypes.SELECT
-      }
-    );
-    if (!batchCheck) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Batch number not found, merged, or not Cherry.' });
-    }
-
-    const [tankCheck] = await sequelize.query(
-      'SELECT 1 FROM "FermentationData" WHERE tank = :tank AND status = :status',
-      {
-        replacements: { tank: fermentationTank, status: 'In Progress' },
-        transaction: t,
-        type: sequelize.QueryTypes.SELECT
-      }
-    );
-    if (tankCheck) {
-      await t.rollback();
-      return res.status(400).json({ error: `Tank ${fermentationTank} is already in use.` });
-    }
-
-    const [dryingCheck] = await sequelize.query(
-      'SELECT 1 FROM "DryingData" WHERE "batchNumber" = :batchNumber',
-      {
-        replacements: { batchNumber },
-        transaction: t,
-        type: sequelize.QueryTypes.SELECT
-      }
-    );
-    if (dryingCheck) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Batch is already in drying.' });
-    }
-
-    const startDate = fermentationStart ? new Date(fermentationStart) : null;
-    const endDate = fermentationEnd ? new Date(fermentationEnd) : null;
-
-    const [fermentationData] = await sequelize.query(`
+    // ---- INSERT ----
+    await sequelize.query(
+      `
       INSERT INTO "FermentationData" (
-        "batchNumber", "startDate", "referenceNumber", "experimentNumber", "processingType", "description", 
-        "farmerName", "type", "variety", "harvestDate", "harvestAt", "receivedAt", 
-        "receivedWeight", "rejectWeight", "defectWeight", "damagedWeight", "lostWeight", 
-        "preprocessingWeight", "quality", "brix", "preStorage", "preStorageCondition", 
-        "preFermentationStorageGoal", "preFermentationStorageStart", "preFermentationStorageEnd", 
-        "prePulped", "prePulpedDelva", "preFermentationTimeAfterPulping", "prePulpedWeight", 
-        "cherryType", "fermentationCherryWeight", "fermentation", "tank", "fermentationStarter", 
-        "fermentationStarterAmount", "gas", "pressure", "isSubmerged", "totalVolume", 
-        "waterUsed", "starterUsed", "stirring", "fermentationTemperature", "pH", 
-        "fermentationTimeTarget", "fermentationStart", "fermentationEnd", "finalPH", 
-        "finalTDS", "finalTemperature", "postFermentationWeight", "postPulped", 
-        "secondFermentation", "secondFermentationTank", "secondWashedDelva", "secondWashed", 
-        "secondFermentationCherryWeight", "secondFermentationPulpedWeight", "secondStarterType", 
-        "secondGas", "secondPressure", "secondIsSubmerged", "secondTotalVolume", 
-        "secondWaterUsed", "secondMosstoUsed", "secondActualVolume", "secondTemperature", 
-        "secondFermentationTimeTarget", "secondFermentationStart", "secondFermentationEnd", 
-        "dryingArea", "avgTemperature", "preDryingWeight", "finalMoisture", "postDryingWeight", 
-        "dryingStart", "dryingEnd", "secondDrying", "secondDryingArea", "secondAverageTemperature", 
-        "secondFinalMoisture", "secondPostDryingWeight", "secondDryingStart", "secondDryingEnd", 
-        "rehydration", "storage", "storageTemperature", "hullingTime", "bagType", 
-        "postHullingWeight", "productLine", "wesorter", "preClassifier", "airlock", 
-        "tankAmount", "leachateTarget", "leachate", "brewTankTemperature", "waterTemperature", 
-        "coolerTemperature", "drying", "status", "createdBy", "createdAt", "updatedAt"
+        "batchNumber",
+        "tank",
+        "startDate",
+        "endDate",
+        "createdBy",
+        "status",
+        "processingType",
+        "referenceNumber",
+        "experimentNumber",
+        "description",
+        "farmerName",
+        "type",
+        "variety",
+        "fermentation",
+        "secondFermentation",
+        "secondFermentationTank",
+        "gas",
+        "pressure",
+        "isSubmerged",
+        "pH",
+        "fermentationTimeTarget",
+        "totalVolume",
+        "waterUsed",
+        "starterUsed",
+        "stirring",
+        "fermentationTemperature",
+        "avgTemperature",
+        "harvestAt",
+        "receivedAt",
+        "receivedWeight",
+        "rejectWeight",
+        "defectWeight",
+        "damagedWeight",
+        "lostWeight",
+        "preprocessingWeight",
+        "quality",
+        "brix",
+        "tankAmount",
+        "leachateTarget",
+        "leachate",
+        "brewTankTemperature",
+        "waterTemperature",
+        "coolerTemperature",
+        "secondGas",
+        "secondPressure",
+        "secondIsSubmerged",
+        "secondFermentationTimeTarget",
+        "secondTemperature",
+        "createdAt",
+        "updatedAt"
       ) VALUES (
-        :batchNumber, :startDate, :referenceNumber, :experimentNumber, :processingType, :description, 
-        :farmerName, :type, :variety, :harvestDate, :harvestAt, :receivedAt, 
-        :receivedWeight, :rejectWeight, :defectWeight, :damagedWeight, :lostWeight, 
-        :preprocessingWeight, :quality, :brix, :preStorage, :preStorageCondition, 
-        :preFermentationStorageGoal, :preFermentationStorageStart, :preFermentationStorageEnd, 
-        :prePulped, :prePulpedDelva, :preFermentationTimeAfterPulping, :prePulpedWeight, 
-        :cherryType, :fermentationCherryWeight, :fermentation, :tank, :fermentationStarter, 
-        :fermentationStarterAmount, :gas, :pressure, :isSubmerged, :totalVolume, 
-        :waterUsed, :starterUsed, :stirring, :fermentationTemperature, :pH, 
-        :fermentationTimeTarget, :fermentationStart, :fermentationEnd, :finalPH, 
-        :finalTDS, :finalTemperature, :postFermentationWeight, :postPulped, 
-        :secondFermentation, :secondFermentationTank, :secondWashedDelva, :secondWashed, 
-        :secondFermentationCherryWeight, :secondFermentationPulpedWeight, :secondStarterType, 
-        :secondGas, :secondPressure, :secondIsSubmerged, :secondTotalVolume, 
-        :secondWaterUsed, :secondMosstoUsed, :secondActualVolume, :secondTemperature, 
-        :secondFermentationTimeTarget, :secondFermentationStart, :secondFermentationEnd, 
-        :dryingArea, :avgTemperature, :preDryingWeight, :finalMoisture, :postDryingWeight, 
-        :dryingStart, :dryingEnd, :secondDrying, :secondDryingArea, :secondAverageTemperature, 
-        :secondFinalMoisture, :secondPostDryingWeight, :secondDryingStart, :secondDryingEnd, 
-        :rehydration, :storage, :storageTemperature, :hullingTime, :bagType, 
-        :postHullingWeight, :productLine, :wesorter, :preClassifier, :airlock, 
-        :tankAmount, :leachateTarget, :leachate, :brewTankTemperature, :waterTemperature, 
-        :coolerTemperature, :drying, :status, :createdBy, NOW(), NOW()
-      ) RETURNING *;
-    `, {
-      replacements: {
-        batchNumber,
-        startDate,
-        referenceNumber: referenceNumber || null,
-        experimentNumber: experimentNumber || null,
-        processingType: processingType || null,
-        description: description || null,
-        farmerName: farmerName || null,
-        type: type || null,
-        variety: variety || null,
-        harvestDate: harvestDate || null,
-        harvestAt: harvestAt || null,
-        receivedAt: receivedAt || null,
-        receivedWeight: receivedWeight || null,
-        rejectWeight: rejectWeight || null,
-        defectWeight: defectWeight || null,
-        damagedWeight: damagedWeight || null,
-        lostWeight: lostWeight || null,
-        preprocessingWeight: preprocessingWeight || null,
-        quality: quality || null,
-        brix: brix || null,
-        preStorage: preStorage || null,
-        preStorageCondition: preStorageCondition || null,
-        preFermentationStorageGoal: preFermentationStorageGoal || null,
-        preFermentationStorageStart: preFermentationStorageStart || null,
-        preFermentationStorageEnd: preFermentationStorageEnd || null,
-        prePulped: prePulped || null,
-        prePulpedDelva: prePulpedDelva || null,
-        preFermentationTimeAfterPulping: preFermentationTimeAfterPulping || null,
-        prePulpedWeight: prePulpedWeight || null,
-        cherryType: cherryType || null,
-        fermentationCherryWeight: fermentationCherryWeight || null,
-        fermentation: fermentation || null,
-        tank: fermentationTank,
-        fermentationStarter: fermentationStarter || null,
-        fermentationStarterAmount: fermentationStarterAmount || null,
-        gas: gas || null,
-        pressure: pressure || null,
-        isSubmerged: isSubmerged || null,
-        totalVolume: totalVolume || null,
-        waterUsed: waterUsed || null,
-        starterUsed: starterUsed || null,
-        stirring: stirring || null,
-        fermentationTemperature: fermentationTemperature || null,
-        pH: pH || null,
-        fermentationTimeTarget: fermentationTimeTarget || null,
-        fermentationStart: parsedStartDate,
-        fermentationEnd: parsedFermentationEnd || null,
-        finalPH: finalPH || null,
-        finalTDS: finalTDS || null,
-        finalTemperature: finalTemperature || null,
-        postFermentationWeight: postFermentationWeight || null,
-        postPulped: postPulped || null,
-        secondFermentation: secondFermentation || null,
-        secondFermentationTank: secondFermentationTank || null,
-        secondWashedDelva: secondWashedDelva || null,
-        secondWashed: secondWashed || null,
-        secondFermentationCherryWeight: secondFermentationCherryWeight || null,
-        secondFermentationPulpedWeight: secondFermentationPulpedWeight || null,
-        secondStarterType: secondStarterType || null,
-        secondGas: secondGas || null,
-        secondPressure: secondPressure || null,
-        secondIsSubmerged: secondIsSubmerged || null,
-        secondTotalVolume: secondTotalVolume || null,
-        secondWaterUsed: secondWaterUsed || null,
-        secondMosstoUsed: secondMosstoUsed || null,
-        secondActualVolume: secondActualVolume || null,
-        secondTemperature: secondTemperature || null,
-        secondFermentationTimeTarget: secondFermentationTimeTarget || null,
-        secondFermentationStart: secondFermentationStart || null,
-        secondFermentationEnd: secondFermentationEnd || null,
-        dryingArea: dryingArea || null,
-        avgTemperature: avgTemperature || null,
-        preDryingWeight: preDryingWeight || null,
-        finalMoisture: finalMoisture || null,
-        postDryingWeight: postDryingWeight || null,
-        dryingStart: dryingStart || null,
-        dryingEnd: dryingEnd || null,
-        secondDrying: secondDrying || null,
-        secondDryingArea: secondDryingArea || null,
-        secondAverageTemperature: secondAverageTemperature || null,
-        secondFinalMoisture: secondFinalMoisture || null,
-        secondPostDryingWeight: secondPostDryingWeight || null,
-        secondDryingStart: secondDryingStart || null,
-        secondDryingEnd: secondDryingEnd || null,
-        rehydration: rehydration || null,
-        storage: storage || null,
-        storageTemperature: storageTemperature || null,
-        hullingTime: hullingTime || null,
-        bagType: bagType || null,
-        postHullingWeight: postHullingWeight || null,
-        productLine: productLine || null,
-        wesorter: wesorter || null,
-        preClassifier: preClassifier || null,
-        airlock: airlock || null,
-        tankAmount: tankAmount || null,
-        leachateTarget: leachateTarget || null,
-        leachate: leachate || null,
-        brewTankTemperature: brewTankTemperature || null,
-        waterTemperature: waterTemperature || null,
-        coolerTemperature: coolerTemperature || null,
-        drying: drying || null,
-        status: 'In Progress',
-        createdBy
-      },
-      transaction: t,
-      type: sequelize.QueryTypes.INSERT
-    });
+        :batchNumber,
+        :tank,
+        :startDate,
+        :endDate,
+        :createdBy,
+        'In Progress',
+        :processingType,
+        :referenceNumber,
+        :experimentNumber,
+        :description,
+        :farmerName,
+        :type,
+        :variety,
+        :fermentation,
+        :secondFermentation,
+        :secondFermentationTank,
+        :gas,
+        :pressure,
+        :isSubmerged,
+        :pH,
+        :fermentationTimeTarget,
+        :totalVolume,
+        :waterUsed,
+        :starterUsed,
+        :stirring,
+        :fermentationTemperature,
+        :avgTemperature,
+        :harvestAt,
+        :receivedAt,
+        :receivedWeight,
+        :rejectWeight,
+        :defectWeight,
+        :damagedWeight,
+        :lostWeight,
+        :preprocessingWeight,
+        :quality,
+        :brix,
+        :tankAmount,
+        :leachateTarget,
+        :leachate,
+        :brewTankTemperature,
+        :waterTemperature,
+        :coolerTemperature,
+        :secondGas,
+        :secondPressure,
+        :secondIsSubmerged,
+        :secondFermentationTimeTarget,
+        :secondTemperature,
+        NOW(),
+        NOW()
+      )
+      `,
+      {
+        replacements: {
+          batchNumber,
+          tank: fermentationTank,
+          startDate,
+          endDate,
+          createdBy,
+          processingType,
+          referenceNumber,
+          experimentNumber,
+          description,
+          farmerName,
+          type,
+          variety,
+          fermentation,
+          secondFermentation,
+          secondFermentationTank,
+          gas,
+          pressure: numeric.pressure,
+          isSubmerged,
+          pH: numeric.pH,
+          fermentationTimeTarget: numeric.fermentationTimeTarget,
+          totalVolume: numeric.totalVolume,
+          waterUsed: numeric.waterUsed,
+          starterUsed: numeric.starterUsed,
+          stirring: numeric.stirring,
+          fermentationTemperature: numeric.fermentationTemperature,
+          avgTemperature: numeric.avgTemperature,
+          harvestAt: toNullableDate(harvestAt),
+          receivedAt: toNullableDate(receivedAt),
+          receivedWeight: numeric.receivedWeight,
+          rejectWeight: numeric.rejectWeight,
+          defectWeight: numeric.defectWeight,
+          damagedWeight: numeric.damagedWeight,
+          lostWeight: numeric.lostWeight,
+          preprocessingWeight: numeric.preprocessingWeight,
+          quality: numeric.quality,
+          brix: numeric.brix,
+          tankAmount: numeric.tankAmount,
+          leachateTarget: numeric.leachateTarget,
+          leachate: numeric.leachate,
+          brewTankTemperature: numeric.brewTankTemperature,
+          waterTemperature: numeric.waterTemperature,
+          coolerTemperature: numeric.coolerTemperature,
+          secondGas,
+          secondPressure: numeric.secondPressure,
+          secondIsSubmerged,
+          secondFermentationTimeTarget: numeric.secondFermentationTimeTarget,
+          secondTemperature: numeric.secondTemperature,
+        },
+      }
+    );
 
-    await t.commit();
-    res.status(201).json({
-      message: `Fermentation started for batch ${batchNumber} in ${fermentationTank}`,
-      fermentationData: fermentationData[0],
-    });
+    res.status(201).json({ message: 'Fermentation created successfully' });
   } catch (err) {
-    await t.rollback();
-    console.error('Error creating fermentation data:', err);
-    res.status(500).json({ error: 'Failed to create fermentation data', details: err.message });
+    console.error(err);
+    res.status(500).json({
+      error: 'Failed to create fermentation data',
+      details: err.message,
+    });
   }
 });
 
@@ -597,393 +532,107 @@ router.get('/fermentation-weight-measurements/:batchNumber', async (req, res) =>
 
 // Route to update fermentation details
 router.put('/fermentation/details/:batchNumber', async (req, res) => {
-  const t = await sequelize.transaction();
   try {
     const { batchNumber } = req.params;
-    const {
-      referenceNumber, experimentNumber, processingType, description, farmerName,
-      type, variety, harvestDate, harvestAt, receivedAt, receivedWeight, rejectWeight,
-      defectWeight, damagedWeight, lostWeight, preprocessingWeight, quality, brix,
-      preStorage, preStorageCondition, preFermentationStorageGoal, preFermentationStorageStart,
-      preFermentationStorageEnd, prePulped, prePulpedDelva, preFermentationTimeAfterPulping,
-      prePulpedWeight, cherryType, fermentationCherryWeight, fermentation, fermentationTank,
-      fermentationStarter, fermentationStarterAmount, gas, pressure, isSubmerged, totalVolume,
-      waterUsed, starterUsed, stirring, fermentationTemperature, pH, fermentationTimeTarget,
-      fermentationStart, fermentationEnd, finalPH, finalTDS, finalTemperature, postFermentationWeight,
-      postPulped, secondFermentation, secondFermentationTank, secondWashedDelva, secondWashed,
-      secondFermentationCherryWeight, secondFermentationPulpedWeight, secondStarterType, secondGas,
-      secondPressure, secondIsSubmerged, secondTotalVolume, secondWaterUsed, secondMosstoUsed,
-      secondActualVolume, secondTemperature, secondFermentationTimeTarget, secondFermentationStart,
-      secondFermentationEnd, dryingArea, avgTemperature, preDryingWeight, finalMoisture,
-      postDryingWeight, dryingStart, dryingEnd, secondDrying, secondDryingArea, secondAverageTemperature,
-      secondFinalMoisture, secondPostDryingWeight, secondDryingStart, secondDryingEnd, rehydration,
-      storage, storageTemperature, hullingTime, bagType, postHullingWeight, productLine,
-      wesorter, preClassifier, airlock, tankAmount, leachateTarget, leachate,
-      brewTankTemperature, waterTemperature, coolerTemperature, drying, createdBy
-    } = req.body;
+    const d = req.body;
 
-    const requiredFields = { batchNumber, fermentationTank, fermentationStart, createdBy };
-    if (Object.values(requiredFields).some(field => !field)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'batchNumber, fermentationTank, fermentationStart, and createdBy are required' });
-    }
+    const startDate = toNullableDate(d.fermentationStart);
+    const endDate = toNullableDate(d.fermentationEnd);
 
-    if (!['Biomaster', 'Carrybrew', 'Washing Track', 'Fermentation Bucket'].includes(fermentationTank) && !/^BB-HQ-\d{4}$/.test(fermentationTank)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid fermentationTank. Must be Biomaster, Carrybrew, Washing Track, Fermentation Bucket, or BB-HQ-XXXX' });
-    }
-
-    const parsedStartDate = new Date(fermentationStart);
-    if (isNaN(parsedStartDate)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid fermentationStart format' });
-    }
-
-    const now = new Date();
-    if (parsedStartDate > now) {
-      await t.rollback();
-      return res.status(400).json({ error: 'fermentationStart cannot be in the future' });
-    }
-
-    const parsedFermentationEnd = fermentationEnd ? new Date(fermentationEnd) : null;
-    if (fermentationEnd && isNaN(parsedFermentationEnd)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid fermentationEnd format' });
-    }
-
-    if (parsedFermentationEnd && parsedFermentationEnd < parsedStartDate) {
-      await t.rollback();
-      return res.status(400).json({ error: 'fermentationEnd cannot be before fermentationStart' });
-    }
-
-    if (parsedFermentationEnd && parsedFermentationEnd > now) {
-      await t.rollback();
-      return res.status(400).json({ error: 'fermentationEnd cannot be in the future' });
-    }
-
-    if (drying && !['Pulped Natural', 'Natural', 'Washed'].includes(drying)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid drying value. Must be Pulped Natural, Natural, or Washed' });
-    }
-
-    const toNullableFloat = (v) =>
-      v === '' || v === undefined || v === null ? null : parseFloat(v);
-
-    const toNullableInt = (v) =>
-      v === '' || v === undefined || v === null ? null : parseInt(v, 10);
-
-    const numericFields = {
-      receivedWeight: toNullableFloat(receivedWeight),
-      rejectWeight: toNullableFloat(rejectWeight),
-      defectWeight: toNullableFloat(defectWeight),
-      damagedWeight: toNullableFloat(damagedWeight),
-      lostWeight: toNullableFloat(lostWeight),
-      preprocessingWeight: toNullableFloat(preprocessingWeight),
-      quality: toNullableFloat(quality),
-      brix: toNullableFloat(brix),
-      preFermentationStorageGoal: toNullableFloat(preFermentationStorageGoal),
-      preFermentationTimeAfterPulping: toNullableFloat(preFermentationTimeAfterPulping),
-      prePulpedWeight: toNullableFloat(prePulpedWeight),
-      fermentationCherryWeight: toNullableFloat(fermentationCherryWeight),
-      fermentationStarterAmount: toNullableFloat(fermentationStarterAmount),
-      pressure: toNullableFloat(pressure),
-      totalVolume: toNullableFloat(totalVolume),
-      waterUsed: toNullableFloat(waterUsed),
-      starterUsed: toNullableFloat(starterUsed),
-      stirring: toNullableFloat(stirring),
-      fermentationTemperature: toNullableFloat(fermentationTemperature),
-      pH: toNullableFloat(pH),
-      fermentationTimeTarget: toNullableInt(fermentationTimeTarget),
-      finalPH: toNullableFloat(finalPH),
-      finalTDS: toNullableFloat(finalTDS),
-      finalTemperature: toNullableFloat(finalTemperature),
-      postFermentationWeight: toNullableFloat(postFermentationWeight),
-      secondFermentationCherryWeight: toNullableFloat(secondFermentationCherryWeight),
-      secondFermentationPulpedWeight: toNullableFloat(secondFermentationPulpedWeight),
-      secondPressure: toNullableFloat(secondPressure),
-      secondTotalVolume: toNullableFloat(secondTotalVolume),
-      secondWaterUsed: toNullableFloat(secondWaterUsed),
-      secondMosstoUsed: toNullableFloat(secondMosstoUsed),
-      secondActualVolume: toNullableFloat(secondActualVolume),
-      secondTemperature: toNullableFloat(secondTemperature),
-      secondFermentationTimeTarget: toNullableInt(secondFermentationTimeTarget),
-      avgTemperature: toNullableFloat(avgTemperature),
-      preDryingWeight: toNullableFloat(preDryingWeight),
-      finalMoisture: toNullableFloat(finalMoisture),
-      postDryingWeight: toNullableFloat(postDryingWeight),
-      secondAverageTemperature: toNullableFloat(secondAverageTemperature),
-      secondFinalMoisture: toNullableFloat(secondFinalMoisture),
-      secondPostDryingWeight: toNullableFloat(secondPostDryingWeight),
-      storageTemperature: toNullableFloat(storageTemperature),
-      postHullingWeight: toNullableFloat(postHullingWeight),
-      tankAmount: toNullableInt(tankAmount),
-      leachateTarget: toNullableFloat(leachateTarget),
-      leachate: toNullableFloat(leachate),
-      brewTankTemperature: toNullableFloat(brewTankTemperature),
-      waterTemperature: toNullableFloat(waterTemperature),
-      coolerTemperature: toNullableFloat(coolerTemperature)
+    const numeric = {
+      pressure: toNullableFloat(d.pressure),
+      totalVolume: toNullableFloat(d.totalVolume),
+      waterUsed: toNullableFloat(d.waterUsed),
+      starterUsed: toNullableFloat(d.starterUsed),
+      stirring: toNullableFloat(d.stirring),
+      fermentationTemperature: toNullableFloat(d.fermentationTemperature),
+      avgTemperature: toNullableFloat(d.avgTemperature),
+      pH: toNullableFloat(d.pH),
+      tankAmount: toNullableInt(d.tankAmount),
+      leachateTarget: toNullableFloat(d.leachateTarget),
+      leachate: toNullableFloat(d.leachate),
+      brewTankTemperature: toNullableFloat(d.brewTankTemperature),
+      waterTemperature: toNullableFloat(d.waterTemperature),
+      coolerTemperature: toNullableFloat(d.coolerTemperature),
+      secondPressure: toNullableFloat(d.secondPressure),
+      secondTemperature: toNullableFloat(d.secondTemperature),
+      fermentationTimeTarget: toNullableInt(d.fermentationTimeTarget),
+      secondFermentationTimeTarget: toNullableInt(d.secondFermentationTimeTarget),
     };
-    if (Object.values(numericFields).some(v => isNaN(v) && v !== null)) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid numeric field format', details: `Invalid value in one of: ${Object.keys(numericFields).join(', ')}` });
+
+    if (Object.values(numeric).some((v) => isNaN(v) && v !== null)) {
+      return res.status(400).json({ error: 'Invalid numeric field format' });
     }
 
-    const [batchCheck] = await sequelize.query(
-      `SELECT 1 
-      FROM "FermentationData" 
-      WHERE "batchNumber" = :batchNumber`,
-      {
-        replacements: { batchNumber },
-        transaction: t,
-        type: sequelize.QueryTypes.SELECT
-      }
-    );
-    if (!batchCheck) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Batch not found in fermentation data' });
-    }
-
-    const [tankCheck] = await sequelize.query(
-      'SELECT 1 FROM "FermentationData" WHERE tank = :tank AND status = :status AND "batchNumber" != :batchNumber',
-      {
-        replacements: { tank: fermentationTank, status: 'In Progress', batchNumber },
-        transaction: t,
-        type: sequelize.QueryTypes.SELECT
-      }
-    );
-    if (tankCheck) {
-      await t.rollback();
-      return res.status(400).json({ error: `Tank ${fermentationTank} is already in use by another batch` });
-    }
-
-    const startDate = fermentationStart ? new Date(fermentationStart) : null;
-    const endDate = fermentationEnd ? new Date(fermentationEnd) : null;
-
-    const [fermentationData] = await sequelize.query(`
+    await sequelize.query(
+      `
       UPDATE "FermentationData"
       SET
-        "referenceNumber" = :referenceNumber,
-        "experimentNumber" = :experimentNumber,
-        "processingType" = :processingType,
-        "description" = :description,
-        "farmerName" = :farmerName,
-        "type" = :type,
-        "variety" = :variety,
-        "harvestDate" = :harvestDate,
-        "harvestAt" = :harvestAt,
-        "receivedAt" = :receivedAt,
-        "receivedWeight" = :receivedWeight,
-        "rejectWeight" = :rejectWeight,
-        "defectWeight" = :defectWeight,
-        "damagedWeight" = :damagedWeight,
-        "lostWeight" = :lostWeight,
-        "preprocessingWeight" = :preprocessingWeight,
-        "quality" = :quality,
-        "brix" = :brix,
-        "preStorage" = :preStorage,
-        "preStorageCondition" = :preStorageCondition,
-        "preFermentationStorageGoal" = :preFermentationStorageGoal,
-        "preFermentationStorageStart" = :preFermentationStorageStart,
-        "preFermentationStorageEnd" = :preFermentationStorageEnd,
-        "prePulped" = :prePulped,
-        "prePulpedDelva" = :prePulpedDelva,
-        "preFermentationTimeAfterPulping" = :preFermentationTimeAfterPulping,
-        "prePulpedWeight" = :prePulpedWeight,
-        "cherryType" = :cherryType,
-        "fermentationCherryWeight" = :fermentationCherryWeight,
-        "fermentation" = :fermentation,
-        "tank" = :fermentationTank,
-        "fermentationStarter" = :fermentationStarter,
-        "fermentationStarterAmount" = :fermentationStarterAmount,
-        "gas" = :gas,
+        "tank" = :tank,
+        "startDate" = COALESCE(:startDate, "startDate"),
+        "endDate" = :endDate,
         "pressure" = :pressure,
         "isSubmerged" = :isSubmerged,
+        "pH" = :pH,
+        "fermentationTimeTarget" = :fermentationTimeTarget,
         "totalVolume" = :totalVolume,
         "waterUsed" = :waterUsed,
         "starterUsed" = :starterUsed,
         "stirring" = :stirring,
         "fermentationTemperature" = :fermentationTemperature,
-        "pH" = :pH,
-        "fermentationTimeTarget" = :fermentationTimeTarget,
-        "fermentationStart" = :fermentationStart,
-        "fermentationEnd" = :fermentationEnd,
-        "startDate" = :startDate,
-        "endDate" = :endDate,
-        "finalPH" = :finalPH,
-        "finalTDS" = :finalTDS,
-        "finalTemperature" = :finalTemperature,
-        "postFermentationWeight" = :postFermentationWeight,
-        "postPulped" = :postPulped,
-        "secondFermentation" = :secondFermentation,
-        "secondFermentationTank" = :secondFermentationTank,
-        "secondWashedDelva" = :secondWashedDelva,
-        "secondWashed" = :secondWashed,
-        "secondFermentationCherryWeight" = :secondFermentationCherryWeight,
-        "secondFermentationPulpedWeight" = :secondFermentationPulpedWeight,
-        "secondStarterType" = :secondStarterType,
-        "secondGas" = :secondGas,
-        "secondPressure" = :secondPressure,
-        "secondIsSubmerged" = :secondIsSubmerged,
-        "secondTotalVolume" = :secondTotalVolume,
-        "secondWaterUsed" = :secondWaterUsed,
-        "secondMosstoUsed" = :secondMosstoUsed,
-        "secondActualVolume" = :secondActualVolume,
-        "secondTemperature" = :secondTemperature,
-        "secondFermentationTimeTarget" = :secondFermentationTimeTarget,
-        "secondFermentationStart" = :secondFermentationStart,
-        "secondFermentationEnd" = :secondFermentationEnd,
-        "dryingArea" = :dryingArea,
         "avgTemperature" = :avgTemperature,
-        "preDryingWeight" = :preDryingWeight,
-        "finalMoisture" = :finalMoisture,
-        "postDryingWeight" = :postDryingWeight,
-        "dryingStart" = :dryingStart,
-        "dryingEnd" = :dryingEnd,
-        "secondDrying" = :secondDrying,
-        "secondDryingArea" = :secondDryingArea,
-        "secondAverageTemperature" = :secondAverageTemperature,
-        "secondFinalMoisture" = :secondFinalMoisture,
-        "secondPostDryingWeight" = :secondPostDryingWeight,
-        "secondDryingStart" = :secondDryingStart,
-        "secondDryingEnd" = :secondDryingEnd,
-        "rehydration" = :rehydration,
-        "storage" = :storage,
-        "storageTemperature" = :storageTemperature,
-        "hullingTime" = :hullingTime,
-        "bagType" = :bagType,
-        "postHullingWeight" = :postHullingWeight,
-        "productLine" = :productLine,
-        "wesorter" = :wesorter,
-        "preClassifier" = :preClassifier,
-        "airlock" = :airlock,
         "tankAmount" = :tankAmount,
         "leachateTarget" = :leachateTarget,
         "leachate" = :leachate,
         "brewTankTemperature" = :brewTankTemperature,
         "waterTemperature" = :waterTemperature,
         "coolerTemperature" = :coolerTemperature,
-        "drying" = :drying,
+        "secondGas" = :secondGas,
+        "secondPressure" = :secondPressure,
+        "secondIsSubmerged" = :secondIsSubmerged,
+        "secondFermentationTimeTarget" = :secondFermentationTimeTarget,
+        "secondTemperature" = :secondTemperature,
         "updatedAt" = NOW()
       WHERE "batchNumber" = :batchNumber
-      RETURNING *;
-    `, {
-      replacements: {
-        batchNumber,
-        referenceNumber: referenceNumber || null,
-        experimentNumber: experimentNumber || null,
-        processingType: processingType || null,
-        description: description || null,
-        farmerName: farmerName || null,
-        type: type || null,
-        variety: variety || null,
-        harvestDate: harvestDate || null,
-        harvestAt: harvestAt || null,
-        receivedAt: receivedAt || null,
-        receivedWeight: receivedWeight || null,
-        rejectWeight: rejectWeight || null,
-        defectWeight: defectWeight || null,
-        damagedWeight: damagedWeight || null,
-        lostWeight: lostWeight || null,
-        preprocessingWeight: preprocessingWeight || null,
-        quality: quality || null,
-        brix: brix || null,
-        preStorage: preStorage || null,
-        preStorageCondition: preStorageCondition || null,
-        preFermentationStorageGoal: preFermentationStorageGoal || null,
-        preFermentationStorageStart: preFermentationStorageStart || null,
-        preFermentationStorageEnd: preFermentationStorageEnd || null,
-        prePulped: prePulped || null,
-        prePulpedDelva: prePulpedDelva || null,
-        preFermentationTimeAfterPulping: preFermentationTimeAfterPulping || null,
-        prePulpedWeight: prePulpedWeight || null,
-        cherryType: cherryType || null,
-        fermentationCherryWeight: fermentationCherryWeight || null,
-        fermentation: fermentation || null,
-        fermentationTank,
-        fermentationStarter: fermentationStarter || null,
-        fermentationStarterAmount: fermentationStarterAmount || null,
-        gas: gas || null,
-        pressure: pressure || null,
-        isSubmerged: isSubmerged || null,
-        totalVolume: totalVolume || null,
-        waterUsed: waterUsed || null,
-        starterUsed: starterUsed || null,
-        stirring: stirring || null,
-        fermentationTemperature: fermentationTemperature || null,
-        pH: pH || null,
-        fermentationTimeTarget: fermentationTimeTarget || null,
-        fermentationStart: parsedStartDate,
-        fermentationEnd: parsedFermentationEnd || null,
-        startDate: startDate,
-        startDate: endDate,
-        finalPH: finalPH || null,
-        finalTDS: finalTDS || null,
-        finalTemperature: finalTemperature || null,
-        postFermentationWeight: postFermentationWeight || null,
-        postPulped: postPulped || null,
-        secondFermentation: secondFermentation || null,
-        secondFermentationTank: secondFermentationTank || null,
-        secondWashedDelva: secondWashedDelva || null,
-        secondWashed: secondWashed || null,
-        secondFermentationCherryWeight: secondFermentationCherryWeight || null,
-        secondFermentationPulpedWeight: secondFermentationPulpedWeight || null,
-        secondStarterType: secondStarterType || null,
-        secondGas: secondGas || null,
-        secondPressure: secondPressure || null,
-        secondIsSubmerged: secondIsSubmerged || null,
-        secondTotalVolume: secondTotalVolume || null,
-        secondWaterUsed: secondWaterUsed || null,
-        secondMosstoUsed: secondMosstoUsed || null,
-        secondActualVolume: secondActualVolume || null,
-        secondTemperature: secondTemperature || null,
-        secondFermentationTimeTarget: secondFermentationTimeTarget || null,
-        secondFermentationStart: secondFermentationStart || null,
-        secondFermentationEnd: secondFermentationEnd || null,
-        dryingArea: dryingArea || null,
-        avgTemperature: avgTemperature || null,
-        preDryingWeight: preDryingWeight || null,
-        finalMoisture: finalMoisture || null,
-        postDryingWeight: postDryingWeight || null,
-        dryingStart: dryingStart || null,
-        dryingEnd: dryingEnd || null,
-        secondDrying: secondDrying || null,
-        secondDryingArea: secondDryingArea || null,
-        secondAverageTemperature: secondAverageTemperature || null,
-        secondFinalMoisture: secondFinalMoisture || null,
-        secondPostDryingWeight: secondPostDryingWeight || null,
-        secondDryingStart: secondDryingStart || null,
-        secondDryingEnd: secondDryingEnd || null,
-        rehydration: rehydration || null,
-        storage: storage || null,
-        storageTemperature: storageTemperature || null,
-        hullingTime: hullingTime || null,
-        bagType: bagType || null,
-        postHullingWeight: postHullingWeight || null,
-        productLine: productLine || null,
-        wesorter: wesorter || null,
-        preClassifier: preClassifier || null,
-        airlock: airlock || null,
-        tankAmount: tankAmount || null,
-        leachateTarget: leachateTarget || null,
-        leachate: leachate || null,
-        brewTankTemperature: brewTankTemperature || null,
-        waterTemperature: waterTemperature || null,
-        coolerTemperature: coolerTemperature || null,
-        drying: drying || null
-      },
-      transaction: t,
-      type: sequelize.QueryTypes.UPDATE
-    });
+      `,
+      {
+        replacements: {
+          batchNumber,
+          tank: d.fermentationTank,
+          startDate,
+          endDate,
+          pressure: numeric.pressure,
+          isSubmerged: d.isSubmerged,
+          pH: numeric.pH,
+          fermentationTimeTarget: numeric.fermentationTimeTarget,
+          totalVolume: numeric.totalVolume,
+          waterUsed: numeric.waterUsed,
+          starterUsed: numeric.starterUsed,
+          stirring: numeric.stirring,
+          fermentationTemperature: numeric.fermentationTemperature,
+          avgTemperature: numeric.avgTemperature,
+          tankAmount: numeric.tankAmount,
+          leachateTarget: numeric.leachateTarget,
+          leachate: numeric.leachate,
+          brewTankTemperature: numeric.brewTankTemperature,
+          waterTemperature: numeric.waterTemperature,
+          coolerTemperature: numeric.coolerTemperature,
+          secondGas: d.secondGas,
+          secondPressure: numeric.secondPressure,
+          secondIsSubmerged: d.secondIsSubmerged,
+          secondFermentationTimeTarget: numeric.secondFermentationTimeTarget,
+          secondTemperature: numeric.secondTemperature,
+        },
+      }
+    );
 
-    await t.commit();
-    res.status(200).json({
-      message: `Fermentation details updated for batch ${batchNumber}`,
-      fermentationData: fermentationData[0],
-    });
+    res.json({ message: 'Fermentation updated successfully' });
   } catch (err) {
-    await t.rollback();
-    console.error('Error updating fermentation details:', err);
-    res.status(500).json({ error: 'Failed to update fermentation details', details: err.message });
+    console.error(err);
+    res.status(500).json({
+      error: 'Failed to update fermentation data',
+      details: err.message,
+    });
   }
 });
 
