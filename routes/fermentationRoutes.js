@@ -410,7 +410,7 @@ router.get('/fermentation/details/:batchNumber', async (req, res) => {
       type: sequelize.QueryTypes.SELECT,
     });
 
-    res.status(200).json(measurements);
+    res.status(200).json(fermentation);
   } catch (error) {
     console.error('Error fetching fermentation data:', error);
     res.status(500).json({ error: 'Failed to fetch fermentation data', details: error.message });
