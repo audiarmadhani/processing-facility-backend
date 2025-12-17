@@ -376,7 +376,6 @@ router.get('/fermentation', async (req, res) => {
 
 router.get('/fermentation/details/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
-  const { referenceNumber, experimentNumber } = req.query;
 
   try {
     let query = `
@@ -408,16 +407,6 @@ router.get('/fermentation/details/:batchNumber', async (req, res) => {
       WHERE UPPER(f."batchNumber") = UPPER(:batchNumber)
     `;
     const replacements = { batchNumber: batchNumber.trim() };
-
-    if (referenceNumber) {
-      query += ` AND UPPER(f."referenceNumber") = UPPER(:referenceNumber)`;
-      replacements.referenceNumber = referenceNumber.trim();
-    }
-
-    if (experimentNumber) {
-      query += ` AND UPPER(f."experimentNumber") = UPPER(:experimentNumber)`;
-      replacements.experimentNumber = experimentNumber.trim();
-    }
 
     const [rows] = await sequelize.query(query, {
       replacements,
