@@ -377,8 +377,11 @@ router.get('/fermentation', async (req, res) => {
 router.get('/fermentation/details/:batchNumber', async (req, res) => {
   const { batchNumber } = req.params;
 
+  console.log('Received request for Batch Number: ', farmerName);
+
   try {
-    let query = `
+    const [rows] = await sequelize.query(
+      `
       SELECT 
         f."batchNumber", f."referenceNumber", f."experimentNumber", f."processingType", f."description",
         f."farmerName", f."type", f."variety", f."harvestDate", f."harvestAt", f."receivedAt",
@@ -404,25 +407,22 @@ router.get('/fermentation/details/:batchNumber', async (req, res) => {
         f."tankAmount", f."leachateTarget", f."leachate", f."brewTankTemperature", f."waterTemperature",
         f."coolerTemperature", f."drying"
       FROM "FermentationData" f
-      WHERE UPPER(f."batchNumber") = UPPER(:batchNumber)
-    `;
-    const replacements = { batchNumber: batchNumber.trim() };
+      WHERE UPPER(f."batchNumber") = UPPER(?)
+      `,
+      { replacements: [batchNumber.trim()] }
+    );
 
-    const [rows] = await sequelize.query(query, {
-      replacements,
-      type: sequelize.QueryTypes.SELECT
-    });
-
-    if (!rows.length) {
-      return res.status(404).json({ error: 'No fermentation data found for the specified criteria' });
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'No batch data found for this batch number.' });
     }
 
-    res.json(rows[0]);
+    res.json(rows);
   } catch (err) {
-    console.error('Error fetching fermentation details:', err);
-    res.status(500).json({ error: 'Failed to fetch fermentation details', details: err.message });
+    console.error('Error fetching fermentation data by batch number:', err);
+    res.status(500).json({ message: 'Failed to fetch fermentation data by batchnumber.' });
   }
 });
+
 
 // Route for saving a new weight measurement
 router.post('/fermentation-weight-measurement', async (req, res) => {
