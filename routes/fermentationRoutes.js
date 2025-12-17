@@ -358,7 +358,9 @@ router.get('/fermentation', async (req, res) => {
       `SELECT 
         f.*, 
         r."farmerName",
-        r.weight AS receiving_weight
+        r.weight AS receiving_weight,
+        "startDate" as "fermentationStart",
+        "endDate" as "fermentationEnd"
       FROM "FermentationData" f
       LEFT JOIN "ReceivingData" r ON f."batchNumber" = r."batchNumber"
       WHERE r.merged = FALSE
@@ -403,17 +405,17 @@ router.get('/fermentation/details/:batchNumber', async (req, res) => {
         f."tankAmount", f."leachateTarget", f."leachate", f."brewTankTemperature", f."waterTemperature",
         f."coolerTemperature", f."drying"
       FROM "FermentationData" f
-      WHERE LOWER(f."batchNumber") = LOWER(:batchNumber)
+      WHERE UPPER(f."batchNumber") = UPPER(:batchNumber)
     `;
     const replacements = { batchNumber: batchNumber.trim() };
 
     if (referenceNumber) {
-      query += ` AND LOWER(f."referenceNumber") = LOWER(:referenceNumber)`;
+      query += ` AND UPPER(f."referenceNumber") = UPPER(:referenceNumber)`;
       replacements.referenceNumber = referenceNumber.trim();
     }
 
     if (experimentNumber) {
-      query += ` AND LOWER(f."experimentNumber") = LOWER(:experimentNumber)`;
+      query += ` AND UPPER(f."experimentNumber") = UPPER(:experimentNumber)`;
       replacements.experimentNumber = experimentNumber.trim();
     }
 
