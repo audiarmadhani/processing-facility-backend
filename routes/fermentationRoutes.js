@@ -241,9 +241,12 @@ router.post('/fermentation', async (req, res) => {
       return res.status(400).json({ error: 'Batch is already in drying.' });
     }
 
+    const startDate = fermentationStart ? new Date(fermentationStart) : null;
+    const endDate = fermentationEnd ? new Date(fermentationEnd) : null;
+
     const [fermentationData] = await sequelize.query(`
       INSERT INTO "FermentationData" (
-        "batchNumber", "referenceNumber", "experimentNumber", "processingType", "description", 
+        "batchNumber", "startDate", "referenceNumber", "experimentNumber", "processingType", "description", 
         "farmerName", "type", "variety", "harvestDate", "harvestAt", "receivedAt", 
         "receivedWeight", "rejectWeight", "defectWeight", "damagedWeight", "lostWeight", 
         "preprocessingWeight", "quality", "brix", "preStorage", "preStorageCondition", 
@@ -267,7 +270,7 @@ router.post('/fermentation', async (req, res) => {
         "tankAmount", "leachateTarget", "leachate", "brewTankTemperature", "waterTemperature", 
         "coolerTemperature", "drying", "status", "createdBy", "createdAt", "updatedAt"
       ) VALUES (
-        :batchNumber, :referenceNumber, :experimentNumber, :processingType, :description, 
+        :batchNumber, :startDate, :referenceNumber, :experimentNumber, :processingType, :description, 
         :farmerName, :type, :variety, :harvestDate, :harvestAt, :receivedAt, 
         :receivedWeight, :rejectWeight, :defectWeight, :damagedWeight, :lostWeight, 
         :preprocessingWeight, :quality, :brix, :preStorage, :preStorageCondition, 
@@ -294,6 +297,7 @@ router.post('/fermentation', async (req, res) => {
     `, {
       replacements: {
         batchNumber,
+        startDate,
         referenceNumber: referenceNumber || null,
         experimentNumber: experimentNumber || null,
         processingType: processingType || null,
@@ -752,6 +756,9 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
       return res.status(400).json({ error: `Tank ${fermentationTank} is already in use by another batch` });
     }
 
+    const startDate = fermentationStart ? new Date(fermentationStart) : null;
+    const endDate = fermentationEnd ? new Date(fermentationEnd) : null;
+
     const [fermentationData] = await sequelize.query(`
       UPDATE "FermentationData"
       SET
@@ -800,6 +807,8 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
         "fermentationTimeTarget" = :fermentationTimeTarget,
         "fermentationStart" = :fermentationStart,
         "fermentationEnd" = :fermentationEnd,
+        "startDate" = :startDate,
+        "endDate" = :endDate,
         "finalPH" = :finalPH,
         "finalTDS" = :finalTDS,
         "finalTemperature" = :finalTemperature,
@@ -905,6 +914,8 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
         fermentationTimeTarget: fermentationTimeTarget || null,
         fermentationStart: parsedStartDate,
         fermentationEnd: parsedFermentationEnd || null,
+        startDate: startDate,
+        startDate: endDate,
         finalPH: finalPH || null,
         finalTDS: finalTDS || null,
         finalTemperature: finalTemperature || null,
