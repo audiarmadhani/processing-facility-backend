@@ -137,10 +137,10 @@ router.post('/fermentation', async (req, res) => {
     }
 
     const toNullableFloat = (v) =>
-      v === '' || v === undefined ? null : parseFloat(v);
+      v === '' || v === undefined || v === null ? null : parseFloat(v);
 
     const toNullableInt = (v) =>
-      v === '' || v === undefined ? null : parseInt(v, 10);
+      v === '' || v === undefined || v === null ? null : parseInt(v, 10);
 
     const numericFields = {
       receivedWeight: toNullableFloat(receivedWeight),
@@ -663,10 +663,10 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
     }
 
     const toNullableFloat = (v) =>
-      v === '' || v === undefined ? null : parseFloat(v);
+      v === '' || v === undefined || v === null ? null : parseFloat(v);
 
     const toNullableInt = (v) =>
-      v === '' || v === undefined ? null : parseInt(v);
+      v === '' || v === undefined || v === null ? null : parseInt(v, 10);
 
     const numericFields = {
       receivedWeight: toNullableFloat(receivedWeight),
