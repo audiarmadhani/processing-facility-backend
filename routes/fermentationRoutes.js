@@ -405,7 +405,7 @@ router.get('/fermentation/details/:batchNumber', async (req, res) => {
         f."tankAmount", f."leachateTarget", f."leachate", f."brewTankTemperature", f."waterTemperature",
         f."coolerTemperature", f."drying"
       FROM "FermentationData" f
-      WHERE UPPER(f."batchNumber") = UPPER(:batchNumber)
+      WHERE UPPER(f."batchNumber") = UPPER(?)
     `;
     const replacements = { batchNumber: batchNumber.trim() };
 
