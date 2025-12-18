@@ -611,7 +611,6 @@ router.get('/drymill/track-weight/:batchNumber', async (req, res) => {
         AND "processingType" = :processingType
       GROUP BY "processStep", "grade"
       ORDER BY
-        "step_sequence" ASC,
         "grade" NULLS FIRST;
       `,
       {
