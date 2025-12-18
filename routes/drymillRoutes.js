@@ -1001,9 +1001,9 @@ router.get('/dry-mill-data', async (req, res) => {
           rd.rfid,
           fm."farmVarieties",
           dm."dryMillMerged"
-        FROM "DryMillData" dm
-        JOIN "ReceivingData" rd ON rd."batchNumber" = dm."batchNumber"
-        LEFT JOIN "PreprocessingData" pd ON rd."batchNumber" = pd."batchNumber" AND pd."processingType" = dm."processingType"
+        FROM "ReceivingData" rd
+        LEFT JOIN "PreprocessingData" pd ON rd."batchNumber" = pd."batchNumber"
+        LEFT JOIN "DryMillData" dm ON rd."batchNumber" = dm."batchNumber" AND dm."processingType" = pd."processingType"
         LEFT JOIN "PostprocessingData" pp ON rd."batchNumber" = pp."parentBatchNumber" OR rd."batchNumber" = pp."batchNumber"
         LEFT JOIN "DryMillGrades" dg ON (
           (pp."batchNumber" IS NOT NULL AND UPPER(dg."subBatchId") = UPPER(CONCAT(pp."parentBatchNumber", '-', REPLACE(pp.quality, ' ', '-'))))
@@ -1088,7 +1088,7 @@ router.get('/dry-mill-data', async (req, res) => {
         "dryMillMerged"
       FROM FinalData
       WHERE "dryMillMerged" = FALSE
-      ORDER BY "batchNumber", "dryMillEntered" DESC
+      ORDER BY "dryMillEntered" DESC
     `, {
       type: sequelize.QueryTypes.SELECT,
       transaction: t
