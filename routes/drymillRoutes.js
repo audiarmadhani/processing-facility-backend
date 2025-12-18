@@ -1206,7 +1206,7 @@ router.get('/dry-mill-data', async (req, res) => {
           fm."farmVarieties",
           dm."dryMillMerged"
         FROM "ReceivingData" rd
-        LEFT JOIN (SELECT "batchNumber", MIN(entered_at) AS entered_at, MAX(exited_at) AS exited_at, MIN(createdAt) AS createdAt, rfid, "dryMillMerged" FROM "DryMillData" GROUP BY "batchNumber", rfid, "dryMillMerged") dm ON rd."batchNumber" = dm."batchNumber"
+        LEFT JOIN (SELECT "batchNumber", MIN(entered_at) AS entered_at, MAX(exited_at) AS exited_at, MIN("createdAt") AS "createdAt", rfid, "dryMillMerged" FROM "DryMillData" GROUP BY "batchNumber", rfid, "dryMillMerged") dm ON rd."batchNumber" = dm."batchNumber"
         LEFT JOIN "PostprocessingData" pp ON rd."batchNumber" = pp."parentBatchNumber" OR rd."batchNumber" = pp."batchNumber"
         LEFT JOIN "PreprocessingData" pd ON rd."batchNumber" = pd."batchNumber"
         LEFT JOIN "DryMillGrades" dg ON (
@@ -1507,7 +1507,7 @@ router.post('/warehouse/scan', async (req, res) => {
 
     await sequelize.query(`
       INSERT INTO "RfidScanned" (
-        rfid, scanned_at, "batchNumber", createdAt, action
+        rfid, scanned_at, "batchNumber", "createdAt", action
       ) VALUES (
         :rfid, :scanned_at, :batchNumber, NOW(), 'Stored'
       )
@@ -1660,7 +1660,7 @@ router.post('/dry-mill/:batchNumber/add-sample', async (req, res) => {
     t = await sequelize.transaction();
 
     const [result] = await sequelize.query(`
-      INSERT INTO "DryMillSamples" ("batchNumber", date_taken, weight_taken, createdAt)
+      INSERT INTO "DryMillSamples" ("batchNumber", date_taken, weight_taken, "createdAt")
       VALUES (:batchNumber, :dateTaken, :weightTaken, NOW())
       RETURNING date_taken, weight_taken
     `, {
@@ -2178,7 +2178,7 @@ router.post('/drymill/grade', async (req, res) => {
     if (isNaN(parsedWeight) || parsedWeight <= 0) return res.status(400).json({ error: 'Invalid weight' });
 
     const [created] = await sequelize.query(`
-      INSERT INTO "DryMillGrades" (batchNumber, subBatchId, grade, weight, processing_type, temp_sequence, lotNumber, referenceNumber, split_at, createdAt)
+      INSERT INTO "DryMillGrades" (batchNumber, subBatchId, grade, weight, processing_type, temp_sequence, lotNumber, referenceNumber, split_at, "createdAt")
       VALUES (:batchNumber, :subBatchId, :grade, :weight, :processing_type, :temp_sequence, :lotNumber, :referenceNumber, NOW(), NOW())
       RETURNING *;
     `, {
@@ -2309,16 +2309,16 @@ router.get('/drymill/process-events/:batchNumber', async (req, res) => {
     const rows = await sequelize.query(`
       SELECT
         event_id,
-        batchNumber,
-        processStep,
-        inputWeight,
-        outputWeight,
+        "batchNumber",
+        "processStep",
+        "inputWeight",
+        "outputWeight",
         operator,
         notes,
-        createdAt
+        "createdAt"
       FROM "DryMillProcessEvents"
-      WHERE UPPER(batchNumber) = UPPER(:batchNumber)
-      ORDER BY createdAt ASC
+      WHERE UPPER("batchNumber") = UPPER(:batchNumber)
+      ORDER BY "createdAt" ASC
     `, {
       replacements: { batchNumber },
       type: sequelize.QueryTypes.SELECT
@@ -2464,10 +2464,10 @@ router.get('/drymill/process-events/:batchNumber/:step/max', async (req, res) =>
     if (!batchNumber || !step) return res.status(400).json({ error: 'batchNumber and step required' });
 
     const row = await sequelize.query(`
-      SELECT event_id, outputWeight, createdAt
+      SELECT event_id, "outputWeight", "createdAt"
       FROM "DryMillProcessEvents"
-      WHERE batchNumber = :batchNumber AND processStep = :step
-      ORDER BY createdAt DESC
+      WHERE "batchNumber" = :batchNumber AND "processStep" = :step
+      ORDER BY "createdAt" DESC
       LIMIT 1;
     `, { replacements: { batchNumber, step }, type: sequelize.QueryTypes.SELECT });
 
