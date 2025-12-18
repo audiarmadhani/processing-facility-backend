@@ -2293,11 +2293,6 @@ router.get('/drymill/grades/:batchNumber/:grade/max-subbatchid', async (req, res
   }
 });
 
-// --- DryMillProcessEvents routes (add to drymillRoutes.js) ---
-
-// 1) List events for a batch
-// GET /drymill/process-events/:batchNumber
-// GET /drymill/process-events/:batchNumber
 router.get('/drymill/process-events/:batchNumber', async (req, res) => {
   try {
     const { batchNumber } = req.params;
@@ -2336,6 +2331,8 @@ router.get('/drymill/process-events/:batchNumber', async (req, res) => {
 
 
 router.post('/drymill/process-event', async (req, res) => {
+  const t = await sequelize.transaction();
+
   try {
     const {
       batchNumber,
@@ -2348,13 +2345,18 @@ router.post('/drymill/process-event', async (req, res) => {
       notes
     } = req.body;
 
+    // ----------------------------
+    // Validation
+    // ----------------------------
     if (!batchNumber || !processingType || !processStep) {
+      await t.rollback();
       return res.status(400).json({
         error: 'batchNumber, processingType, and processStep are required'
       });
     }
 
     if (processStep !== 'huller' && !grade) {
+      await t.rollback();
       return res.status(400).json({
         error: 'grade is required for non-huller steps'
       });
@@ -2362,7 +2364,10 @@ router.post('/drymill/process-event', async (req, res) => {
 
     const output = Number(outputWeight);
     if (isNaN(output) || output < 0) {
-      return res.status(400).json({ error: 'Invalid outputWeight' });
+      await t.rollback();
+      return res.status(400).json({
+        error: 'Invalid outputWeight'
+      });
     }
 
     const stepSequenceMap = {
@@ -2372,6 +2377,36 @@ router.post('/drymill/process-event', async (req, res) => {
       handpicking: 4
     };
 
+    // ----------------------------
+    // DELETE previous value
+    // (replace semantics)
+    // ----------------------------
+    await sequelize.query(
+      `
+      DELETE FROM "DryMillProcessEvents"
+      WHERE
+        "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
+        AND "processStep" = :processStep
+        AND (
+          (:grade IS NULL AND "grade" IS NULL)
+          OR "grade" = :grade
+        );
+      `,
+      {
+        replacements: {
+          batchNumber,
+          processingType,
+          processStep,
+          grade: grade || null
+        },
+        transaction: t
+      }
+    );
+
+    // ----------------------------
+    // INSERT new value
+    // ----------------------------
     const [rows] = await sequelize.query(
       `
       INSERT INTO "DryMillProcessEvents" (
@@ -2414,12 +2449,16 @@ router.post('/drymill/process-event', async (req, res) => {
           notes: notes || null,
           step_sequence: stepSequenceMap[processStep] || 0
         },
-        type: sequelize.QueryTypes.INSERT
+        type: sequelize.QueryTypes.INSERT,
+        transaction: t
       }
     );
 
+    await t.commit();
     res.status(201).json(rows[0]);
+
   } catch (err) {
+    await t.rollback();
     console.error('process-event error:', err);
     res.status(500).json({
       error: 'Failed to save process event',
