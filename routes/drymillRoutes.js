@@ -1002,9 +1002,9 @@ router.get('/dry-mill-data', async (req, res) => {
           fm."farmVarieties",
           dm."dryMillMerged"
         FROM "ReceivingData" rd
-        LEFT JOIN (SELECT "batchNumber", MIN(entered_at) AS entered_at, MAX(exited_at) AS exited_at, MIN("createdAt") AS "createdAt", rfid, "dryMillMerged" FROM "DryMillData" GROUP BY "batchNumber", rfid, "dryMillMerged") dm ON rd."batchNumber" = dm."batchNumber"
-        LEFT JOIN "PostprocessingData" pp ON rd."batchNumber" = pp."parentBatchNumber" OR rd."batchNumber" = pp."batchNumber"
         LEFT JOIN "PreprocessingData" pd ON rd."batchNumber" = pd."batchNumber"
+        LEFT JOIN "PostprocessingData" pp ON rd."batchNumber" = pp."parentBatchNumber" OR rd."batchNumber" = pp."batchNumber"
+        LEFT JOIN "DryMillData" dm ON rd."batchNumber" = dm."batchNumber" AND pd."processingType" = dm."processingType"
         LEFT JOIN "DryMillGrades" dg ON (
           (pp."batchNumber" IS NOT NULL AND UPPER(dg."subBatchId") = UPPER(CONCAT(pp."parentBatchNumber", '-', REPLACE(pp.quality, ' ', '-'))))
           OR (pp."batchNumber" IS NULL AND dg."batchNumber" = rd."batchNumber")
