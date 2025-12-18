@@ -992,7 +992,7 @@ router.get('/dry-mill-data', async (req, res) => {
             WHEN dm."entered_at" IS NOT NULL AND dm."exited_at" IS NULL THEN 'In Dry Mill'
             WHEN dm."exited_at" IS NOT NULL THEN 'Processed'
             ELSE 'Not Started'
-          END AS status
+          END AS status,
           COUNT(DISTINCT bd.bag_number) AS total_bags,
           COALESCE(pp.notes, rd.notes) AS notes,
           SUM(bd.weight) AS "drymillWeight",
