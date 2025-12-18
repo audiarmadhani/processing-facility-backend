@@ -588,16 +588,58 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
   }
 });
 
+// GET weights per step for Track Weight dialog
+router.get('/drymill/track-weight/:batchNumber', async (req, res) => {
+  try {
+    const { batchNumber } = req.params;
+    const { processingType } = req.query;
+
+    if (!processingType) {
+      return res.status(400).json({
+        error: 'processingType query param is required'
+      });
+    }
+
+    const rows = await sequelize.query(
+      `
+      SELECT
+        "processStep",
+        "grade",
+        SUM("outputWeight")::numeric(10,2) AS "totalWeight"
+      FROM "DryMillProcessEvents"
+      WHERE "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
+      GROUP BY "processStep", "grade"
+      ORDER BY
+        "step_sequence" ASC,
+        "grade" NULLS FIRST;
+      `,
+      {
+        replacements: { batchNumber, processingType },
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('track-weight error:', err);
+    res.status(500).json({
+      error: 'Failed to fetch track weight',
+      details: err.message
+    });
+  }
+});
+
 // POST route to update bags for a specific grade (sub-batch)
 // POST route to update bags for a specific grade (sub-batch)
-// NOTE: now accepts process_step and returns affected DryMillGrades row ids in response
+// NOTE: now accepts processStep and returns affected DryMillGrades row ids in response
 router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
   const { batchNumber } = req.params;
-  const { grade, bagWeights, bagged_at, processingType, process_step } = req.body;
+  const { grade, bagWeights, bagged_at, processingType, processStep } = req.body;
 
-  if (!batchNumber || !grade || !Array.isArray(bagWeights) || (processingType === undefined && !process_step)) {
-    logger.warn('Invalid update-bags request', { batchNumber, grade, bagWeightsProvided: !!bagWeights, processingType, process_step, user: req.body.createdBy || 'unknown' });
-    return res.status(400).json({ error: 'Batch number, grade, bag weights, and processingType or process_step are required.' });
+  if (!batchNumber || !grade || !Array.isArray(bagWeights) || (processingType === undefined && !processStep)) {
+    logger.warn('Invalid update-bags request', { batchNumber, grade, bagWeightsProvided: !!bagWeights, processingType, processStep, user: req.body.createdBy || 'unknown' });
+    return res.status(400).json({ error: 'Batch number, grade, bag weights, and processingType or processStep are required.' });
   }
 
   let t;
@@ -622,7 +664,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
     }
 
     // determine canonical processingType (backwards compatible)
-    const effectiveProcessingType = process_step || processingType || (batch.type === 'NA' ? 'Dry' : null);
+    const processStep = processStep; // huller | suton | sizer | handpicking
 
     // Ensure valid preprocessing when needed (existing logic preserved)
     let validProcessingType = null;
@@ -792,7 +834,7 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
     });
   } catch (error) {
     if (t) await t.rollback();
-    logger.error('Error updating bags', { batchNumber, grade, processingType: req.body.processingType || req.body.process_step, error: error.message, stack: error.stack, user: req.body.createdBy || 'unknown' });
+    logger.error('Error updating bags', { batchNumber, grade, processingType: req.body.processingType || req.body.processStep, error: error.message, stack: error.stack, user: req.body.createdBy || 'unknown' });
     res.status(500).json({ error: 'Failed to update bags', details: error.message });
   }
 });
@@ -1099,25 +1141,12 @@ router.delete('/dry-mill/:batchNumber/grade/:grade', async (req, res) => {
       return res.json({ success: true, deleted: 0 });
     }
 
-    // delete any links to those grade rows
-    await sequelize.query(
-      `DELETE FROM "DryMillEventGradeLinks" WHERE grade_row_id = ANY(:ids::int[])`,
-      { replacements: { ids }, transaction: t, type: sequelize.QueryTypes.DELETE }
-    );
-
     // delete the grade rows themselves
     await sequelize.query(
       `DELETE FROM "DryMillGrades" WHERE id = ANY(:ids::int[])`,
       { replacements: { ids }, transaction: t, type: sequelize.QueryTypes.DELETE }
     );
-
-    // cleanup orphan events that now have no links (and belong to the same batch)
-    await sequelize.query(`
-      DELETE FROM "DryMillProcessEvents" e
-      WHERE e.batchNumber = :batchNumber
-        AND NOT EXISTS (SELECT 1 FROM "DryMillEventGradeLinks" l WHERE l.event_id = e.event_id)
-    `, { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.DELETE });
-
+  
     await t.commit();
     return res.json({ success: true, deleted: ids.length });
   } catch (err) {
@@ -1177,7 +1206,7 @@ router.get('/dry-mill-data', async (req, res) => {
           fm."farmVarieties",
           dm."dryMillMerged"
         FROM "ReceivingData" rd
-        LEFT JOIN (SELECT "batchNumber", MIN(entered_at) AS entered_at, MAX(exited_at) AS exited_at, MIN(created_at) AS created_at, rfid, "dryMillMerged" FROM "DryMillData" GROUP BY "batchNumber", rfid, "dryMillMerged") dm ON rd."batchNumber" = dm."batchNumber"
+        LEFT JOIN (SELECT "batchNumber", MIN(entered_at) AS entered_at, MAX(exited_at) AS exited_at, MIN(createdAt) AS createdAt, rfid, "dryMillMerged" FROM "DryMillData" GROUP BY "batchNumber", rfid, "dryMillMerged") dm ON rd."batchNumber" = dm."batchNumber"
         LEFT JOIN "PostprocessingData" pp ON rd."batchNumber" = pp."parentBatchNumber" OR rd."batchNumber" = pp."batchNumber"
         LEFT JOIN "PreprocessingData" pd ON rd."batchNumber" = pd."batchNumber"
         LEFT JOIN "DryMillGrades" dg ON (
@@ -1478,7 +1507,7 @@ router.post('/warehouse/scan', async (req, res) => {
 
     await sequelize.query(`
       INSERT INTO "RfidScanned" (
-        rfid, scanned_at, "batchNumber", created_at, action
+        rfid, scanned_at, "batchNumber", createdAt, action
       ) VALUES (
         :rfid, :scanned_at, :batchNumber, NOW(), 'Stored'
       )
@@ -1631,7 +1660,7 @@ router.post('/dry-mill/:batchNumber/add-sample', async (req, res) => {
     t = await sequelize.transaction();
 
     const [result] = await sequelize.query(`
-      INSERT INTO "DryMillSamples" ("batchNumber", date_taken, weight_taken, created_at)
+      INSERT INTO "DryMillSamples" ("batchNumber", date_taken, weight_taken, createdAt)
       VALUES (:batchNumber, :dateTaken, :weightTaken, NOW())
       RETURNING date_taken, weight_taken
     `, {
@@ -2149,7 +2178,7 @@ router.post('/drymill/grade', async (req, res) => {
     if (isNaN(parsedWeight) || parsedWeight <= 0) return res.status(400).json({ error: 'Invalid weight' });
 
     const [created] = await sequelize.query(`
-      INSERT INTO "DryMillGrades" (batchNumber, subBatchId, grade, weight, processing_type, temp_sequence, lotNumber, referenceNumber, split_at, created_at)
+      INSERT INTO "DryMillGrades" (batchNumber, subBatchId, grade, weight, processing_type, temp_sequence, lotNumber, referenceNumber, split_at, createdAt)
       VALUES (:batchNumber, :subBatchId, :grade, :weight, :processing_type, :temp_sequence, :lotNumber, :referenceNumber, NOW(), NOW())
       RETURNING *;
     `, {
@@ -2269,144 +2298,134 @@ router.get('/drymill/grades/:batchNumber/:grade/max-subbatchid', async (req, res
 
 // 1) List events for a batch
 // GET /drymill/process-events/:batchNumber
+// GET /drymill/process-events/:batchNumber
 router.get('/drymill/process-events/:batchNumber', async (req, res) => {
   try {
     const { batchNumber } = req.params;
-    if (!batchNumber) return res.status(400).json({ error: 'batchNumber required' });
+    if (!batchNumber) {
+      return res.status(400).json({ error: 'batchNumber required' });
+    }
 
     const rows = await sequelize.query(`
-      SELECT event_id, batchNumber, process_step, input_weight, output_weight, operator, notes,
-             created_at, updated_at
+      SELECT
+        event_id,
+        batchNumber,
+        processStep,
+        inputWeight,
+        outputWeight,
+        operator,
+        notes,
+        createdAt
       FROM "DryMillProcessEvents"
-      WHERE batchNumber = :batchNumber
-      ORDER BY created_at ASC;
-    `, { replacements: { batchNumber }, type: sequelize.QueryTypes.SELECT });
-
-    // For convenience also return linked grade ids per event
-    const eventIds = rows.map(r => r.event_id);
-    let links = [];
-    if (eventIds.length) {
-      links = await sequelize.query(`
-        SELECT event_id, array_agg(grade_row_id) AS grade_row_ids, array_agg(role) AS roles
-        FROM "DryMillEventGradeLinks"
-        WHERE event_id = ANY(:eventIds::int[])
-        GROUP BY event_id;
-      `, { replacements: { eventIds }, type: sequelize.QueryTypes.SELECT });
-    }
-
-    // merge links into events
-    const linkMap = {};
-    for (const l of links) {
-      linkMap[l.event_id] = l.grade_row_ids || [];
-    }
-    const merged = rows.map(r => ({ ...r, grade_row_ids: linkMap[r.event_id] || [] }));
-
-    return res.json(merged);
-  } catch (err) {
-    console.error('list process events error', err);
-    return res.status(500).json({ error: 'Failed to fetch process events', details: err.message });
-  }
-});
-
-
-// 2) Create a process event (and optionally link grade rows)
-// POST /drymill/process-event
-// body: { batchNumber, process_step, input_weight, output_weight, operator, notes, gradeRowIdsOutput: [...], gradeRowIdsInput: [...] }
-router.post('/drymill/process-event', async (req, res) => {
-  const t = await sequelize.transaction();
-  try {
-    const { batchNumber, process_step, input_weight, output_weight, operator, notes, gradeRowIdsOutput = [], gradeRowIdsInput = [] } = req.body;
-    if (!batchNumber || !process_step) {
-      await t.rollback();
-      return res.status(400).json({ error: 'batchNumber and process_step required' });
-    }
-
-    const parsedInput = Number(input_weight || 0);
-    const parsedOutput = Number(output_weight || 0);
-
-    const [event] = await sequelize.query(`
-      INSERT INTO "DryMillProcessEvents" (batchNumber, process_step, input_weight, output_weight, operator, notes, created_at)
-      VALUES (:batchNumber, :process_step, :input_weight, :output_weight, :operator, :notes, NOW())
-      RETURNING *;
+      WHERE UPPER(batchNumber) = UPPER(:batchNumber)
+      ORDER BY createdAt ASC
     `, {
-      replacements: { batchNumber, process_step, input_weight: parsedInput, output_weight: parsedOutput, operator: operator || null, notes: notes || null },
-      transaction: t,
-      type: sequelize.QueryTypes.INSERT,
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT
     });
 
-    const eventId = event.event_id || (event[0] && event[0].event_id) || (event && event[0] && event[0].event_id);
-
-    // link outputs (gradeRowIdsOutput)
-    if (Array.isArray(gradeRowIdsOutput) && gradeRowIdsOutput.length) {
-      // use UNNEST for bulk insert
-      await sequelize.query(`
-        INSERT INTO "DryMillEventGradeLinks" (event_id, grade_row_id, role)
-        SELECT :eventId, id, 'output' FROM unnest(:ids::int[]) AS id;
-      `, { replacements: { eventId, ids: gradeRowIdsOutput }, transaction: t });
-    }
-
-    if (Array.isArray(gradeRowIdsInput) && gradeRowIdsInput.length) {
-      await sequelize.query(`
-        INSERT INTO "DryMillEventGradeLinks" (event_id, grade_row_id, role)
-        SELECT :eventId, id, 'input' FROM unnest(:ids::int[]) AS id;
-      `, { replacements: { eventId, ids: gradeRowIdsInput }, transaction: t });
-    }
-
-    await t.commit();
-    return res.status(201).json(event);
+    // ALWAYS return array
+    return res.json(rows || []);
   } catch (err) {
-    await t.rollback();
-    console.error('create process event error', err);
-    return res.status(500).json({ error: 'Failed to create process event', details: err.message });
+    console.error('process-events fetch error', err);
+    return res.status(500).json({
+      error: 'Failed to fetch process events',
+      details: err.message
+    });
   }
 });
 
 
-// 3) Link grade rows to existing event (helper)
-// POST /drymill/event/:eventId/link-grades
-// body: { gradeRowIds, role: 'input' | 'output' }
-router.post('/drymill/event/:eventId/link-grades', async (req, res) => {
-  const t = await sequelize.transaction();
+router.post('/drymill/process-event', async (req, res) => {
   try {
-    const { eventId } = req.params;
-    const { gradeRowIds = [], role = 'output' } = req.body;
-    if (!eventId || !Array.isArray(gradeRowIds) || !gradeRowIds.length) {
-      await t.rollback();
-      return res.status(400).json({ error: 'eventId and gradeRowIds required' });
+    const {
+      batchNumber,
+      processingType,
+      processStep,
+      grade,
+      inputWeight,
+      outputWeight,
+      operator,
+      notes
+    } = req.body;
+
+    if (!batchNumber || !processingType || !processStep) {
+      return res.status(400).json({
+        error: 'batchNumber, processingType, and processStep are required'
+      });
     }
-    await sequelize.query(`
-      INSERT INTO "DryMillEventGradeLinks" (event_id, grade_row_id, role)
-      SELECT :eventId, id, :role FROM unnest(:ids::int[]) AS id;
-    `, { replacements: { eventId: Number(eventId), ids: gradeRowIds, role }, transaction: t });
 
-    await t.commit();
-    return res.json({ success: true, linked: gradeRowIds.length });
+    if (processStep !== 'huller' && !grade) {
+      return res.status(400).json({
+        error: 'grade is required for non-huller steps'
+      });
+    }
+
+    const output = Number(outputWeight);
+    if (isNaN(output) || output < 0) {
+      return res.status(400).json({ error: 'Invalid outputWeight' });
+    }
+
+    const stepSequenceMap = {
+      huller: 1,
+      suton: 2,
+      sizer: 3,
+      handpicking: 4
+    };
+
+    const [rows] = await sequelize.query(
+      `
+      INSERT INTO "DryMillProcessEvents" (
+        "batchNumber",
+        "processingType",
+        "processStep",
+        "grade",
+        "inputWeight",
+        "outputWeight",
+        "operator",
+        "notes",
+        "step_sequence",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        :batchNumber,
+        :processingType,
+        :processStep,
+        :grade,
+        :inputWeight,
+        :outputWeight,
+        :operator,
+        :notes,
+        :step_sequence,
+        NOW(),
+        NOW()
+      )
+      RETURNING *;
+      `,
+      {
+        replacements: {
+          batchNumber,
+          processingType,
+          processStep,
+          grade: grade || null,
+          inputWeight: inputWeight ? Number(inputWeight) : 0,
+          outputWeight: output,
+          operator: operator || null,
+          notes: notes || null,
+          step_sequence: stepSequenceMap[processStep] || 0
+        },
+        type: sequelize.QueryTypes.INSERT
+      }
+    );
+
+    res.status(201).json(rows[0]);
   } catch (err) {
-    await t.rollback();
-    console.error('link grades error', err);
-    return res.status(500).json({ error: 'Failed to link grades', details: err.message });
-  }
-});
-
-
-// 4) Unlink grade rows from an event (helper)
-// POST /drymill/process-events/:eventId/unlink-grades
-// body: { gradeRowIds }
-router.post('/drymill/process-events/:eventId/unlink-grades', async (req, res) => {
-  try {
-    const { eventId } = req.params;
-    const { gradeRowIds = [] } = req.body;
-    if (!eventId || !Array.isArray(gradeRowIds) || !gradeRowIds.length) return res.status(400).json({ error: 'eventId and gradeRowIds required' });
-
-    await sequelize.query(`DELETE FROM "DryMillEventGradeLinks" WHERE event_id = :eventId AND grade_row_id = ANY(:ids::int[])`, {
-      replacements: { eventId: Number(eventId), ids: gradeRowIds },
-      type: sequelize.QueryTypes.DELETE,
+    console.error('process-event error:', err);
+    res.status(500).json({
+      error: 'Failed to save process event',
+      details: err.message
     });
-
-    return res.json({ success: true, removed: gradeRowIds.length });
-  } catch (err) {
-    console.error('unlink error', err);
-    return res.status(500).json({ error: 'Failed to unlink', details: err.message });
   }
 });
 
@@ -2419,14 +2438,14 @@ router.get('/drymill/process-events/aggregate/:batchNumber', async (req, res) =>
     if (!batchNumber) return res.status(400).json({ error: 'batchNumber required' });
 
     const rows = await sequelize.query(`
-      SELECT process_step,
-             SUM(input_weight)::numeric(10,2) AS sum_input,
-             SUM(output_weight)::numeric(10,2) AS sum_output,
-             CASE WHEN SUM(input_weight) = 0 THEN 0 ELSE ROUND((SUM(output_weight) / SUM(input_weight)) * 100, 2) END AS pct_yield
+      SELECT processStep,
+             SUM(inputWeight)::numeric(10,2) AS sum_input,
+             SUM(outputWeight)::numeric(10,2) AS sum_output,
+             CASE WHEN SUM(inputWeight) = 0 THEN 0 ELSE ROUND((SUM(outputWeight) / SUM(inputWeight)) * 100, 2) END AS pct_yield
       FROM "DryMillProcessEvents"
       WHERE batchNumber = :batchNumber
-      GROUP BY process_step
-      ORDER BY array_position(ARRAY['huller','suton','sizer','handpicking'], process_step);
+      GROUP BY processStep
+      ORDER BY array_position(ARRAY['huller','suton','sizer','handpicking'], processStep);
     `, { replacements: { batchNumber }, type: sequelize.QueryTypes.SELECT });
 
     return res.json(rows);
@@ -2445,14 +2464,14 @@ router.get('/drymill/process-events/:batchNumber/:step/max', async (req, res) =>
     if (!batchNumber || !step) return res.status(400).json({ error: 'batchNumber and step required' });
 
     const row = await sequelize.query(`
-      SELECT event_id, output_weight, created_at
+      SELECT event_id, outputWeight, createdAt
       FROM "DryMillProcessEvents"
-      WHERE batchNumber = :batchNumber AND process_step = :step
-      ORDER BY created_at DESC
+      WHERE batchNumber = :batchNumber AND processStep = :step
+      ORDER BY createdAt DESC
       LIMIT 1;
     `, { replacements: { batchNumber, step }, type: sequelize.QueryTypes.SELECT });
 
-    return res.json(row && row.length ? row[0] : { event_id: null, output_weight: 0 });
+    return res.json(row && row.length ? row[0] : { event_id: null, outputWeight: 0 });
   } catch (err) {
     console.error('max helper error', err);
     return res.status(500).json({ error: 'Failed', details: err.message });
