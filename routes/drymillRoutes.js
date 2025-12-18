@@ -841,37 +841,45 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
 // POST route to complete a batch
 router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
   const { batchNumber } = req.params;
-  const { processingType, createdBy, updatedBy } = req.body;
+  const { processingType, updatedBy } = req.body;
 
-  if (!batchNumber || !processingType || !createdBy || !updatedBy) {
+  if (!batchNumber || !processingType) {
     return res.status(400).json({
-      error: 'batchNumber, processingType, createdBy, updatedBy are required'
+      error: 'batchNumber and processingType are required'
     });
   }
 
   const t = await sequelize.transaction();
   try {
-    // ensure row exists
-    const [existing] = await sequelize.query(`
-      SELECT id
-      FROM "DryMillData"
-      WHERE "batchNumber" = :batchNumber
-        AND "processingType" = :processingType
-    `, {
-      replacements: { batchNumber, processingType },
-      type: sequelize.QueryTypes.SELECT,
-      transaction: t
-    });
+    // 1️⃣ Ensure DryMillData row exists (UPSERT)
+    await sequelize.query(
+      `
+      INSERT INTO "DryMillData" (
+        "batchNumber",
+        "processingType",
+        "entered_at",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        :batchNumber,
+        :processingType,
+        NOW(),
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT ("batchNumber", "processingType")
+      DO NOTHING;
+      `,
+      {
+        replacements: { batchNumber, processingType },
+        transaction: t
+      }
+    );
 
-    if (!existing) {
-      await t.rollback();
-      return res.status(404).json({
-        error: 'Dry mill record not found for this processing type'
-      });
-    }
-
-    // mark ONLY this processing type complete
-    await sequelize.query(`
+    // 2️⃣ Mark ONLY this processingType as completed
+    const [result] = await sequelize.query(
+      `
       UPDATE "DryMillData"
       SET
         exited_at = NOW(),
@@ -879,10 +887,17 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
         "updatedBy" = :updatedBy
       WHERE "batchNumber" = :batchNumber
         AND "processingType" = :processingType
-    `, {
-      replacements: { batchNumber, processingType, updatedBy },
-      transaction: t
-    });
+      RETURNING *;
+      `,
+      {
+        replacements: { batchNumber, processingType, updatedBy },
+        transaction: t
+      }
+    );
+
+    if (result.length === 0) {
+      throw new Error('Failed to mark dry mill record complete');
+    }
 
     await t.commit();
 
