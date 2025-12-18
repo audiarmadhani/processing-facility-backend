@@ -841,280 +841,62 @@ router.post('/dry-mill/:batchNumber/update-bags', async (req, res) => {
 // POST route to complete a batch
 router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
   const { batchNumber } = req.params;
-  const { createdBy, updatedBy, dryMillExited } = req.body;
+  const { processingType, createdBy, updatedBy } = req.body;
 
-  if (!batchNumber || !createdBy || !updatedBy) {
-    logger.warn('Missing required parameters', { batchNumber, createdBy, updatedBy, user: createdBy || 'unknown' });
-    return res.status(400).json({ error: 'batchNumber, createdBy, and updatedBy are required.' });
+  if (!batchNumber || !processingType || !createdBy || !updatedBy) {
+    return res.status(400).json({
+      error: 'batchNumber, processingType, createdBy, updatedBy are required'
+    });
   }
 
-  let t;
+  const t = await sequelize.transaction();
   try {
-    t = await sequelize.transaction();
-
-    const [batch] = await sequelize.query(`
-      SELECT "batchNumber", "type", rfid
-      FROM "ReceivingData"
-      WHERE "batchNumber" = :batchNumber
-      LIMIT 1
-    `, {
-      replacements: { batchNumber },
-      type: sequelize.QueryTypes.SELECT,
-      transaction: t
-    });
-
-    if (!batch) {
-      await t.rollback();
-      logger.warn('Batch not found', { batchNumber, user: createdBy });
-      return res.status(404).json({ error: 'Batch not found.' });
-    }
-
-    const [dryMillEntry] = await sequelize.query(`
-      SELECT entered_at, exited_at
+    // ensure row exists
+    const [existing] = await sequelize.query(`
+      SELECT id
       FROM "DryMillData"
       WHERE "batchNumber" = :batchNumber
-      LIMIT 1
+        AND "processingType" = :processingType
     `, {
-      replacements: { batchNumber },
+      replacements: { batchNumber, processingType },
       type: sequelize.QueryTypes.SELECT,
       transaction: t
     });
 
-    if (!dryMillEntry || dryMillEntry.exited_at) {
+    if (!existing) {
       await t.rollback();
-      logger.warn('Batch not in dry mill or already processed', { batchNumber, user: createdBy });
-      return res.status(400).json({ error: 'Batch is not in dry mill or already processed.' });
-    }
-
-    let processingTypes = [];
-    if (batch.type !== 'NA') {
-      processingTypes = await sequelize.query(`
-        SELECT DISTINCT "processingType"
-        FROM "PreprocessingData"
-        WHERE "batchNumber" = :batchNumber
-      `, {
-        replacements: { batchNumber },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t
-      }).then(results => results.map(pt => pt.processingType));
-
-      const subBatchTypes = await sequelize.query(`
-        SELECT DISTINCT "processingType"
-        FROM "PostprocessingData"
-        WHERE "parentBatchNumber" = :batchNumber
-      `, {
-        replacements: { batchNumber },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t
-      }).then(results => results.map(sb => sb.processingType));
-
-      const missingTypes = processingTypes.filter(pt => !subBatchTypes.includes(pt));
-      if (missingTypes.length > 0) {
-        await t.rollback();
-        logger.warn('Missing sub-batches for processing types', { batchNumber, missingTypes, user: createdBy });
-        return res.status(400).json({ error: `Missing sub-batches for processing types: ${missingTypes.join(', ')}` });
-      }
-
-      let hasAnyValidOrDefaultSplits = false;
-      for (const pt of processingTypes) {
-        const grades = await sequelize.query(`
-          SELECT grade, weight, bagged_at, "storedDate", "lotNumber", "referenceNumber"
-          FROM "DryMillGrades"
-          WHERE "batchNumber" = :batchNumber
-          AND processing_type = :processingType
-        `, {
-          replacements: { batchNumber, processingType: pt },
-          type: sequelize.QueryTypes.SELECT,
-          transaction: t
-        });
-
-        const hasValidSplits = grades.some(g => 
-          (parseFloat(g.weight) >= 0 && g.bagged_at && !g.storedDate) || // Valid split or default with bagged_at
-          (g.grade === 'Default' && parseFloat(g.weight) === 0 && !g.bagged_at && !g.storedDate) // Default placeholder
-        );
-        if (hasValidSplits) hasAnyValidOrDefaultSplits = true;
-
-        for (const grade of grades) {
-          if (!validateLotNumber(grade.lotNumber)) {
-            await t.rollback();
-            logger.warn('Invalid lot number in grade', { batchNumber, processingType: pt, lotNumber: grade.lotNumber, user: createdBy });
-            return res.status(400).json({ error: `Invalid lot number in grade: ${grade.lotNumber}` });
-          }
-          if (!validateReferenceNumber(grade.referenceNumber)) {
-            await t.rollback();
-            logger.warn('Invalid reference number in grade', { batchNumber, processingType: pt, referenceNumber: grade.referenceNumber, user: createdBy });
-            return res.status(400).json({ error: `Invalid reference number in grade: ${grade.referenceNumber}` });
-          }
-        }
-      }
-
-      if (!hasAnyValidOrDefaultSplits) {
-        await t.rollback();
-        logger.warn('No valid or default splits for any processing type', { batchNumber, user: createdBy });
-        return res.status(400).json({ error: 'No valid or default splits for any processing type.' });
-      }
-    } else {
-      const grades = await sequelize.query(`
-        SELECT grade, weight, bagged_at, "storedDate", "lotNumber", "referenceNumber"
-        FROM "DryMillGrades"
-        WHERE "batchNumber" = :batchNumber
-        AND processing_type = 'Dry'
-      `, {
-        replacements: { batchNumber },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t
+      return res.status(404).json({
+        error: 'Dry mill record not found for this processing type'
       });
-
-      // if (grades.length === 0) {
-      //   await sequelize.query(`
-      //     INSERT INTO "DryMillGrades" ("batchNumber", processing_type, grade, weight, bagged_at, "lotNumber")
-      //     VALUES (:batchNumber, 'Dry', 'Default', 0, NULL, :lotNumber)
-      //   `, {
-      //     replacements: { batchNumber, lotNumber: batch.lotNumber || 'ID-BTM-A-N' },
-      //     type: sequelize.QueryTypes.INSERT,
-      //     transaction: t
-      //   });
-      //   grades.push({ grade: 'Default', weight: 0, bagged_at: null, storedDate: null });
-      // }
-
-      // const hasValidSplits = grades.some(g => 
-      //   (parseFloat(g.weight) >= 0 && g.bagged_at && !g.storedDate) || // Valid split or default with bagged_at
-      //   (g.grade === 'Default' && parseFloat(g.weight) === 0 && !g.bagged_at && !g.storedDate) // Default placeholder
-      // );
-      // if (!hasValidSplits) {
-      //   await t.rollback();
-      //   logger.warn('No valid splits for green beans', { batchNumber, user: createdBy });
-      //   return res.status(400).json({ error: 'No valid splits for green beans.' });
-      // }
-
-      for (const grade of grades) {
-        if (!validateLotNumber(grade.lotNumber)) {
-          await t.rollback();
-          logger.warn('Invalid lot number in grade', { batchNumber, lotNumber: grade.lotNumber, user: createdBy });
-          return res.status(400).json({ error: `Invalid lot number in grade: ${grade.lotNumber}` });
-        }
-        if (!validateReferenceNumber(grade.referenceNumber)) {
-          await t.rollback();
-          logger.warn('Invalid reference number in grade', { batchNumber, referenceNumber: grade.referenceNumber, user: createdBy });
-          return res.status(400).json({ error: `Invalid reference number in grade: ${grade.referenceNumber}` });
-        }
-      }
     }
 
-    const exitedAt = dryMillExited || new Date().toISOString();
-    const [result] = await sequelize.query(`
-      UPDATE "DryMillData"
-      SET exited_at = :exitedAt
-      WHERE "batchNumber" = :batchNumber
-      RETURNING exited_at
-    `, {
-      replacements: { batchNumber, exitedAt },
-      type: sequelize.QueryTypes.UPDATE,
-      transaction: t
-    });
-
-    if (!result) {
-      await t.rollback();
-      logger.warn('No dry mill entries updated', { batchNumber, user: createdBy });
-      return res.status(400).json({ error: 'No valid dry mill entries found to complete.' });
-    }
-
+    // mark ONLY this processing type complete
     await sequelize.query(`
-      UPDATE "ReceivingData"
-      SET rfid = NULL, "currentAssign" = 0, "updatedAt" = NOW()
+      UPDATE "DryMillData"
+      SET
+        exited_at = NOW(),
+        "updatedAt" = NOW(),
+        "updatedBy" = :updatedBy
       WHERE "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
     `, {
-      replacements: { batchNumber },
-      type: sequelize.QueryTypes.UPDATE,
+      replacements: { batchNumber, processingType, updatedBy },
       transaction: t
     });
-
-    const subBatches = await sequelize.query(`
-      SELECT "batchNumber", weight, "processingType", quality, "lotNumber", "referenceNumber"
-      FROM "PostprocessingData"
-      WHERE "parentBatchNumber" = :batchNumber
-    `, {
-      replacements: { batchNumber },
-      type: sequelize.QueryTypes.SELECT,
-      transaction: t
-    });
-
-    for (const subBatch of subBatches) {
-      if (!validateLotNumber(subBatch.lotNumber)) {
-        await t.rollback();
-        logger.warn('Invalid lot number in sub-batch', { batchNumber, lotNumber: subBatch.lotNumber, user: createdBy });
-        return res.status(400).json({ error: `Invalid lot number in sub-batch: ${subBatch.lotNumber}` });
-      }
-      if (!validateReferenceNumber(subBatch.referenceNumber)) {
-        await t.rollback();
-        logger.warn('Invalid reference number in sub-batch', { batchNumber, referenceNumber: subBatch.referenceNumber, user: createdBy });
-        return res.status(400).json({ error: `Invalid reference number in sub-batch: ${subBatch.referenceNumber}` });
-      }
-
-      const [existing] = await sequelize.query(`
-        SELECT "batchNumber"
-        FROM "GreenBeansInventoryStatus"
-        WHERE "batchNumber" = :batchNumber
-      `, {
-        replacements: { batchNumber: subBatch.batchNumber },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t
-      });
-
-      if (!existing) {
-        await sequelize.query(`
-          INSERT INTO "GreenBeansInventoryStatus" (
-            "batchNumber", "processingType", weight, quality, status, "enteredAt", 
-            "lotNumber", "referenceNumber", "createdAt", "updatedAt", "createdBy", "updatedBy"
-          ) VALUES (
-            :batchNumber, :processingType, :weight, :quality, 'Stored', NOW(), 
-            :lotNumber, :referenceNumber, NOW(), NOW(), :createdBy, :updatedBy
-          )
-        `, {
-          replacements: {
-            batchNumber: subBatch.batchNumber,
-            processingType: subBatch.processingType,
-            weight: parseFloat(subBatch.weight).toFixed(2),
-            quality: subBatch.quality,
-            lotNumber: subBatch.lotNumber,
-            referenceNumber: subBatch.referenceNumber,
-            createdBy,
-            updatedBy
-          },
-          type: sequelize.QueryTypes.INSERT,
-          transaction: t
-        });
-
-        await sequelize.query(`
-          INSERT INTO "GreenBeansInventoryMovements" (
-            "batchNumber", "movementType", "lotNumber", "referenceNumber", "movedAt", "createdBy"
-          ) VALUES (
-            :batchNumber, 'Entry', :lotNumber, :referenceNumber, NOW(), :createdBy
-          )
-        `, {
-          replacements: { 
-            batchNumber: subBatch.batchNumber, 
-            lotNumber: subBatch.lotNumber, 
-            referenceNumber: subBatch.referenceNumber, 
-            createdBy 
-          },
-          type: sequelize.QueryTypes.INSERT,
-          transaction: t
-        });
-      }
-    }
 
     await t.commit();
-    logger.info('Batch marked as processed successfully', { batchNumber, user: createdBy });
-    res.status(200).json({
-      message: 'Batch marked as processed successfully, inventory updated',
+
+    res.json({
+      message: 'Processing type marked complete',
       batchNumber,
-      exited_at: result.exited_at
+      processingType
     });
-  } catch (error) {
-    if (t) await t.rollback();
-    logger.error('Error marking batch as processed', { batchNumber, error: error.message, stack: error.stack, user: createdBy });
-    res.status(500).json({ error: 'Failed to mark batch as processed', details: error.message });
+  } catch (err) {
+    await t.rollback();
+    res.status(500).json({
+      error: 'Failed to mark processing type complete',
+      details: err.message
+    });
   }
 });
 
