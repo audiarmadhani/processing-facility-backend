@@ -1999,22 +1999,37 @@ router.get('/drymill/process-events/:batchNumber', async (req, res) => {
 });
 
 
-router.post('/drymill/process-event', async (req, res) => {
+router.post("/drymill/process-event", async (req, res) => {
   const t = await sequelize.transaction();
 
-    try {
-      const { batchNumber, processingType, producer, processStep } = req.body;
+  try {
+    const {
+      batchNumber,
+      processingType,
+      producer,
+      processStep,
+      grade,
+      inputWeight,
+      outputWeight,
+      operator,
+      notes,
+    } = req.body;
 
+    // ----------------------------
+    // Basic validation
+    // ----------------------------
     if (!batchNumber || !processingType || !producer || !processStep) {
+      await t.rollback();
       return res.status(400).json({
-        error: 'batchNumber, processingType, producer, and processStep are required'
+        error:
+          "batchNumber, processingType, producer, and processStep are required",
       });
     }
 
-    if (processStep !== 'huller' && !grade) {
+    if (processStep !== "huller" && !grade) {
       await t.rollback();
       return res.status(400).json({
-        error: 'grade is required for non-huller steps'
+        error: "grade is required for non-huller steps",
       });
     }
 
@@ -2022,7 +2037,7 @@ router.post('/drymill/process-event', async (req, res) => {
     if (isNaN(output) || output < 0) {
       await t.rollback();
       return res.status(400).json({
-        error: 'Invalid outputWeight'
+        error: "Invalid outputWeight",
       });
     }
 
@@ -2030,12 +2045,11 @@ router.post('/drymill/process-event', async (req, res) => {
       huller: 1,
       suton: 2,
       sizer: 3,
-      handpicking: 4
+      handpicking: 4,
     };
 
     // ----------------------------
-    // DELETE previous value
-    // (replace semantics)
+    // DELETE previous value (replace semantics)
     // ----------------------------
     await sequelize.query(
       `
@@ -2054,10 +2068,11 @@ router.post('/drymill/process-event', async (req, res) => {
         replacements: {
           batchNumber,
           processingType,
+          producer,
           processStep,
-          grade: grade || null
+          grade: processStep === "huller" ? null : grade,
         },
-        transaction: t
+        transaction: t,
       }
     );
 
@@ -2084,7 +2099,7 @@ router.post('/drymill/process-event', async (req, res) => {
         :batchNumber,
         :processingType,
         :processStep,
-        :producer
+        :producer,
         :grade,
         :inputWeight,
         :outputWeight,
@@ -2102,27 +2117,26 @@ router.post('/drymill/process-event', async (req, res) => {
           processingType,
           processStep,
           producer,
-          grade: grade || null,
+          grade: processStep === "huller" ? null : grade,
           inputWeight: inputWeight ? Number(inputWeight) : 0,
           outputWeight: output,
           operator: operator || null,
           notes: notes || null,
-          step_sequence: stepSequenceMap[processStep] || 0
+          step_sequence: stepSequenceMap[processStep] || 0,
         },
         type: sequelize.QueryTypes.INSERT,
-        transaction: t
+        transaction: t,
       }
     );
 
     await t.commit();
     res.status(201).json(rows[0]);
-
   } catch (err) {
     await t.rollback();
-    console.error('process-event error:', err);
+    console.error("process-event error:", err);
     res.status(500).json({
-      error: 'Failed to save process event',
-      details: err.message
+      error: "Failed to save process event",
+      details: err.message,
     });
   }
 });
