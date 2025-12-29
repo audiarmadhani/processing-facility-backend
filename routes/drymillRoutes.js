@@ -2002,25 +2002,12 @@ router.get('/drymill/process-events/:batchNumber', async (req, res) => {
 router.post('/drymill/process-event', async (req, res) => {
   const t = await sequelize.transaction();
 
-  try {
-    const {
-      batchNumber,
-      processingType,
-      processStep,
-      grade,
-      inputWeight,
-      outputWeight,
-      operator,
-      notes
-    } = req.body;
+    try {
+      const { batchNumber, processingType, producer, processStep } = req.body;
 
-    // ----------------------------
-    // Validation
-    // ----------------------------
-    if (!batchNumber || !processingType || !processStep) {
-      await t.rollback();
+    if (!batchNumber || !processingType || !producer || !processStep) {
       return res.status(400).json({
-        error: 'batchNumber, processingType, and processStep are required'
+        error: 'batchNumber, processingType, producer, and processStep are required'
       });
     }
 
@@ -2056,6 +2043,7 @@ router.post('/drymill/process-event', async (req, res) => {
       WHERE
         "batchNumber" = :batchNumber
         AND "processingType" = :processingType
+        AND "producer" = :producer
         AND "processStep" = :processStep
         AND (
           (:grade IS NULL AND "grade" IS NULL)
@@ -2082,6 +2070,7 @@ router.post('/drymill/process-event', async (req, res) => {
         "batchNumber",
         "processingType",
         "processStep",
+        "producer",
         "grade",
         "inputWeight",
         "outputWeight",
@@ -2095,6 +2084,7 @@ router.post('/drymill/process-event', async (req, res) => {
         :batchNumber,
         :processingType,
         :processStep,
+        :producer
         :grade,
         :inputWeight,
         :outputWeight,
@@ -2111,6 +2101,7 @@ router.post('/drymill/process-event', async (req, res) => {
           batchNumber,
           processingType,
           processStep,
+          producer,
           grade: grade || null,
           inputWeight: inputWeight ? Number(inputWeight) : 0,
           outputWeight: output,
