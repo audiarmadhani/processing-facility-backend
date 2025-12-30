@@ -319,4 +319,280 @@ router.get('/wetmill-weight-measurements/:batchNumber/:processingType/max-bag-nu
   }
 });
 
+router.post('/wetmill/rejects/merge', async (req, res) => {
+  const t = await sequelize.transaction();
+
+  try {
+    const {
+      sourceBatches,   // [{ batchNumber, rejectWeight }]
+      producer,
+      operator,
+      notes,
+      scanned_at       // RFID scan timestamp (Receiving)
+    } = req.body;
+
+    if (!Array.isArray(sourceBatches) || sourceBatches.length < 2) {
+      return res.status(400).json({ error: 'At least 2 source batches required' });
+    }
+
+    if (!producer || !scanned_at) {
+      return res.status(400).json({ error: 'producer and scanned_at are required' });
+    }
+
+    /* -------------------------------------------------
+       1. Load source batches
+    --------------------------------------------------*/
+    const batchNumbers = sourceBatches.map(b => b.batchNumber);
+
+    const sources = await sequelize.query(
+      `
+      SELECT
+        "batchNumber",
+        producer,
+        "farmerID",
+        "farmerName"
+      FROM "ReceivingData"
+      WHERE "batchNumber" IN (:batchNumbers)
+      `,
+      {
+        replacements: { batchNumbers },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      }
+    );
+
+    if (sources.length !== batchNumbers.length) {
+      throw new Error('One or more source batches not found');
+    }
+
+    if (sources.some(b => b.producer !== producer)) {
+      throw new Error('All source batches must have the same producer');
+    }
+
+    /* -------------------------------------------------
+       2. Determine dominant farmer (highest reject share)
+    --------------------------------------------------*/
+    const farmerMap = {};
+
+    for (const src of sources) {
+      const reject = sourceBatches.find(
+        b => b.batchNumber === src.batchNumber
+      );
+
+      const w = Number(reject?.rejectWeight || 0);
+      if (w <= 0) continue;
+
+      const key = src.farmerID || 'UNKNOWN';
+
+      if (!farmerMap[key]) {
+        farmerMap[key] = {
+          farmerID: src.farmerID,
+          farmerName: src.farmerName,
+          weight: 0
+        };
+      }
+
+      farmerMap[key].weight += w;
+    }
+
+    const dominantFarmer = Object.values(farmerMap)
+      .sort((a, b) => b.weight - a.weight)[0];
+
+    if (!dominantFarmer) {
+      throw new Error('Unable to determine dominant farmer');
+    }
+
+    /* -------------------------------------------------
+       3. Get RFID from Receiving scan
+    --------------------------------------------------*/
+    const [rfidRow] = await sequelize.query(
+      `
+      SELECT rfid
+      FROM "RfidScanned"
+      WHERE scanned_at = 'Receiving'
+      ORDER BY "created_at" DESC
+      LIMIT 1
+      `
+    );
+
+    if (!rfidRow?.rfid) {
+      throw new Error('No RFID found for this Receiving scan');
+    }
+
+    const rfid = rfidRow.rfid;
+
+    /* -------------------------------------------------
+       4. Generate reject batch number
+    --------------------------------------------------*/
+    const today = new Date().toISOString().slice(0, 10);
+
+    const [{ count }] = await sequelize.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM "ReceivingData"
+      WHERE "batchNumber" LIKE :pattern
+      `,
+      {
+        replacements: { pattern: `${today}-%-RJ` },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      }
+    );
+
+    const rejectBatchNumber =
+      `${today}-${String(count + 1).padStart(4, '0')}-RJ`;
+
+    /* -------------------------------------------------
+       5. Total reject weight
+    --------------------------------------------------*/
+    const totalRejectWeight = sourceBatches.reduce(
+      (sum, b) => sum + Number(b.rejectWeight || 0),
+      0
+    );
+
+    if (totalRejectWeight <= 0) {
+      throw new Error('Total reject weight must be > 0');
+    }
+
+    /* -------------------------------------------------
+       6. Insert ReceivingData (IDENTICAL to normal batch)
+    --------------------------------------------------*/
+    await sequelize.query(
+      `
+      INSERT INTO "ReceivingData" (
+        "batchNumber",
+        "type",
+        "commodityType",
+        "weight",
+        "totalBags",
+        "producer",
+        "farmerID",
+        "farmerName",
+        "rfid",
+        "currentAssign",
+        "notes",
+        "createdBy",
+        "updatedBy",
+        "receivingDate"
+      )
+      VALUES (
+        :batchNumber,
+        'Reject',
+        'Cherry',
+        :weight,
+        1,
+        :producer,
+        :farmerID,
+        :farmerName,
+        :rfid,
+        1,
+        :notes,
+        :operator,
+        :operator,
+        NOW()
+      )
+      `,
+      {
+        replacements: {
+          batchNumber: rejectBatchNumber,
+          weight: totalRejectWeight,
+          producer,
+          farmerID: dominantFarmer.farmerID,
+          farmerName: dominantFarmer.farmerName,
+          rfid,
+          operator: operator || null,
+          notes: notes || `Merged reject batch created by ${operator}`
+        },
+        transaction: t
+      }
+    );
+
+    /* -------------------------------------------------
+       7. Wet mill measurement
+    --------------------------------------------------*/
+    await sequelize.query(
+      `
+      INSERT INTO "WetMillWeightMeasurements" (
+        "batchNumber",
+        "processingType",
+        "producer",
+        "bagNumber",
+        "weight",
+        "measurement_date"
+      )
+      VALUES (
+        :batchNumber,
+        'Reject',
+        :producer,
+        1,
+        :weight,
+        NOW()
+      )
+      `,
+      {
+        replacements: {
+          batchNumber: rejectBatchNumber,
+          producer,
+          weight: totalRejectWeight
+        },
+        transaction: t
+      }
+    );
+    
+    /* -------------------------------------------------
+      8. Source linkage (traceability)
+    --------------------------------------------------*/
+    for (const b of sourceBatches) {
+      await sequelize.query(
+        `
+        INSERT INTO "RejectBatchSources" (
+          "rejectBatchNumber",
+          "sourceBatchNumber",
+          "rejectWeight",
+          "processStage",
+          producer,
+          "createdBy"
+        )
+        VALUES (
+          :rejectBatchNumber,
+          :sourceBatchNumber,
+          :rejectWeight,
+          'wet-mill',
+          :producer,
+          :createdBy
+        )
+        `,
+        {
+          replacements: {
+            rejectBatchNumber,
+            sourceBatchNumber: b.batchNumber,
+            rejectWeight: b.rejectWeight,
+            producer,
+            createdBy: operator || null
+          },
+          transaction: t
+        }
+      );
+    }
+
+    await t.commit();
+
+    res.status(201).json({
+      batchNumber: rejectBatchNumber,
+      rfid,
+      producer,
+      farmer: dominantFarmer,
+      totalRejectWeight
+    });
+
+  } catch (err) {
+    await t.rollback();
+    console.error('Reject merge error:', err);
+    res.status(500).json({
+      error: 'Failed to merge reject batches',
+      details: err.message
+    });
+  }
+});
+
 module.exports = router;
