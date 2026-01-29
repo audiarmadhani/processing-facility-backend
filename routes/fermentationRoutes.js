@@ -645,7 +645,7 @@ router.put('/fermentation/finish/:batchNumber', async (req, res) => {
     }
 
     const [batchCheck] = await sequelize.query(
-      'SELECT fermentationStart FROM "FermentationData" WHERE "batchNumber" = :batchNumber AND status = :status',
+      'SELECT "fermentationStart" FROM "FermentationData" WHERE "batchNumber" = :batchNumber AND status = :status',
       {
         replacements: { batchNumber, status: 'In Progress' },
         transaction: t,
