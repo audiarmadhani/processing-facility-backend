@@ -266,7 +266,7 @@ router.get('/postproqcfin', async (req, res) => {
         END AS "actualGrade",
         a.kelembapan,
         a."waterActivity",
-        a.triage
+        a.triage,
         a."seranggaHidup",
         a."bijiBauBusuk",
         a."defectScore",
