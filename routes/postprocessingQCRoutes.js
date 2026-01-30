@@ -107,7 +107,7 @@ router.post('/postproqc', async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const {
-      batchNumber, seranggaHidup, bijiBauBusuk, kelembapan, bijiHitam, bijiHitamSebagian, bijiHitamPecah,
+      batchNumber, seranggaHidup, bijiBauBusuk, kelembapan, waterActivity, triage, bijiHitam, bijiHitamSebagian, bijiHitamPecah,
       kopiGelondong, bijiCoklat, kulitKopiBesar, kulitKopiSedang, kulitKopiKecil, bijiBerKulitTanduk,
       kulitTandukBesar, kulitTandukSedang, kulitTandukKecil, bijiPecah, bijiMuda, bijiBerlubangSatu,
       bijiBerlubangLebihSatu, bijiBertutul, rantingBesar, rantingSedang, rantingKecil, totalBobotKotoran,
@@ -131,6 +131,8 @@ router.post('/postproqc', async (req, res) => {
            "seranggaHidup" = :seranggaHidup, 
            "bijiBauBusuk" = :bijiBauBusuk, 
            "kelembapan" = :kelembapan, 
+           "triage" = :triage,
+           "waterActivity" = :waterActivity,
            "bijiHitam" = :bijiHitam, 
            "bijiHitamSebagian" = :bijiHitamSebagian, 
            "bijiHitamPecah" = :bijiHitamPecah,
@@ -157,7 +159,7 @@ router.post('/postproqc', async (req, res) => {
          WHERE "batchNumber" = :batchNumber`,
         {
           replacements: {
-            batchNumber, seranggaHidup, bijiBauBusuk, kelembapan, bijiHitam, bijiHitamSebagian, bijiHitamPecah,
+            batchNumber, seranggaHidup, bijiBauBusuk, kelembapan, waterActivity, triage, bijiHitam, bijiHitamSebagian, bijiHitamPecah,
             kopiGelondong, bijiCoklat, kulitKopiBesar, kulitKopiSedang, kulitKopiKecil, bijiBerKulitTanduk,
             kulitTandukBesar, kulitTandukSedang, kulitTandukKecil, bijiPecah, bijiMuda, bijiBerlubangSatu,
             bijiBerlubangLebihSatu, bijiBertutul, rantingBesar, rantingSedang, rantingKecil, totalBobotKotoran,
@@ -171,7 +173,7 @@ router.post('/postproqc', async (req, res) => {
       // Insert new record
       await sequelize.query(
         `INSERT INTO "PostprocessingQCData" 
-         ("batchNumber", "seranggaHidup", "bijiBauBusuk", "kelembapan", "bijiHitam", "bijiHitamSebagian", "bijiHitamPecah",
+         ("batchNumber", "seranggaHidup", "bijiBauBusuk", "kelembapan", "waterActivity", "triage", "bijiHitam", "bijiHitamSebagian", "bijiHitamPecah",
          "kopiGelondong", "bijiCoklat", "kulitKopiBesar", "kulitKopiSedang", "kulitKopiKecil", "bijiBerKulitTanduk",
          "kulitTandukBesar", "kulitTandukSedang", "kulitTandukKecil", "bijiPecah", "bijiMuda", "bijiBerlubangSatu",
          "bijiBerlubangLebihSatu", "bijiBertutul", "rantingBesar", "rantingSedang", "rantingKecil", "totalBobotKotoran", 
@@ -183,7 +185,7 @@ router.post('/postproqc', async (req, res) => {
          :isCompleted, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         {
           replacements: {
-            batchNumber, seranggaHidup, bijiBauBusuk, kelembapan, bijiHitam, bijiHitamSebagian, bijiHitamPecah,
+            batchNumber, seranggaHidup, bijiBauBusuk, kelembapan, waterActivity, triage, bijiHitam, bijiHitamSebagian, bijiHitamPecah,
             kopiGelondong, bijiCoklat, kulitKopiBesar, kulitKopiSedang, kulitKopiKecil, bijiBerKulitTanduk,
             kulitTandukBesar, kulitTandukSedang, kulitTandukKecil, bijiPecah, bijiMuda, bijiBerlubangSatu,
             bijiBerlubangLebihSatu, bijiBertutul, rantingBesar, rantingSedang, rantingKecil, totalBobotKotoran,
@@ -263,6 +265,8 @@ router.get('/postproqcfin', async (req, res) => {
           ELSE 'Unknown'
         END AS "actualGrade",
         a.kelembapan,
+        a."waterActivity",
+        a.triage
         a."seranggaHidup",
         a."bijiBauBusuk",
         a."defectScore",
