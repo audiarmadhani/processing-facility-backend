@@ -2049,38 +2049,11 @@ router.post("/drymill/process-event", async (req, res) => {
     };
 
     // ----------------------------
-    // DELETE previous value (replace semantics)
-    // ----------------------------
-    await sequelize.query(
-      `
-      DELETE FROM "DryMillProcessEvents"
-      WHERE
-        "batchNumber" = :batchNumber
-        AND "processingType" = :processingType
-        AND "producer" = :producer
-        AND "processStep" = :processStep
-        AND (
-          (:grade IS NULL AND "grade" IS NULL)
-          OR "grade" = :grade
-        );
-      `,
-      {
-        replacements: {
-          batchNumber,
-          processingType,
-          producer,
-          processStep,
-          grade: processStep === "huller" ? null : grade,
-        },
-        transaction: t,
-      }
-    );
-
-    console.log('Received delete request:', { batchNumber, processingType, producer, processStep, grade });
-
-    // ----------------------------
     // INSERT new value
     // ----------------------------
+    const normalizedGrade =
+    processStep === "huller" ? null : grade || null;
+
     const [rows] = await sequelize.query(
       `
       INSERT INTO "DryMillProcessEvents" (
@@ -2111,6 +2084,20 @@ router.post("/drymill/process-event", async (req, res) => {
         NOW(),
         NOW()
       )
+      ON CONFLICT (
+        "batchNumber",
+        "processingType",
+        "producer",
+        "processStep",
+        COALESCE("grade", '')
+      )
+      DO UPDATE SET
+        "inputWeight" = EXCLUDED."inputWeight",
+        "outputWeight" = EXCLUDED."outputWeight",
+        "operator" = EXCLUDED."operator",
+        "notes" = EXCLUDED."notes",
+        "step_sequence" = EXCLUDED."step_sequence",
+        "updatedAt" = NOW()
       RETURNING *;
       `,
       {
@@ -2119,9 +2106,9 @@ router.post("/drymill/process-event", async (req, res) => {
           processingType,
           processStep,
           producer,
-          grade: processStep === "huller" ? null : grade,
+          grade: normalizedGrade,
           inputWeight: inputWeight ? Number(inputWeight) : 0,
-          outputWeight: output,
+          outputWeight: Number(outputWeight),
           operator: operator || null,
           notes: notes || null,
           step_sequence: stepSequenceMap[processStep] || 0,
