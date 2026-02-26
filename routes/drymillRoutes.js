@@ -592,11 +592,11 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
 router.get('/drymill/track-weight/:batchNumber', async (req, res) => {
   try {
     const { batchNumber } = req.params;
-    const { processingType } = req.query;
+    const { processingType, producer } = req.query;
 
-    if (!processingType) {
+    if (!processingType || !producer) {
       return res.status(400).json({
-        error: 'processingType query param is required'
+        error: 'processingType and producer query params are required'
       });
     }
 
@@ -609,17 +609,20 @@ router.get('/drymill/track-weight/:batchNumber', async (req, res) => {
       FROM "DryMillProcessEvents"
       WHERE "batchNumber" = :batchNumber
         AND "processingType" = :processingType
+        AND "producer" = :producer
       GROUP BY "processStep", "grade"
       ORDER BY
+        "processStep",
         "grade" NULLS FIRST;
       `,
       {
-        replacements: { batchNumber, processingType },
+        replacements: { batchNumber, processingType, producer },
         type: sequelize.QueryTypes.SELECT
       }
     );
 
     res.json(rows);
+
   } catch (err) {
     console.error('track-weight error:', err);
     res.status(500).json({
