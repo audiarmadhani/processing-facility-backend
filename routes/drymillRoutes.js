@@ -588,15 +588,14 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
   }
 });
 
-// GET weights per step for Track Weight dialog
-router.get('/drymill/track-weight/:batchNumber', async (req, res) => {
+router.get('/drymill/track-weight/:batchNumber/:producer', async (req, res) => {
   try {
-    const { batchNumber } = req.params;
-    const { processingType, producer } = req.query;
+    const { batchNumber, producer } = req.params;
+    const { processingType } = req.query;
 
-    if (!processingType || !producer) {
+    if (!processingType) {
       return res.status(400).json({
-        error: 'processingType and producer query params are required'
+        error: 'processingType query param is required'
       });
     }
 
@@ -608,15 +607,15 @@ router.get('/drymill/track-weight/:batchNumber', async (req, res) => {
         SUM("outputWeight")::numeric(10,2) AS "totalWeight"
       FROM "DryMillProcessEvents"
       WHERE "batchNumber" = :batchNumber
-        AND "processingType" = :processingType
         AND "producer" = :producer
+        AND "processingType" = :processingType
       GROUP BY "processStep", "grade"
       ORDER BY
         "processStep",
         "grade" NULLS FIRST;
       `,
       {
-        replacements: { batchNumber, processingType, producer },
+        replacements: { batchNumber, producer, processingType },
         type: sequelize.QueryTypes.SELECT
       }
     );
