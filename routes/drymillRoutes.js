@@ -2059,9 +2059,7 @@ router.post("/drymill/process-event", async (req, res) => {
         AND "processingType" = :processingType
         AND "producer" = :producer
         AND "processStep" = :processStep
-        AND (
-          (:grade IS NULL AND "grade" IS NULL)
-          OR "grade" = :grade
+        AND "grade" = :grade
         );
       `,
       {
