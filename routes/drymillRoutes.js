@@ -2074,6 +2074,8 @@ router.post("/drymill/process-event", async (req, res) => {
       }
     );
 
+    console.log('Received delete request:', { batchNumber, processingType, producer, processStep, grade });
+
     // ----------------------------
     // INSERT new value
     // ----------------------------
