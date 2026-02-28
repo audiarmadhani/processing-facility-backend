@@ -340,4 +340,109 @@ router.post('/inventory/greenbeans/ship', async (req, res) => {
   }
 });
 
+router.post('/inventory/greenbeans/move', async (req, res) => {
+  const t = await sequelize.transaction();
+
+  try {
+    const { batchNumber, newLocation, updatedBy, createdBy } = req.body;
+
+    if (!batchNumber || !newLocation || !updatedBy || !createdBy) {
+      await t.rollback();
+      return res.status(400).json({
+        error: 'batchNumber, newLocation, updatedBy and createdBy are required'
+      });
+    }
+
+    const [batch] = await sequelize.query(
+      `SELECT "location"
+       FROM "GreenBeansInventoryStatus"
+       WHERE "batchNumber" = :batchNumber
+       AND "exitedAt" IS NULL`,
+      {
+        replacements: { batchNumber },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t
+      }
+    );
+
+    if (!batch) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Batch not found or already exited' });
+    }
+
+    if (batch.location === newLocation) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batch already in this warehouse' });
+    }
+
+    const fromLocation = batch.location;
+
+    // Update location
+    await sequelize.query(
+      `UPDATE "GreenBeansInventoryStatus"
+       SET "location" = :newLocation,
+           "updatedAt" = NOW(),
+           "updatedBy" = :updatedBy
+       WHERE "batchNumber" = :batchNumber
+       AND "exitedAt" IS NULL`,
+      {
+        replacements: { batchNumber, newLocation, updatedBy },
+        transaction: t
+      }
+    );
+
+    // Log movement
+    await sequelize.query(
+      `INSERT INTO "GreenBeansInventoryMovements"
+       ("batchNumber", "movementType", "fromLocation", "toLocation", "movedAt", "createdBy")
+       VALUES (:batchNumber, 'Warehouse Transfer', :fromLocation, :toLocation, NOW(), :createdBy)`,
+      {
+        replacements: {
+          batchNumber,
+          fromLocation,
+          toLocation: newLocation,
+          createdBy
+        },
+        transaction: t
+      }
+    );
+
+    await t.commit();
+
+    res.status(200).json({ message: 'Batch moved successfully' });
+
+  } catch (error) {
+    await t.rollback();
+    console.error(error);
+    res.status(500).json({ error: 'Failed to move batch' });
+  }
+});
+
+router.get('/inventory/greenbeans/movements/:batchNumber', async (req, res) => {
+  try {
+    const { batchNumber } = req.params;
+
+    const rows = await sequelize.query(
+      `SELECT
+         "movementType",
+         "fromLocation",
+         "toLocation",
+         "movedAt",
+         "createdBy"
+       FROM "GreenBeansInventoryMovements"
+       WHERE "batchNumber" = :batchNumber
+       ORDER BY "movedAt" DESC`,
+      {
+        replacements: { batchNumber },
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch movement history' });
+  }
+});
+
 module.exports = router;
