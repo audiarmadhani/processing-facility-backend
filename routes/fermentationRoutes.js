@@ -379,32 +379,7 @@ router.get('/fermentation/details/:batchNumber', async (req, res) => {
 
   try {
     const fermentation = await sequelize.query(`
-      SELECT 
-        f."batchNumber", f."referenceNumber", f."experimentNumber", f."processingType", f."description",
-        f."farmerName", f."type", f."variety", f."harvestDate", f."harvestAt", f."receivedAt",
-        f."receivedWeight", f."rejectWeight", f."defectWeight", f."damagedWeight", f."lostWeight",
-        f."preprocessingWeight", f."quality", f."brix", f."preStorage", f."preStorageCondition",
-        f."preFermentationStorageGoal", f."preFermentationStorageStart", f."preFermentationStorageEnd",
-        f."prePulped", f."prePulpedDelva", f."preFermentationTimeAfterPulping", f."prePulpedWeight",
-        f."cherryType", f."fermentationCherryWeight", f."fermentation", f."tank", f."fermentationStarter",
-        f."fermentationStarterAmount", f."gas", f."pressure", f."isSubmerged", f."totalVolume",
-        f."waterUsed", f."starterUsed", f."stirring", f."fermentationTemperature", f."pH",
-        f."fermentationTimeTarget", f."fermentationStart", f."fermentationEnd", f."finalPH",
-        f."finalTDS", f."finalTemperature", f."postFermentationWeight", f."postPulped",
-        f."secondFermentation", f."secondFermentationTank", f."secondWashedDelva", f."secondWashed",
-        f."secondFermentationCherryWeight", f."secondFermentationPulpedWeight", f."secondStarterType",
-        f."secondGas", f."secondPressure", f."secondIsSubmerged", f."secondTotalVolume",
-        f."secondWaterUsed", f."secondMosstoUsed", f."secondActualVolume", f."secondTemperature",
-        f."secondFermentationTimeTarget", f."secondFermentationStart", f."secondFermentationEnd",
-        f."dryingArea", f."avgTemperature", f."preDryingWeight", f."finalMoisture", f."postDryingWeight",
-        f."dryingStart", f."dryingEnd", f."secondDrying", f."secondDryingArea", f."secondAverageTemperature",
-        f."secondFinalMoisture", f."secondPostDryingWeight", f."secondDryingStart", f."secondDryingEnd",
-        f."rehydration", f."storage", f."storageTemperature", f."hullingTime", f."bagType",
-        f."postHullingWeight", f."productLine", f."wesorter", f."preClassifier", f."airlock",
-        f."tankAmount", f."leachateTarget", f."leachate", f."brewTankTemperature", f."waterTemperature",
-        f."coolerTemperature", f."drying"
-      FROM "FermentationData" f
-      WHERE f."batchNumber" = :batchNumber
+      SELECT * FROM "FermentationData" f WHERE f."batchNumber" = :batchNumber
     `, {
       replacements: { batchNumber },
       type: sequelize.QueryTypes.SELECT,
