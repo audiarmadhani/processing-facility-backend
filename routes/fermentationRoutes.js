@@ -91,7 +91,7 @@ router.post('/fermentation', async (req, res) => {
   try {
     const {
       batchNumber,
-      fermentationTank,
+      tank,
       fermentationStart,
       fermentationEnd,
       createdBy,
@@ -104,7 +104,7 @@ router.post('/fermentation', async (req, res) => {
       variety,
       fermentation,
       secondFermentation,
-      secondFermentationTank,
+      secondTank,
       gas,
       pressure,
       isSubmerged,
@@ -140,9 +140,9 @@ router.post('/fermentation', async (req, res) => {
     } = req.body;
 
     // ---- required guards ----
-    if (!batchNumber || !fermentationTank || !fermentationStart || !createdBy) {
+    if (!batchNumber || !tank || !fermentationStart || !createdBy) {
       return res.status(400).json({
-        error: 'batchNumber, fermentationTank, fermentationStart, and createdBy are required',
+        error: 'batchNumber, tank, fermentationStart, and createdBy are required',
       });
     }
 
@@ -211,7 +211,7 @@ router.post('/fermentation', async (req, res) => {
         "variety",
         "fermentation",
         "secondFermentation",
-        "secondFermentationTank",
+        "secondTank",
         "gas",
         "pressure",
         "isSubmerged",
@@ -262,7 +262,7 @@ router.post('/fermentation', async (req, res) => {
         :variety,
         :fermentation,
         :secondFermentation,
-        :secondFermentationTank,
+        :secondTank,
         :gas,
         :pressure,
         :isSubmerged,
@@ -302,7 +302,7 @@ router.post('/fermentation', async (req, res) => {
       {
         replacements: {
           batchNumber,
-          tank: fermentationTank,
+          tank: tank,
           startDate,
           endDate,
           createdBy,
@@ -315,7 +315,7 @@ router.post('/fermentation', async (req, res) => {
           variety,
           fermentation,
           secondFermentation,
-          secondFermentationTank,
+          secondTank,
           gas,
           pressure: numeric.pressure,
           isSubmerged,
@@ -538,7 +538,7 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
       `
       UPDATE "FermentationData"
       SET
-        "tank" = :tank,
+        "tank" = COALESCE(:tank, "tank"),
         "startDate" = COALESCE(:startDate, "startDate"),
         "endDate" = :endDate,
         "pressure" = :pressure,
@@ -568,7 +568,7 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
       {
         replacements: {
           batchNumber,
-          tank: d.fermentationTank,
+          tank: d.tank || undefined,
           startDate,
           endDate,
           pressure: numeric.pressure,
