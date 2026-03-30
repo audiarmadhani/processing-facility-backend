@@ -3,6 +3,12 @@ const router = express.Router();
 const { Sequelize, DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
+const multer = require("multer");
+const fs = require("fs");
+const { google } = require("googleapis");
+
+const upload = multer({ dest: "uploads/" });
+
 // Define PostprocessingData model
 const PostprocessingData = sequelize.define(
   'PostprocessingData',
@@ -360,5 +366,48 @@ router.get('/postproqc/:batchNumber', async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch QC data for batch' });
   }
 });
+
+router.post("/postproqc/image", async (req, res) => {
+  try {
+    const { batchNumber, imageUrl } = req.body;
+
+    await sequelize.query(
+      `
+      INSERT INTO "PostprocessingQCImages"
+      ("batchNumber","imageUrl")
+      VALUES (:batchNumber,:imageUrl)
+      `,
+      {
+        replacements: { batchNumber, imageUrl },
+        type: sequelize.QueryTypes.INSERT
+      }
+    );
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to save QC image" });
+  }
+});
+
+router.get("/postproqc/images/:batchNumber", async (req,res)=>{
+
+  const images = await sequelize.query(
+    `
+    SELECT *
+    FROM "PostprocessingQCImages"
+    WHERE "batchNumber" = :batchNumber
+    ORDER BY "createdAt" DESC
+    `,
+    {
+      replacements:{batchNumber:req.params.batchNumber},
+      type:sequelize.QueryTypes.SELECT
+    }
+  )
+
+  res.json(images)
+
+})
 
 module.exports = router;
