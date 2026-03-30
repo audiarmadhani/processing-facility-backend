@@ -53,32 +53,40 @@ router.post('/upload-image', upload.single('file'), async (req, res) => {
     if (!batchNumber) throw new Error('Batch number is required');
 
     // Set the specific parent folder ID where you want to search/create folders
-    const parentFolderId = '1zYmbuJ1jv06E0uHyG3cTf3Vyn5a9OoUP';
-    let folderId;
+    const ROOT_FOLDER_ID = '1zYmbuJ1jv06E0uHyG3cTf3Vyn5a9OoUP';
+    const MODULE_NAME = body.module || 'GB-QC';
 
-    const folderSearch = await drive.files.list({
-      q: `mimeType='application/vnd.google-apps.folder' and name='${batchNumber}' and '${parentFolderId}' in parents`,
-      fields: 'files(id, name)',
-    });
+    // helper
+    const getOrCreateFolder = async (name, parentId) => {
+      const res = await drive.files.list({
+        q: `mimeType='application/vnd.google-apps.folder' and name='${name}' and '${parentId}' in parents`,
+        fields: 'files(id, name)',
+      });
 
-    if (folderSearch.data.files.length > 0) {
-      folderId = folderSearch.data.files[0].id;
-    } else {
-      console.log('Folder not found, creating new folder');
+      if (res.data.files.length > 0) {
+        return res.data.files[0].id;
+      }
+
       const folder = await drive.files.create({
         resource: {
-          name: batchNumber,
+          name,
           mimeType: 'application/vnd.google-apps.folder',
-          parents: [parentFolderId], // Set parent folder
+          parents: [parentId],
         },
         fields: 'id',
       });
-      folderId = folder.data.id;
-    }
 
+      return folder.data.id;
+    };
+
+    // 1️⃣ get/create module folder (GB-QC)
+    const moduleFolderId = await getOrCreateFolder(MODULE_NAME, ROOT_FOLDER_ID);
+
+    // 2️⃣ get/create batch folder inside module
+    const folderId = await getOrCreateFolder(batchNumber, moduleFolderId);
     // Upload file to the folder
     const fileMetadata = {
-      name: `${batchNumber}.jpg`, // Use backticks for template literal
+      name: `${batchNumber}_${Date.now()}.jpg`, // Use backticks for template literal
       parents: [folderId],
     };
 
@@ -97,8 +105,8 @@ router.post('/upload-image', upload.single('file'), async (req, res) => {
     fs.unlinkSync(filePath);
 
     res.json({
-      message: 'File uploaded successfully!',
-      file: uploadedFile.data,
+      url: `https://drive.google.com/uc?id=${uploadedFile.data.id}`,
+      view: uploadedFile.data.webViewLink
     });
 
   } catch (error) {
