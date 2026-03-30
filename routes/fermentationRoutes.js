@@ -17,13 +17,17 @@ router.get('/fermentation/available-tanks', async (req, res) => {
     const allBlueBarrelCodes = Array.from({ length: 15 }, (_, i) => 
       `BB-HQ-${String(i + 1).padStart(4, '0')}`
     );
+
+    const allBucketCodes = Array.from({ length: 10 }, (_, i) => 
+      `BUC-HQ-${String(i + 1).padStart(4, '0')}`
+    );
+
     const allTanks = [
       'Biomaster',
       'Carrybrew',
       'Washing Track',
-      'Fermentation Bucket', // ✅ ADD THIS
-      'Blue Barrel',
-      ...allBlueBarrelCodes
+      ...allBlueBarrelCodes,
+      ...allBucketCodes
     ];
 
     const inUseTanks = await sequelize.query(
