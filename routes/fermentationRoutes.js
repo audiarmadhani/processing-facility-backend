@@ -590,8 +590,6 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
         "updatedAt" = NOW()
       WHERE 
         "batchNumber" = :batchNumber
-        AND COALESCE("referenceNumber",'') = COALESCE(:referenceNumber,'')
-        AND COALESCE("experimentNumber",'') = COALESCE(:experimentNumber,'')
         AND COALESCE("tank",'') = COALESCE(:tank,'')
       `,
       {
@@ -621,8 +619,6 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
           secondIsSubmerged: d.secondIsSubmerged,
           secondFermentationTimeTarget: numeric.secondFermentationTimeTarget,
           secondTemperature: numeric.secondTemperature,
-          referenceNumber: d.referenceNumber,
-          experimentNumber: d.experimentNumber,
           tank: d.tank
         },
       }
