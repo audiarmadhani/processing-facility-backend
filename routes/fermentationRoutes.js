@@ -531,8 +531,14 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
     const { batchNumber } = req.params;
     const d = req.body;
 
-    const startDate = toNullableDate(d.fermentationStart);
-    const endDate = toNullableDate(d.fermentationEnd);
+    const startDate =
+      d.fermentationStart === null || d.startDate === ''
+        ? undefined
+        : toNullableDate(d.fermentationStart);
+    const endDate =
+      d.fermentationEnd === null || d.endDate === ''
+        ? undefined
+        : toNullableDate(d.fermentationEnd);
 
     const numeric = {
       pressure: toNullableFloat(d.pressure),
