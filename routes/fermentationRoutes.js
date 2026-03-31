@@ -1,18 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
-const cors = require('cors');
-
-router.use(cors({
-  origin: ['https://kopifabriek-platform.vercel.app', 'http://localhost:3000'],
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 204
-}));
-
-// Handle CORS preflight requests
-router.options('*', cors());
 
 const toNullableFloat = (v) =>
   v === '' || v === undefined || v === null ? null : parseFloat(v);
