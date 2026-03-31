@@ -298,6 +298,31 @@ router.post('/fermentation', async (req, res) => {
         NOW(),
         NOW()
       )
+      ON CONFLICT ("batchNumber", "referenceNumber", "experimentNumber")
+      DO UPDATE SET
+        "tank" = EXCLUDED."tank",
+        "startDate" = EXCLUDED."startDate",
+        "endDate" = EXCLUDED."endDate",
+        "processingType" = EXCLUDED."processingType",
+        "description" = EXCLUDED."description",
+        "farmerName" = EXCLUDED."farmerName",
+        "type" = EXCLUDED."type",
+        "variety" = EXCLUDED."variety",
+        "fermentation" = EXCLUDED."fermentation",
+        "secondFermentation" = EXCLUDED."secondFermentation",
+        "secondTank" = EXCLUDED."secondTank",
+        "gas" = EXCLUDED."gas",
+        "pressure" = EXCLUDED."pressure",
+        "isSubmerged" = EXCLUDED."isSubmerged",
+        "pH" = EXCLUDED."pH",
+        "fermentationTimeTarget" = EXCLUDED."fermentationTimeTarget",
+        "totalVolume" = EXCLUDED."totalVolume",
+        "waterUsed" = EXCLUDED."waterUsed",
+        "starterUsed" = EXCLUDED."starterUsed",
+        "stirring" = EXCLUDED."stirring",
+        "fermentationTemperature" = EXCLUDED."fermentationTemperature",
+        "avgTemperature" = EXCLUDED."avgTemperature",
+        "updatedAt" = NOW();
       `,
       {
         replacements: {
@@ -563,7 +588,11 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
         "secondFermentationTimeTarget" = :secondFermentationTimeTarget,
         "secondTemperature" = :secondTemperature,
         "updatedAt" = NOW()
-      WHERE "batchNumber" = :batchNumber
+      WHERE 
+        "batchNumber" = :batchNumber
+        AND COALESCE("referenceNumber",'') = COALESCE(:referenceNumber,'')
+        AND COALESCE("experimentNumber",'') = COALESCE(:experimentNumber,'')
+        AND COALESCE("tank",'') = COALESCE(:tank,'')
       `,
       {
         replacements: {
@@ -592,6 +621,9 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
           secondIsSubmerged: d.secondIsSubmerged,
           secondFermentationTimeTarget: numeric.secondFermentationTimeTarget,
           secondTemperature: numeric.secondTemperature,
+          referenceNumber: d.referenceNumber,
+          experimentNumber: d.experimentNumber,
+          tank: d.tank
         },
       }
     );
@@ -631,7 +663,7 @@ router.put('/fermentation/finish/:batchNumber', async (req, res) => {
     }
 
     const [batchCheck] = await sequelize.query(
-      'SELECT "fermentationStart" FROM "FermentationData" WHERE "batchNumber" = :batchNumber AND status = :status',
+      'SELECT "startDate" FROM "FermentationData" WHERE "batchNumber" = :batchNumber AND status = :status',
       {
         replacements: { batchNumber, status: 'In Progress' },
         transaction: t,
@@ -651,7 +683,7 @@ router.put('/fermentation/finish/:batchNumber', async (req, res) => {
 
     const [fermentationData] = await sequelize.query(`
       UPDATE "FermentationData"
-      SET "fermentationEnd" = :fermentationEnd, status = :status, "updatedAt" = NOW()
+      SET "endDate" = :fermentationEnd, status = :status, "updatedAt" = NOW()
       WHERE "batchNumber" = :batchNumber
       RETURNING *;
     `, {
