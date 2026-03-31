@@ -563,7 +563,6 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
       `
       UPDATE "FermentationData"
       SET
-        "tank" = COALESCE(:tank, "tank"),
         "startDate" = COALESCE(:startDate, "startDate"),
         "endDate" = :endDate,
         "pressure" = :pressure,
@@ -588,6 +587,28 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
         "secondFermentationTimeTarget" = :secondFermentationTimeTarget,
         "secondTemperature" = :secondTemperature,
         "updatedAt" = NOW()
+        "processingType",
+        "referenceNumber",
+        "experimentNumber",
+        "description",
+        "farmerName",
+        "type",
+        "variety",
+        "fermentation",
+        "secondFermentation",
+        "secondTank",
+        "gas",
+        "pressure",
+        "harvestAt",
+        "receivedAt",
+        "receivedWeight",
+        "rejectWeight",
+        "defectWeight",
+        "damagedWeight",
+        "lostWeight",
+        "preprocessingWeight",
+        "quality",
+        "brix",
       WHERE 
         "batchNumber" = :batchNumber
         AND COALESCE("tank",'') = COALESCE(:tank,'')
@@ -595,7 +616,6 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
       {
         replacements: {
           batchNumber,
-          tank: d.tank || undefined,
           startDate,
           endDate,
           pressure: numeric.pressure,
@@ -619,6 +639,28 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
           secondIsSubmerged: d.secondIsSubmerged,
           secondFermentationTimeTarget: numeric.secondFermentationTimeTarget,
           secondTemperature: numeric.secondTemperature,
+          processingType: d.processingType,
+          referenceNumber: d.referenceNumber,
+          experimentNumber: d.experimentNumber,
+          description: d.description,
+          farmerName: d.farmerName,
+          type: d.type,
+          variety: d.variety,
+          fermentation: d.fermentation,
+          secondFermentation: d.secondFermentation,
+          secondTank: d.secondGas,
+          gas: d.gas,
+          pressure: d.pressure,
+          harvestAt: d.harvestAt,
+          receivedAt: d.receivedAt,
+          receivedWeight: d.receivedWeight,
+          rejectWeight: d.rejectWeight,
+          defectWeight: d.defectWeight,
+          damagedWeight: d.damagedWeight,
+          lostWeight: d.lostWeight,
+          preprocessingWeight: d.preprocessingWeight,
+          quality: d.quality,
+          brix: d.brix,
           tank: d.tank
         },
       }
