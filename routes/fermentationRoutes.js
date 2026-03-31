@@ -586,7 +586,7 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
         "secondIsSubmerged" = :secondIsSubmerged,
         "secondFermentationTimeTarget" = :secondFermentationTimeTarget,
         "secondTemperature" = :secondTemperature,
-        "updatedAt" = NOW()
+        "updatedAt" = NOW(),
         "processingType",
         "referenceNumber",
         "experimentNumber",
