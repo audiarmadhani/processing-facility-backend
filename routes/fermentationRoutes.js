@@ -526,151 +526,116 @@ router.get('/fermentation-weight-measurements/:batchNumber', async (req, res) =>
 });
 
 // Route to update fermentation details
-router.put('/fermentation/details/:batchNumber', async (req, res) => {
+router.patch('/fermentation/details/:batchNumber', async (req, res) => {
   try {
     const { batchNumber } = req.params;
     const d = req.body;
 
-    const startDate =
-      d.fermentationStart === null || d.startDate === ''
-        ? undefined
-        : toNullableDate(d.fermentationStart);
-    const endDate =
-      d.fermentationEnd === null || d.endDate === ''
-        ? undefined
-        : toNullableDate(d.fermentationEnd);
+    const updates = {};
+    const replacements = { batchNumber };
 
-    const numeric = {
-      pressure: toNullableFloat(d.pressure),
-      totalVolume: toNullableFloat(d.totalVolume),
-      waterUsed: toNullableFloat(d.waterUsed),
-      starterUsed: toNullableFloat(d.starterUsed),
-      stirring: toNullableFloat(d.stirring),
-      fermentationTemperature: toNullableFloat(d.fermentationTemperature),
-      avgTemperature: toNullableFloat(d.avgTemperature),
-      pH: toNullableFloat(d.pH),
-      tankAmount: toNullableInt(d.tankAmount),
-      leachateTarget: toNullableFloat(d.leachateTarget),
-      leachate: toNullableFloat(d.leachate),
-      brewTankTemperature: toNullableFloat(d.brewTankTemperature),
-      waterTemperature: toNullableFloat(d.waterTemperature),
-      coolerTemperature: toNullableFloat(d.coolerTemperature),
-      secondPressure: toNullableFloat(d.secondPressure),
-      secondTemperature: toNullableFloat(d.secondTemperature),
-      fermentationTimeTarget: toNullableInt(d.fermentationTimeTarget),
-      secondFermentationTimeTarget: toNullableInt(d.secondFermentationTimeTarget),
+    // -------------------------
+    // 🧠 HELPER FUNCTIONS
+    // -------------------------
+    const setIfValid = (key, value) => {
+      if (value !== undefined && value !== null && value !== '') {
+        updates[key] = `:${key}`;
+        replacements[key] = value;
+      }
     };
 
-    if (Object.values(numeric).some((v) => isNaN(v) && v !== null)) {
-      return res.status(400).json({ error: 'Invalid numeric field format' });
+    const setNumber = (key, value) => {
+      if (value !== undefined && value !== null && value !== '') {
+        const num = Number(value);
+        if (isNaN(num)) {
+          throw new Error(`Invalid number for ${key}`);
+        }
+        updates[key] = `:${key}`;
+        replacements[key] = num;
+      }
+    };
+
+    const setDate = (key, value) => {
+      if (value !== undefined && value !== null && value !== '') {
+        updates[key] = `:${key}`;
+        replacements[key] = new Date(value);
+      }
+    };
+
+    // -------------------------
+    // ✏️ MAP FIELDS
+    // -------------------------
+
+    // Dates
+    setDate('startDate', d.fermentationStart);
+    setDate('endDate', d.fermentationEnd);
+    setDate('harvestAt', d.harvestAt);
+    setDate('receivedAt', d.receivedAt);
+
+    // Numbers
+    setNumber('pressure', d.pressure);
+    setNumber('pH', d.pH);
+    setNumber('totalVolume', d.totalVolume);
+    setNumber('waterUsed', d.waterUsed);
+    setNumber('starterUsed', d.starterUsed);
+    setNumber('stirring', d.stirring);
+    setNumber('avgTemperature', d.avgTemperature);
+    setNumber('tankAmount', d.tankAmount);
+    setNumber('leachateTarget', d.leachateTarget);
+    setNumber('leachate', d.leachate);
+    setNumber('brewTankTemperature', d.brewTankTemperature);
+    setNumber('waterTemperature', d.waterTemperature);
+    setNumber('coolerTemperature', d.coolerTemperature);
+    setNumber('secondPressure', d.secondPressure);
+    setNumber('secondTemperature', d.secondTemperature);
+    setNumber('fermentationTimeTarget', d.fermentationTimeTarget);
+    setNumber('secondFermentationTimeTarget', d.secondFermentationTimeTarget);
+
+    // Strings / enums
+    setIfValid('processingType', d.processingType);
+    setIfValid('referenceNumber', d.referenceNumber);
+    setIfValid('experimentNumber', d.experimentNumber);
+    setIfValid('description', d.description);
+    setIfValid('farmerName', d.farmerName);
+    setIfValid('type', d.type);
+    setIfValid('variety', d.variety);
+    setIfValid('fermentation', d.fermentation);
+    setIfValid('secondFermentation', d.secondFermentation);
+    setIfValid('secondFermentationTank', d.secondFermentationTank);
+    setIfValid('gas', d.gas);
+    setIfValid('secondGas', d.secondGas);
+    setIfValid('isSubmerged', d.isSubmerged);
+    setIfValid('secondIsSubmerged', d.secondIsSubmerged);
+    setIfValid('quality', d.quality);
+    setIfValid('brix', d.brix);
+    setIfValid('tank', d.tank);
+
+    // -------------------------
+    // 🚨 NOTHING TO UPDATE
+    // -------------------------
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
     }
 
-    await sequelize.query(
-      `
-      UPDATE "FermentationData"
-      SET
-        "startDate" = :startDate,
-        "endDate" = :endDate,
-        "pressure" = :pressure,
-        "isSubmerged" = :isSubmerged,
-        "pH" = :pH,
-        "fermentationTimeTarget" = :fermentationTimeTarget,
-        "totalVolume" = :totalVolume,
-        "waterUsed" = :waterUsed,
-        "starterUsed" = :starterUsed,
-        "stirring" = :stirring,
-        "fermentationTemperature" = :fermentationTemperature,
-        "avgTemperature" = :avgTemperature,
-        "tankAmount" = :tankAmount,
-        "leachateTarget" = :leachateTarget,
-        "leachate" = :leachate,
-        "brewTankTemperature" = :brewTankTemperature,
-        "waterTemperature" = :waterTemperature,
-        "coolerTemperature" = :coolerTemperature,
-        "secondGas" = :secondGas,
-        "secondPressure" = :secondPressure,
-        "secondIsSubmerged" = :secondIsSubmerged,
-        "secondFermentationTimeTarget" = :secondFermentationTimeTarget,
-        "secondTemperature" = :secondTemperature,
-        "updatedAt" = NOW(),
-        "processingType" = :processingType,
-        "referenceNumber" = :referenceNumber,
-        "experimentNumber" = :experimentNumber,
-        "description" = :description,
-        "farmerName" = :farmerName,
-        "type" = :type,
-        "variety" = :variety,
-        "fermentation" = :fermentation,
-        "secondFermentation" = :secondFermentation,
-        "secondFermentationTank" = :secondFermentationTank,
-        "gas" = :gas,
-        "harvestAt" = :harvestAt,
-        "receivedAt" = :receivedAt,
-        "receivedWeight" = :receivedWeight,
-        "rejectWeight" = :rejectWeight,
-        "defectWeight" = :defectWeight,
-        "damagedWeight" = :damagedWeight,
-        "lostWeight" = :lostWeight,
-        "preprocessingWeight" = :preprocessingWeight,
-        "quality" = :quality,
-        "brix" = :brix
-      WHERE 
-        "batchNumber" = :batchNumber
-        AND COALESCE("tank",'') = COALESCE(:tank,'')
-      `,
-      {
-        replacements: {
-          batchNumber,
-          startDate,
-          endDate,
-          pressure: numeric.pressure,
-          isSubmerged: d.isSubmerged,
-          pH: numeric.pH,
-          fermentationTimeTarget: numeric.fermentationTimeTarget,
-          totalVolume: numeric.totalVolume,
-          waterUsed: numeric.waterUsed,
-          starterUsed: numeric.starterUsed,
-          stirring: numeric.stirring,
-          fermentationTemperature: numeric.fermentationTemperature,
-          avgTemperature: numeric.avgTemperature,
-          tankAmount: numeric.tankAmount,
-          leachateTarget: numeric.leachateTarget,
-          leachate: numeric.leachate,
-          brewTankTemperature: numeric.brewTankTemperature,
-          waterTemperature: numeric.waterTemperature,
-          coolerTemperature: numeric.coolerTemperature,
-          secondGas: d.secondGas,
-          secondPressure: numeric.secondPressure,
-          secondIsSubmerged: d.secondIsSubmerged,
-          secondFermentationTimeTarget: numeric.secondFermentationTimeTarget,
-          secondTemperature: numeric.secondTemperature,
-          processingType: d.processingType,
-          referenceNumber: d.referenceNumber,
-          experimentNumber: d.experimentNumber,
-          description: d.description,
-          farmerName: d.farmerName,
-          type: d.type,
-          variety: d.variety,
-          fermentation: d.fermentation,
-          secondFermentation: d.secondFermentation,
-          secondFermentationTank: d.secondFermentationTank,
-          gas: d.gas,
-          harvestAt: d.harvestAt,
-          receivedAt: d.receivedAt,
-          receivedWeight: d.receivedWeight,
-          rejectWeight: d.rejectWeight,
-          defectWeight: d.defectWeight,
-          damagedWeight: d.damagedWeight,
-          lostWeight: d.lostWeight,
-          preprocessingWeight: d.preprocessingWeight,
-          quality: d.quality,
-          brix: d.brix,
-          tank: d.tank
-        },
-      }
-    );
+    // -------------------------
+    // 🧱 BUILD QUERY
+    // -------------------------
+    const setClause = Object.entries(updates)
+      .map(([key, val]) => `"${key}" = ${val}`)
+      .join(', ');
 
-    res.json({ message: 'Fermentation updated successfully' });
+    const query = `
+      UPDATE "FermentationData"
+      SET ${setClause},
+          "updatedAt" = NOW()
+      WHERE "batchNumber" = :batchNumber
+        AND COALESCE("tank",'') = COALESCE(:tank,'')
+    `;
+
+    await sequelize.query(query, { replacements });
+
+    res.json({ message: 'Fermentation updated safely' });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({
