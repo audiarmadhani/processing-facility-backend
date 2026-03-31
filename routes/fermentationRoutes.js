@@ -608,7 +608,7 @@ router.put('/fermentation/details/:batchNumber', async (req, res) => {
         "lostWeight",
         "preprocessingWeight",
         "quality",
-        "brix",
+        "brix"
       WHERE 
         "batchNumber" = :batchNumber
         AND COALESCE("tank",'') = COALESCE(:tank,'')
