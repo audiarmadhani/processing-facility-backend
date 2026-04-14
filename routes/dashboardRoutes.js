@@ -1986,7 +1986,7 @@ router.get('/batch-tracking', async (req, res) => {
         SELECT 
           "batchNumber",
           "farmerName",
-          processingtype,
+          "processingType",
           "grade",
           COALESCE(CAST("receiving_weight" AS TEXT), 'N/A') AS "receiving_weight",
           "receiving_date",

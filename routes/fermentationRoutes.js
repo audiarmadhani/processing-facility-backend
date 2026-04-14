@@ -117,6 +117,7 @@ router.post('/fermentation', async (req, res) => {
       fermentationTemperature,
       avgTemperature,
       harvestAt,
+      harvestDate,
       receivedAt,
       receivedWeight,
       rejectWeight,
@@ -224,6 +225,7 @@ router.post('/fermentation', async (req, res) => {
         "fermentationTemperature",
         "avgTemperature",
         "harvestAt",
+        "harvestDate",
         "receivedAt",
         "receivedWeight",
         "rejectWeight",
@@ -275,6 +277,7 @@ router.post('/fermentation', async (req, res) => {
         :fermentationTemperature,
         :avgTemperature,
         :harvestAt,
+        :harvestDate,
         :receivedAt,
         :receivedWeight,
         :rejectWeight,
@@ -353,6 +356,7 @@ router.post('/fermentation', async (req, res) => {
           fermentationTemperature: numeric.fermentationTemperature,
           avgTemperature: numeric.avgTemperature,
           harvestAt: toNullableDate(harvestAt),
+          harvestDate: toNullableDate(harvestDate),
           receivedAt: toNullableDate(receivedAt),
           receivedWeight: numeric.receivedWeight,
           rejectWeight: numeric.rejectWeight,
@@ -570,6 +574,7 @@ router.patch('/fermentation/details/:batchNumber', async (req, res) => {
     setDate('startDate', d.fermentationStart);
     setDate('endDate', d.fermentationEnd);
     setDate('harvestAt', d.harvestAt);
+    setDate('harvestDate', d.harvestDate);
     setDate('receivedAt', d.receivedAt);
 
     // Numbers
