@@ -97,6 +97,7 @@ router.post('/fermentation', async (req, res) => {
       createdBy,
       processingType,
       referenceNumber,
+      version,
       experimentNumber,
       description,
       farmerName,
@@ -141,9 +142,9 @@ router.post('/fermentation', async (req, res) => {
     } = req.body;
 
     // ---- required guards ----
-    if (!batchNumber || !tank || !fermentationStart || !createdBy) {
+    if (!batchNumber || !tank || !fermentationStart || !createdBy || !version) {
       return res.status(400).json({
-        error: 'batchNumber, tank, fermentationStart, and createdBy are required',
+        error: 'batchNumber, tank, fermentationStart, createdBy, and version are required',
       });
     }
 
@@ -205,6 +206,7 @@ router.post('/fermentation', async (req, res) => {
         "status",
         "processingType",
         "referenceNumber",
+        "version",
         "experimentNumber",
         "description",
         "farmerName",
@@ -257,6 +259,7 @@ router.post('/fermentation', async (req, res) => {
         'In Progress',
         :processingType,
         :referenceNumber,
+        :version,
         :experimentNumber,
         :description,
         :farmerName,
@@ -336,6 +339,7 @@ router.post('/fermentation', async (req, res) => {
           createdBy,
           processingType,
           referenceNumber,
+          version,
           experimentNumber,
           description,
           farmerName,
