@@ -285,7 +285,20 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         customer_id, 
         driver_id: shipping_method === 'Self' ? driver_id : null, 
         shipping_method, 
-        driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null, 
+        driver_details: (() => {
+          if (!driver_details) return null;
+
+          if (typeof driver_details === 'string') {
+            try {
+              JSON.parse(driver_details); // already JSON string
+              return driver_details;
+            } catch {
+              return JSON.stringify(driver_details);
+            }
+          }
+
+          return JSON.stringify(driver_details);
+        })(),
         price: parsedPrice, 
         tax_percentage: parsedTaxPercentage,
         shipping_address,
@@ -479,7 +492,20 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
         customer_id,
         driver_id: shipping_method === 'Self' ? driver_id : null,
         shipping_method,
-        driver_details: shipping_method === 'Customer' ? JSON.stringify(driver_details) : null,
+        driver_details: (() => {
+          if (!driver_details) return null;
+
+          if (typeof driver_details === 'string') {
+            try {
+              JSON.parse(driver_details); // already JSON string
+              return driver_details;
+            } catch {
+              return JSON.stringify(driver_details);
+            }
+          }
+
+          return JSON.stringify(driver_details);
+        })(),
         price: parsedPrice,
         tax_percentage: parsedTaxPercentage,
         shipping_address,
