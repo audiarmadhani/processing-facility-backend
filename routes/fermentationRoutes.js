@@ -1023,18 +1023,16 @@ router.put('/fermentation/finish/:batchNumber', async (req, res) => {
 });
 
 router.get('/fermentation/check-experiment', async (req, res) => {
-  const { batchNumber, referenceNumber, experimentNumber } = req.query;
+  const { experimentNumber } = req.query;
 
   const result = await sequelize.query(
     `
     SELECT 1 FROM "FermentationData"
-    WHERE "batchNumber" = :batchNumber
-      AND "referenceNumber" = :referenceNumber
-      AND "experimentNumber" = :experimentNumber
+    WHERE "experimentNumber" = :experimentNumber
     LIMIT 1
     `,
     {
-      replacements: { batchNumber, referenceNumber, experimentNumber },
+      replacements: { experimentNumber },
       type: sequelize.QueryTypes.SELECT,
     }
   );
