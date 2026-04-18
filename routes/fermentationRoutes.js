@@ -157,7 +157,8 @@ router.post('/fermentation', async (req, res) => {
       // SECOND FERMENTATION
       secondFermentation,
       secondFermentationTank,
-      secondWashedDelva,
+      secondPostPulped,
+      secondPostPulpedDelva,
       secondWashed,
       secondFermentationCherryWeight,
       secondFermentationPulpedWeight,
@@ -336,7 +337,8 @@ router.post('/fermentation', async (req, res) => {
         -- SECOND FERMENTATION
         "secondFermentation",
         "secondFermentationTank",
-        "secondWashedDelva",
+        "secondPostPulped",
+        "secondPostPulpedDelva",
         "secondWashed",
         "secondFermentationCherryWeight",
         "secondFermentationPulpedWeight",
@@ -459,7 +461,8 @@ router.post('/fermentation', async (req, res) => {
 
         :secondFermentation,
         :secondFermentationTank,
-        :secondWashedDelva,
+        :secondPostPulped,
+        :secondPostPulpedDelva,
         :secondWashed,
         :secondFermentationCherryWeight,
         :secondFermentationPulpedWeight,
@@ -625,7 +628,8 @@ router.post('/fermentation', async (req, res) => {
           // SECOND FERMENTATION
           secondFermentation,
           secondFermentationTank,
-          secondWashedDelva,
+          secondPostPulped,
+          secondPostPulpedDelva,
           secondWashed,
           secondFermentationCherryWeight: toNullableFloat(secondFermentationCherryWeight),
           secondFermentationPulpedWeight: toNullableFloat(secondFermentationPulpedWeight),
