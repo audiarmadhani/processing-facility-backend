@@ -356,7 +356,8 @@ router.get('/receiving/:batchNumber', async (req, res) => {
         a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
         b."qcDate",
         c."contractType",
-        c."farmVarieties"
+        c."farmVarieties",
+        c."farmVarieties" as variety
       FROM "ReceivingData" a 
       LEFT JOIN qc b ON a."batchNumber" = b."batchNumber" 
       LEFT JOIN "Farmers" c ON a."farmerID" = c."farmerID"

@@ -229,10 +229,6 @@ router.post('/fermentation', async (req, res) => {
       return res.status(400).json({ error: 'Invalid fermentationStart' });
     }
 
-    if (startDate > new Date()) {
-      return res.status(400).json({ error: 'fermentationStart cannot be in the future' });
-    }
-
     // ---- normalize numeric fields ----
     const numeric = {
       pressure: toNullableFloat(pressure),
