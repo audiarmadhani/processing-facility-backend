@@ -216,9 +216,9 @@ router.post('/fermentation', async (req, res) => {
     } = req.body;
 
     // ---- required guards ----
-    if (!batchNumber || !tank || !fermentationStart || !createdBy || !version) {
+    if (!batchNumber || !createdBy || !version) {
       return res.status(400).json({
-        error: 'batchNumber, tank, fermentationStart, createdBy, and version are required',
+        error: 'batchNumber, createdBy, and version are required',
       });
     }
 
