@@ -33,7 +33,8 @@ router.get('/fermentation/available-tanks', async (req, res) => {
     const inUseTanks = await sequelize.query(
       `SELECT DISTINCT tank 
        FROM "FermentationData" 
-       WHERE status = :status`,
+       WHERE status = :status
+       AND tank NOT IN ('Carrybrew', 'Biomaster')`,
       {
         replacements: { status: 'In Progress' },
         type: sequelize.QueryTypes.SELECT
