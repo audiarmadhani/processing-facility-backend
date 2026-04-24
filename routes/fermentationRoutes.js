@@ -1041,4 +1041,36 @@ router.get('/fermentation/check-experiment', async (req, res) => {
   res.json({ exists: result.length > 0 });
 });
 
+// DELETE /api/fermentation/:batchNumber
+router.delete('/fermentation/:batchNumber', async (req, res) => {
+  try {
+    const { batchNumber } = req.params;
+    const { tank } = req.query; // pass tank as query param
+
+    if (!batchNumber) {
+      return res.status(400).json({ error: 'batchNumber is required' });
+    }
+
+    await sequelize.query(
+      `
+      DELETE FROM "FermentationData"
+      WHERE "batchNumber" = :batchNumber
+      AND COALESCE("tank",'') = COALESCE(:tank,'')
+      AND ("endDate" IS NOT NULL)
+      `,
+      {
+        replacements: { batchNumber, tank },
+      }
+    );
+
+    res.json({ message: 'Batch deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: 'Failed to delete batch',
+      details: err.message,
+    });
+  }
+});
+
 module.exports = router;
