@@ -832,7 +832,8 @@ router.get('/dashboard-metrics', async (req, res) => {
                 WHERE "unripePercentage" IS NOT NULL
                 AND b.type = 'Arabica'
                 AND b.merged = FALSE
-                AND b."commodityType" = 'Cherry' 
+                AND b."commodityType" = 'Cherry'
+                AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}'  
                 GROUP BY a."batchNumber"
             ) a
             GROUP BY "qcDate"
@@ -859,6 +860,7 @@ router.get('/dashboard-metrics', async (req, res) => {
                 AND b.type = 'Robusta'
                 AND b.merged = FALSE
                 AND b."commodityType" = 'Cherry' 
+                AND "receivingDate" BETWEEN '${formattedCurrentStartDate}' AND '${formattedCurrentEndDate}' 
                 GROUP BY a."batchNumber"
             ) a
             GROUP BY "qcDate"
