@@ -962,6 +962,7 @@ router.get('/dry-mill-data', async (req, res) => {
 
     const data = await sequelize.query(`
       SELECT * FROM "DryMillData_v"
+      WHERE "batchNumber" LIKE '2026%'
       ORDER BY "dryMillEntered" DESC
     `, {
       type: sequelize.QueryTypes.SELECT,
@@ -1411,6 +1412,7 @@ router.get('/sample-data', async (req, res) => {
       FROM "DryMillSamples" a
       LEFT JOIN "PreprocessingData" b on a."batchNumber" = b."batchNumber" AND a."processingType" = b."processingType"
       LEFT JOIN (SELECT "batchNumber", "processingType", sum(weight) drying_weight FROM "DryingWeightMeasurements" GROUP BY "batchNumber", "processingType") c on a."batchNumber" = c."batchNumber" AND a."processingType" = c."processingType"
+      WHERE a."batchNumber" LIKE '2026%'
     `, {
       type: sequelize.QueryTypes.SELECT,
       transaction: t
