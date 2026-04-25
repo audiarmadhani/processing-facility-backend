@@ -97,7 +97,9 @@ router.get('/transport', async (req, res) => {
          COALESCE(a."harvestWorkerCount", 0) * COALESCE(a."harvestWorkerCostPerPerson", 0) +
          COALESCE(a."transportCostFarmToCollection", 0) +
          COALESCE(a."transportCostCollectionToFacility", 0)) AS "totalCost"
-      FROM "TransportData" a ORDER BY "createdAt" DESC
+      FROM "TransportData" a 
+      WHERE a."batchNumber" LIKE '2026%'
+      ORDER BY "createdAt" DESC
     `);
     res.json(allTransportData);
   } catch (err) {

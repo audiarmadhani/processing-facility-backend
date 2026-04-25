@@ -279,6 +279,7 @@ router.get('/receiving', async (req, res) => {
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", MAX(price) price FROM "QCData" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
        WHERE a.merged = FALSE
+       AND a."batchNumber" LIKE '2026%'
        ${whereClause}
        ORDER BY a."receivingDate" DESC;`,
       {
@@ -295,6 +296,7 @@ router.get('/receiving', async (req, res) => {
        WHERE a.merged = FALSE
        AND a."commodityType" = 'Cherry'
        AND a."batchNumber" NOT LIKE '%MB'
+       AND a."batchNumber" LIKE '2026%'
        ORDER BY a."receivingDate" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},
@@ -311,6 +313,7 @@ router.get('/receiving', async (req, res) => {
        AND a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData")
        ${commodityType ? 'AND a."commodityType" = :commodityType' : ''}
        AND a.merged = FALSE
+       AND a."batchNumber" LIKE '2026%'
        ORDER BY a."receivingDate" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},
@@ -326,6 +329,7 @@ router.get('/receiving', async (req, res) => {
        WHERE a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData")
        ${commodityType ? 'AND a."commodityType" = :commodityType' : ''}
        AND a.merged = FALSE
+       AND a."batchNumber" LIKE '2026%'
        ORDER BY a."batchNumber" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},

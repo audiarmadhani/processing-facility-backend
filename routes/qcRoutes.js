@@ -93,15 +93,15 @@ router.post('/qc', async (req, res) => {
 router.get('/qc', async (req, res) => {
     try {
         const [allRows] = await sequelize.query(
-            `SELECT * FROM "QCData_v" ORDER BY "receivingDate" DESC;`
+            `SELECT * FROM "QCData_v" WHERE "batchNumber" LIKE '2026%' ORDER BY "receivingDate" DESC;`
         );
 
         const [latestRows] = await sequelize.query(
-            `SELECT * FROM "QCData_v" WHERE DATE("qcDate") = DATE(NOW()) ORDER BY "receivingDate" DESC`
+            `SELECT * FROM "QCData_v" WHERE DATE("qcDate") = DATE(NOW()) AND "batchNumber" LIKE '2026%' ORDER BY "receivingDate" DESC`
         );
 
         const [distinctRows] = await sequelize.query(
-            `SELECT * FROM "QCData_vm" ORDER BY "receivingDate" DESC;`
+            `SELECT * FROM "QCData_vm" WHERE "batchNumber" LIKE '2026%' ORDER BY "receivingDate" DESC;`
         );
 
         res.json({ latestRows, allRows, distinctRows });
