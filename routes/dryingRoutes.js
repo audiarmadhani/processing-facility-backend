@@ -12,6 +12,7 @@ router.get('/drying-data', async (req, res) => {
     const data = await sequelize.query(`
       SELECT rfid, "batchNumber", "dryingArea", entered_at, exited_at, created_at
       FROM "DryingData"
+      WHERE "batchNumber" LIKE '2026%'
       ORDER BY exited_at DESC, created_at ASC
     `, { type: sequelize.QueryTypes.SELECT });
 
@@ -520,6 +521,92 @@ router.post('/drying-weight-measurements/delete', async (req, res) => {
     await t.rollback();
     console.error('Error deleting weight measurements:', error);
     res.status(500).json({ error: 'Failed to delete weight measurements', details: error.message });
+  }
+});
+
+router.get('/pending-drying', async (req, res) => {
+  try {
+    const data = await sequelize.query(`
+      SELECT r."batchNumber",
+             r."farmerName",
+             r."processingType",
+             r."type"
+      FROM "ReceivingData" r
+      LEFT JOIN "DryingData" d 
+        ON r."batchNumber" = d."batchNumber"
+        AND d.exited_at IS NULL
+      WHERE d."batchNumber" IS NULL
+      AND r.merged = FALSE
+      AND r."batchNumber" LIKE '2026%'
+      ORDER BY r."batchNumber" DESC
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    res.status(200).json(data);
+  } catch (err) {
+    res.status(500).json({
+      error: 'Failed to fetch pending drying',
+      details: err.message
+    });
+  }
+});
+
+router.post('/assign-drying', async (req, res) => {
+  const { batchNumber, dryingArea } = req.body;
+
+  if (!batchNumber || !dryingArea) {
+    return res.status(400).json({ error: 'batchNumber and dryingArea required' });
+  }
+
+  try {
+    // 🔹 Step 1: Get RFID from ReceivingData
+    const [receiving] = await sequelize.query(`
+      SELECT rfid
+      FROM "ReceivingData"
+      WHERE "batchNumber" = :batchNumber
+      LIMIT 1
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    if (!receiving || !receiving.rfid) {
+      return res.status(400).json({
+        error: `RFID not found for batch ${batchNumber}`
+      });
+    }
+
+    // 🔹 Step 2: Insert into DryingData
+    await sequelize.query(`
+      INSERT INTO "DryingData" (
+        "batchNumber",
+        "dryingArea",
+        rfid,
+        entered_at,
+        created_at
+      )
+      VALUES (
+        :batchNumber,
+        :dryingArea,
+        :rfid,
+        NOW(),
+        NOW()
+      )
+    `, {
+      replacements: {
+        batchNumber,
+        dryingArea,
+        rfid: receiving.rfid
+      }
+    });
+
+    res.status(201).json({ message: 'Batch assigned to drying' });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: 'Failed to assign drying',
+      details: err.message
+    });
   }
 });
 

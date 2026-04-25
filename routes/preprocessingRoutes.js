@@ -934,6 +934,7 @@ router.get('/preprocessing', async (req, res) => {
        FROM "PreprocessingData" a
        LEFT JOIN "BatchMerges" b ON a."batchNumber" = b.new_batch_number
        WHERE a.merged = FALSE
+       AND "batchNumber" LIKE '2026%'
        ORDER BY "processingDate" DESC`,
       { type: sequelize.QueryTypes.SELECT }
     );
