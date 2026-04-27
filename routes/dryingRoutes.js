@@ -551,14 +551,45 @@ router.get('/pending-drying', async (req, res) => {
 });
 
 router.post('/assign-drying', async (req, res) => {
-  const { batchNumber, dryingArea } = req.body;
+  const { batchNumber, dryingArea, entered_at } = req.body;
 
   if (!batchNumber || !dryingArea) {
-    return res.status(400).json({ error: 'batchNumber and dryingArea required' });
+    return res.status(400).json({ 
+      error: 'batchNumber and dryingArea required' 
+    });
   }
 
+  // ---- validate drying area (optional but recommended) ----
+  const validDryingAreas = [
+    "Drying Area 1", "Drying Area 2", "Drying Area 3",
+    "Drying Area 4", "Drying Area 5", "Drying Sun Dry", "Drying Room"
+  ];
+
+  if (!validDryingAreas.includes(dryingArea)) {
+    return res.status(400).json({ error: 'Invalid drying area' });
+  }
+
+  // ---- validate entered_at ----
+  let enteredAtValue = new Date();
+
+  if (entered_at) {
+    const parsed = new Date(entered_at);
+
+    if (isNaN(parsed.getTime())) {
+      return res.status(400).json({ error: 'Invalid entered_at date format' });
+    }
+
+    if (parsed > new Date()) {
+      return res.status(400).json({ error: 'entered_at cannot be in the future' });
+    }
+
+    enteredAtValue = parsed;
+  }
+
+  const t = await sequelize.transaction();
+
   try {
-    // 🔹 Step 1: Get RFID from ReceivingData
+    // 🔹 Step 1: get RFID
     const [receiving] = await sequelize.query(`
       SELECT rfid
       FROM "ReceivingData"
@@ -566,16 +597,38 @@ router.post('/assign-drying', async (req, res) => {
       LIMIT 1
     `, {
       replacements: { batchNumber },
-      type: sequelize.QueryTypes.SELECT
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t
     });
 
     if (!receiving || !receiving.rfid) {
+      await t.rollback();
       return res.status(400).json({
         error: `RFID not found for batch ${batchNumber}`
       });
     }
 
-    // 🔹 Step 2: Insert into DryingData
+    // 🔹 Step 2: prevent duplicate active drying
+    const [existing] = await sequelize.query(`
+      SELECT id
+      FROM "DryingData"
+      WHERE "batchNumber" = :batchNumber
+      AND exited_at IS NULL
+      LIMIT 1
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t
+    });
+
+    if (existing) {
+      await t.rollback();
+      return res.status(400).json({
+        error: `Batch ${batchNumber} is already in drying`
+      });
+    }
+
+    // 🔹 Step 3: insert
     await sequelize.query(`
       INSERT INTO "DryingData" (
         "batchNumber",
@@ -588,20 +641,28 @@ router.post('/assign-drying', async (req, res) => {
         :batchNumber,
         :dryingArea,
         :rfid,
-        NOW(),
+        :entered_at,
         NOW()
       )
     `, {
       replacements: {
         batchNumber,
         dryingArea,
-        rfid: receiving.rfid
-      }
+        rfid: receiving.rfid,
+        entered_at: enteredAtValue
+      },
+      transaction: t
     });
 
-    res.status(201).json({ message: 'Batch assigned to drying' });
+    await t.commit();
+
+    res.status(201).json({ 
+      message: 'Batch assigned to drying',
+      entered_at: enteredAtValue
+    });
 
   } catch (err) {
+    await t.rollback();
     console.error(err);
     res.status(500).json({
       error: 'Failed to assign drying',
