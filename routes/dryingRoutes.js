@@ -671,4 +671,62 @@ router.post('/assign-drying', async (req, res) => {
   }
 });
 
+router.post('/finish-drying', async (req, res) => {
+  const { batchNumber, rfid } = req.body;
+
+  if (!batchNumber || !rfid) {
+    return res.status(400).json({
+      error: 'batchNumber and rfid required'
+    });
+  }
+
+  const t = await sequelize.transaction();
+
+  try {
+    const [active] = await sequelize.query(`
+      SELECT id
+      FROM "DryingData"
+      WHERE "batchNumber" = :batchNumber
+      AND rfid = :rfid
+      AND exited_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    `, {
+      replacements: { batchNumber, rfid },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t
+    });
+
+    if (!active) {
+      await t.rollback();
+      return res.status(404).json({
+        error: 'No active drying record found'
+      });
+    }
+
+    await sequelize.query(`
+      UPDATE "DryingData"
+      SET exited_at = NOW()
+      WHERE id = :id
+    `, {
+      replacements: { id: active.id },
+      transaction: t
+    });
+
+    await t.commit();
+
+    res.status(200).json({
+      message: 'Drying finished successfully'
+    });
+
+  } catch (err) {
+    await t.rollback();
+    console.error(err);
+    res.status(500).json({
+      error: 'Failed to finish drying',
+      details: err.message
+    });
+  }
+});
+
 module.exports = router;
