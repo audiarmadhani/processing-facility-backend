@@ -940,8 +940,12 @@ router.patch('/fermentation/details/:batchNumber', async (req, res) => {
       UPDATE "FermentationData"
       SET ${setClause},
           "updatedAt" = NOW()
-      WHERE "batchNumber" = :batchNumber
-        AND COALESCE("tank",'') = COALESCE(:tank,'')
+      WHERE id = (
+        SELECT id FROM "FermentationData"
+        WHERE "batchNumber" = :batchNumber
+        ORDER BY "createdAt" DESC
+        LIMIT 1
+      )
     `;
 
     await sequelize.query(query, { replacements });
