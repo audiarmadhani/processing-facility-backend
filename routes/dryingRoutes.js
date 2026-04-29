@@ -534,10 +534,10 @@ router.get('/pending-drying', async (req, res) => {
       FROM "ReceivingData" r
       LEFT JOIN "DryingData" d 
         ON r."batchNumber" = d."batchNumber"
-        AND d.exited_at IS NULL
       WHERE d."batchNumber" IS NULL
       AND r.merged = FALSE
       AND r."batchNumber" LIKE '2026%'
+      AND d.entered_at IS NULL
       ORDER BY r."batchNumber" DESC
     `, { type: sequelize.QueryTypes.SELECT });
 
