@@ -1077,4 +1077,61 @@ router.delete('/fermentation/:batchNumber', async (req, res) => {
   }
 });
 
+router.delete('/fermentation/weight/:id', async (req, res) => {
+  const { id } = req.params;
+  const { batchNumber } = req.query;
+
+  if (!id || !batchNumber) {
+    return res.status(400).json({
+      error: 'id and batchNumber are required'
+    });
+  }
+
+  const t = await sequelize.transaction();
+
+  try {
+    const [existing] = await sequelize.query(`
+      SELECT id
+      FROM "FermentationWeightMeasurements"
+      WHERE id = :id
+      AND "batchNumber" = :batchNumber
+      LIMIT 1
+    `, {
+      replacements: { id, batchNumber },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t
+    });
+
+    if (!existing) {
+      await t.rollback();
+      return res.status(404).json({
+        error: 'Weight record not found'
+      });
+    }
+
+    await sequelize.query(`
+      DELETE FROM "FermentationWeightMeasurements"
+      WHERE id = :id
+      AND "batchNumber" = :batchNumber
+    `, {
+      replacements: { id, batchNumber },
+      transaction: t
+    });
+
+    await t.commit();
+
+    res.json({
+      message: 'Weight record deleted successfully'
+    });
+
+  } catch (err) {
+    await t.rollback();
+    console.error(err);
+    res.status(500).json({
+      error: 'Failed to delete weight record',
+      details: err.message
+    });
+  }
+});
+
 module.exports = router;
