@@ -2278,4 +2278,76 @@ router.post('/dry-mill/:batchNumber/remove-bag', async (req, res) => {
   }
 });
 
+router.post('/dry-mill/:batchNumber/enter', async (req, res) => {
+  const { batchNumber } = req.params;
+  const { entered_at, processingType, createdBy } = req.body;
+
+  if (!entered_at) {
+    return res.status(400).json({ error: 'entered_at is required' });
+  }
+
+  try {
+    await sequelize.query(`
+      INSERT INTO "DryMillData" (
+        "batchNumber",
+        "processingType",
+        "entered_at",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        :batchNumber,
+        :processingType,
+        :entered_at,
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT ("batchNumber", "processingType")
+      DO UPDATE SET
+        "entered_at" = :entered_at,
+        "updatedAt" = NOW()
+    `, {
+      replacements: { batchNumber, processingType, entered_at }
+    });
+
+    res.json({ message: 'Batch manually entered dry mill' });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/dry-mill/:batchNumber/exit', async (req, res) => {
+  const { batchNumber } = req.params;
+  const { exited_at, processingType, updatedBy } = req.body;
+
+  if (!exited_at) {
+    return res.status(400).json({ error: 'exited_at is required' });
+  }
+
+  try {
+    const [result] = await sequelize.query(`
+      UPDATE "DryMillData"
+      SET
+        "exited_at" = :exited_at,
+        "updatedAt" = NOW(),
+        "updatedBy" = :updatedBy
+      WHERE "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
+      RETURNING *
+    `, {
+      replacements: { batchNumber, processingType, exited_at, updatedBy }
+    });
+
+    if (!result.length) {
+      return res.status(404).json({ error: 'Dry mill entry not found' });
+    }
+
+    res.json({ message: 'Batch manually exited dry mill' });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
