@@ -1265,7 +1265,7 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
         "productLine" = :productLine,
         "processingType" = :processingType,
         "lotNumber" = :lotNumber,
-        "referenceNumber" = :referenceNumber,
+        "referenceNumber" = :referenceNumber
       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
     `, {
       replacements: {
@@ -1286,14 +1286,14 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
     await sequelize.query(`
       UPDATE "FermentationData"
       SET
-        "referenceNumber" = :referenceNumber,
+        "referenceNumber" = :referenceNumber
       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
     `, { replacements: { batchNumber, referenceNumber }, transaction: t });
 
     await sequelize.query(`
       UPDATE "DryingData"
       SET
-        "referenceNumber" = :referenceNumber,
+        "referenceNumber" = :referenceNumber
       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
     `, { replacements: { batchNumber, referenceNumber }, transaction: t });
 
