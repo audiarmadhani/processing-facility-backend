@@ -1279,24 +1279,6 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
       transaction: t
     });
 
-    // -------------------------
-    // 🔗 OPTIONAL: PROPAGATION
-    // -------------------------
-    // Only if these tables store lot/reference
-    await sequelize.query(`
-      UPDATE "FermentationData"
-      SET
-        "referenceNumber" = :referenceNumber
-      WHERE LOWER("batchNumber") = LOWER(:batchNumber)
-    `, { replacements: { batchNumber, referenceNumber }, transaction: t });
-
-    await sequelize.query(`
-      UPDATE "DryingData"
-      SET
-        "referenceNumber" = :referenceNumber
-      WHERE LOWER("batchNumber") = LOWER(:batchNumber)
-    `, { replacements: { batchNumber, referenceNumber }, transaction: t });
-
     await t.commit();
 
     res.json({
