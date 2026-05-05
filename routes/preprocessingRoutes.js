@@ -1142,7 +1142,6 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
       producer,
       productLine,
       processingType,
-      updatedBy
     } = req.body;
 
     if (!producer || !productLine || !processingType) {
@@ -1267,8 +1266,6 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
         "processingType" = :processingType,
         "lotNumber" = :lotNumber,
         "referenceNumber" = :referenceNumber,
-        "updatedAt" = NOW(),
-        "updatedBy" = :updatedBy
       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
     `, {
       replacements: {
@@ -1278,7 +1275,6 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
         processingType,
         lotNumber,
         referenceNumber,
-        updatedBy
       },
       transaction: t
     });
@@ -1291,7 +1287,6 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
       UPDATE "FermentationData"
       SET
         "referenceNumber" = :referenceNumber,
-        "updatedAt" = NOW()
       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
     `, { replacements: { batchNumber, referenceNumber }, transaction: t });
 
@@ -1299,7 +1294,6 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
       UPDATE "DryingData"
       SET
         "referenceNumber" = :referenceNumber,
-        "updatedAt" = NOW()
       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
     `, { replacements: { batchNumber, referenceNumber }, transaction: t });
 
