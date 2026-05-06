@@ -819,7 +819,7 @@ router.get('/fermentation-weight-measurements/:batchNumber', async (req, res) =>
   const { batchNumber } = req.params;
 
   try {
-    const [measurements] = await sequelize.query(`
+    const measurements = await sequelize.query(`
       SELECT id, "batchNumber", "processingType", weight, measurement_date, producer, created_at
       FROM "FermentationWeightMeasurements"
       WHERE "batchNumber" = :batchNumber
@@ -1080,26 +1080,52 @@ router.delete('/fermentation/:batchNumber', async (req, res) => {
 router.delete('/fermentation-weight-measurements', async (req, res) => {
   try {
     const {
+      id,
       batchNumber,
       processingType,
       measurement_date,
     } = req.query;
 
-    console.log(req.query);
+    const parsedId = id ? parseInt(id, 10) : null;
 
-    const result = await pool.query(
+    if (id && Number.isNaN(parsedId)) {
+      return res.status(400).json({ error: 'id must be a valid number' });
+    }
+
+    let whereClause = 'id = :id';
+    const replacements = { id: parsedId };
+
+    if (!parsedId) {
+      if (!batchNumber || !processingType || !measurement_date) {
+        return res.status(400).json({
+          error: 'id or batchNumber, processingType, and measurement_date are required',
+        });
+      }
+
+      whereClause = `
+        "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
+        AND measurement_date::date = CAST(:measurement_date AS date)
+      `;
+      Object.assign(replacements, { batchNumber, processingType, measurement_date });
+    }
+
+    const deletedRows = await sequelize.query(
       `
-      DELETE FROM fermentation_weight_measurements
-      WHERE "batchNumber" = $1
-      AND "processingType" = $2
-      AND measurement_date = $3
+      DELETE FROM "FermentationWeightMeasurements"
+      WHERE ${whereClause}
+      RETURNING id
       `,
-      [batchNumber, processingType, measurement_date]
+      {
+        replacements,
+        type: sequelize.QueryTypes.DELETE,
+      }
     );
 
     res.json({
       success: true,
-      deleted: result.rowCount,
+      deleted: deletedRows.length,
+      deletedIds: deletedRows.map((row) => row.id),
     });
   } catch (err) {
     console.error(err);
