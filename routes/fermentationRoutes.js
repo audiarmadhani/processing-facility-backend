@@ -1077,58 +1077,43 @@ router.delete('/fermentation/:batchNumber', async (req, res) => {
   }
 });
 
-router.delete('/fermentation/weight/:id', async (req, res) => {
-  const { id } = req.params;
-  const { batchNumber } = req.query;
-
-  if (!id || !batchNumber) {
-    return res.status(400).json({
-      error: 'id and batchNumber are required'
-    });
-  }
-
-  const t = await sequelize.transaction();
-
+router.delete('/fermentation-weight-measurements', async (req, res) => {
   try {
-    const [existing] = await sequelize.query(`
-      SELECT id
-      FROM "FermentationWeightMeasurements"
-      WHERE id = :id
-      AND "batchNumber" = :batchNumber
-      LIMIT 1
-    `, {
-      replacements: { id, batchNumber },
-      type: sequelize.QueryTypes.SELECT,
-      transaction: t
-    });
+    const {
+      batchNumber,
+      processingType,
+      measurement_date
+    } = req.query;
 
-    if (!existing) {
-      await t.rollback();
-      return res.status(404).json({
-        error: 'Weight record not found'
+    if (!batchNumber || !processingType || !measurement_date) {
+      return res.status(400).json({
+        error: 'batchNumber, processingType, and measurement_date are required'
       });
     }
 
     await sequelize.query(`
       DELETE FROM "FermentationWeightMeasurements"
-      WHERE id = :id
-      AND "batchNumber" = :batchNumber
+      WHERE "batchNumber" = :batchNumber
+      AND "processingType" = :processingType
+      AND measurement_date = :measurement_date
     `, {
-      replacements: { id, batchNumber },
-      transaction: t
+      replacements: {
+        batchNumber,
+        processingType,
+        measurement_date
+      },
+      type: sequelize.QueryTypes.DELETE
     });
 
-    await t.commit();
-
     res.json({
-      message: 'Weight record deleted successfully'
+      message: 'Weight measurement deleted successfully'
     });
 
   } catch (err) {
-    await t.rollback();
-    console.error(err);
+    console.error('Delete weight error:', err);
+
     res.status(500).json({
-      error: 'Failed to delete weight record',
+      error: 'Failed to delete weight measurement',
       details: err.message
     });
   }
