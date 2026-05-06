@@ -1082,39 +1082,29 @@ router.delete('/fermentation-weight-measurements', async (req, res) => {
     const {
       batchNumber,
       processingType,
-      measurement_date
+      measurement_date,
     } = req.query;
 
-    if (!batchNumber || !processingType || !measurement_date) {
-      return res.status(400).json({
-        error: 'batchNumber, processingType, and measurement_date are required'
-      });
-    }
+    console.log(req.query);
 
-    await sequelize.query(`
-      DELETE FROM "FermentationWeightMeasurements"
-      WHERE "batchNumber" = :batchNumber
-      AND "processingType" = :processingType
-      AND measurement_date = :measurement_date
-    `, {
-      replacements: {
-        batchNumber,
-        processingType,
-        measurement_date
-      },
-      type: sequelize.QueryTypes.DELETE
-    });
+    const result = await pool.query(
+      `
+      DELETE FROM fermentation_weight_measurements
+      WHERE "batchNumber" = $1
+      AND "processingType" = $2
+      AND measurement_date = $3
+      `,
+      [batchNumber, processingType, measurement_date]
+    );
 
     res.json({
-      message: 'Weight measurement deleted successfully'
+      success: true,
+      deleted: result.rowCount,
     });
-
   } catch (err) {
-    console.error('Delete weight error:', err);
-
+    console.error(err);
     res.status(500).json({
-      error: 'Failed to delete weight measurement',
-      details: err.message
+      error: 'Delete failed',
     });
   }
 });
