@@ -853,31 +853,46 @@ router.post('/dry-mill/:batchNumber/complete', async (req, res) => {
 
   const t = await sequelize.transaction();
   try {
-    // 1️⃣ Ensure DryMillData row exists (UPSERT)
-    await sequelize.query(
+    // Ensure a matching dry mill row exists without relying on a DB-level unique constraint.
+    const existingEntry = await sequelize.query(
       `
-      INSERT INTO "DryMillData" (
-        "batchNumber",
-        "processingType",
-        "entered_at",
-        "createdAt",
-        "updatedAt"
-      )
-      VALUES (
-        :batchNumber,
-        :processingType,
-        NOW(),
-        NOW(),
-        NOW()
-      )
-      ON CONFLICT ("batchNumber", "processingType")
-      DO NOTHING;
+      SELECT id
+      FROM "DryMillData"
+      WHERE "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
+      LIMIT 1;
       `,
       {
         replacements: { batchNumber, processingType },
+        type: sequelize.QueryTypes.SELECT,
         transaction: t
       }
     );
+
+    if (!existingEntry.length) {
+      await sequelize.query(
+        `
+        INSERT INTO "DryMillData" (
+          "batchNumber",
+          "processingType",
+          "entered_at",
+          "createdAt",
+          "updatedAt"
+        )
+        VALUES (
+          :batchNumber,
+          :processingType,
+          NOW(),
+          NOW(),
+          NOW()
+        );
+        `,
+        {
+          replacements: { batchNumber, processingType },
+          transaction: t
+        }
+      );
+    }
 
     // 2️⃣ Mark ONLY this processingType as completed
     const [result] = await sequelize.query(
@@ -2088,12 +2103,7 @@ router.post("/drymill/process-event", async (req, res) => {
         NOW(),
         NOW()
       )
-      ON CONFLICT (
-        "batchNumber",
-        "processingType",
-        "producer",
-        "processStep",
-        COALESCE("grade", '')
+      ON CONFLICT ON CONSTRAINT drymill_process_events_unique_constraint
       )
       DO UPDATE SET
         "inputWeight" = EXCLUDED."inputWeight",
@@ -2286,33 +2296,53 @@ router.post('/dry-mill/:batchNumber/enter', async (req, res) => {
     return res.status(400).json({ error: 'entered_at is required' });
   }
 
+  if (!processingType) {
+    return res.status(400).json({ error: 'processingType is required' });
+  }
+
+  const t = await sequelize.transaction();
   try {
-    await sequelize.query(`
-      INSERT INTO "DryMillData" (
-        "batchNumber",
-        "processingType",
-        "entered_at",
-        "createdAt",
-        "updatedAt"
-      )
-      VALUES (
-        :batchNumber,
-        :processingType,
-        :entered_at,
-        NOW(),
-        NOW()
-      )
-      ON CONFLICT ("batchNumber", "processingType")
-      DO UPDATE SET
+    const [updatedRows] = await sequelize.query(`
+      UPDATE "DryMillData"
+      SET
         "entered_at" = :entered_at,
         "updatedAt" = NOW()
+      WHERE "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
+      RETURNING *;
     `, {
-      replacements: { batchNumber, processingType, entered_at }
+      replacements: { batchNumber, processingType, entered_at },
+      transaction: t
     });
+
+    if (!updatedRows.length) {
+      await sequelize.query(`
+        INSERT INTO "DryMillData" (
+          "batchNumber",
+          "processingType",
+          "entered_at",
+          "createdAt",
+          "updatedAt"
+        )
+        VALUES (
+          :batchNumber,
+          :processingType,
+          :entered_at,
+          NOW(),
+          NOW()
+        );
+      `, {
+        replacements: { batchNumber, processingType, entered_at },
+        transaction: t
+      });
+    }
+
+    await t.commit();
 
     res.json({ message: 'Batch manually entered dry mill' });
 
   } catch (err) {
+    await t.rollback();
     res.status(500).json({ error: err.message });
   }
 });

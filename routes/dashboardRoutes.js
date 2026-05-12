@@ -1988,7 +1988,7 @@ router.get('/batch-tracking', async (req, res) => {
         SELECT 
           "batchNumber",
           "farmerName",
-          "processingType",
+          "processingtype" AS "processingType",
           "grade",
           COALESCE(CAST("receiving_weight" AS TEXT), 'N/A') AS "receiving_weight",
           "receiving_date",
@@ -2024,7 +2024,7 @@ router.get('/batch-tracking', async (req, res) => {
       }
   
       // Order by batchNumber and processingType for consistency
-      query += ` ORDER BY "batchNumber", "processingType"`;
+      query += ` ORDER BY "batchNumber", "processingtype"`;
   
       // Execute the query
       const [results] = await sequelize.query(query);
