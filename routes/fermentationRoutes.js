@@ -14,11 +14,11 @@ const toNullableDate = (v) =>
 // Route for fetching available tanks
 router.get('/fermentation/available-tanks', async (req, res) => {
   try {
-    const allBlueBarrelCodes = Array.from({ length: 40 }, (_, i) => 
+    const allBlueBarrelCodes = Array.from({ length: 50 }, (_, i) => 
       `BB-HQ-${String(i + 1).padStart(4, '0')}`
     );
 
-    const allBucketCodes = Array.from({ length: 40 }, (_, i) => 
+    const allBucketCodes = Array.from({ length: 50 }, (_, i) => 
       `BUC-HQ-${String(i + 1).padStart(4, '0')}`
     );
 
