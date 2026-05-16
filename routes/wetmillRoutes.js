@@ -61,6 +61,54 @@ router.get('/wetmill-data', async (req, res) => {
   }
 });
 
+router.get('/wetmill-lot-mappings', async (req, res) => {
+  const { batchNumbers } = req.query;
+
+  if (!batchNumbers) {
+    return res.status(400).json({ error: 'batchNumbers query parameter is required' });
+  }
+
+  const batchNumberArray = batchNumbers
+    .split(',')
+    .map(num => num.trim())
+    .filter(num => num);
+
+  if (batchNumberArray.length === 0) {
+    return res.status(400).json({ error: 'batchNumbers must contain at least one valid batch number' });
+  }
+
+  try {
+    const data = await sequelize.query(`
+      SELECT
+        p."batchNumber",
+        COALESCE(array_agg(DISTINCT p."lotNumber") FILTER (WHERE p."lotNumber" IS NOT NULL), '{}') AS "lotNumbers",
+        COALESCE(array_agg(DISTINCT p."referenceNumber") FILTER (WHERE p."referenceNumber" IS NOT NULL), '{}') AS "referenceNumbers",
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'processingType', p."processingType",
+              'lotNumber', p."lotNumber",
+              'referenceNumber', p."referenceNumber"
+            )
+            ORDER BY p."processingType"
+          ) FILTER (WHERE p."processingType" IS NOT NULL),
+          '[]'
+        ) AS "lotMapping"
+      FROM "PreprocessingData" p
+      WHERE p."batchNumber" IN (:batchNumbers)
+      GROUP BY p."batchNumber";
+    `, {
+      replacements: { batchNumbers: batchNumberArray },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('Error fetching wet mill lot mappings:', error);
+    res.status(500).json({ error: 'Failed to fetch wet mill lot mappings', details: error.message });
+  }
+});
+
 /**
  * POST /wetmill-weight-measurement
  * Adds a new weight measurement for a batch.
