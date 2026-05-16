@@ -14,11 +14,11 @@ const toNullableDate = (v) =>
 // Route for fetching available tanks
 router.get('/fermentation/available-tanks', async (req, res) => {
   try {
-    const allBlueBarrelCodes = Array.from({ length: 15 }, (_, i) => 
+    const allBlueBarrelCodes = Array.from({ length: 40 }, (_, i) => 
       `BB-HQ-${String(i + 1).padStart(4, '0')}`
     );
 
-    const allBucketCodes = Array.from({ length: 10 }, (_, i) => 
+    const allBucketCodes = Array.from({ length: 40 }, (_, i) => 
       `BUC-HQ-${String(i + 1).padStart(4, '0')}`
     );
 
@@ -883,6 +883,8 @@ router.patch('/fermentation/details/:batchNumber', async (req, res) => {
     setDate('harvestAt', d.harvestAt);
     setDate('harvestDate', d.harvestDate);
     setDate('receivedAt', d.receivedAt);
+    setDate('preFermentationStorageStart', d.preFermentationStorageStart);
+    setDate('preFermentationStorageEnd', d.preFermentationStorageEnd);
 
     // Numbers
     setNumber('pressure', d.pressure);
@@ -921,6 +923,8 @@ router.patch('/fermentation/details/:batchNumber', async (req, res) => {
     setIfValid('quality', d.quality);
     setIfValid('brix', d.brix);
     setIfValid('tank', d.tank);
+    setIfValid('fermentationStarter', d.fermentationStarter);
+    setNumber('fermentationStarterAmount', d.fermentationStarterAmount);
 
     // -------------------------
     // 🚨 NOTHING TO UPDATE
