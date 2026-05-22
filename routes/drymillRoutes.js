@@ -2052,7 +2052,12 @@ router.post("/drymill/process-event", async (req, res) => {
       });
     }
 
-    const output = Number(outputWeight);
+    const parseWeight = (value) => {
+      if (value === null || value === undefined || value === '') return NaN;
+      return Number(String(value).trim().replace(',', '.'));
+    };
+
+    const output = parseWeight(outputWeight);
     if (isNaN(output) || output < 0) {
       await t.rollback();
       return res.status(400).json({
@@ -2104,7 +2109,6 @@ router.post("/drymill/process-event", async (req, res) => {
         NOW()
       )
       ON CONFLICT ON CONSTRAINT drymill_process_events_unique_constraint
-      )
       DO UPDATE SET
         "inputWeight" = EXCLUDED."inputWeight",
         "outputWeight" = EXCLUDED."outputWeight",
@@ -2121,8 +2125,8 @@ router.post("/drymill/process-event", async (req, res) => {
           processStep,
           producer,
           grade: normalizedGrade,
-          inputWeight: inputWeight ? Number(inputWeight) : 0,
-          outputWeight: Number(outputWeight),
+          inputWeight: inputWeight ? parseWeight(inputWeight) : 0,
+          outputWeight: output,
           operator: operator || null,
           notes: notes || null,
           step_sequence: stepSequenceMap[processStep] || 0,
