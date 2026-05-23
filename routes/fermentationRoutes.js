@@ -27,7 +27,8 @@ router.get('/fermentation/available-tanks', async (req, res) => {
       'Carrybrew',
       'Washing Track',
       ...allBlueBarrelCodes,
-      ...allBucketCodes
+      ...allBucketCodes,
+      'Bag', // fermentation in bag (after buckets in tank picker)
     ];
 
     const inUseTanks = await sequelize.query(
