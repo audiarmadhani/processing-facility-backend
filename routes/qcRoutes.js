@@ -111,6 +111,61 @@ router.get('/qc', async (req, res) => {
     }
 });
 
+// Route for updating ML ripeness percentages after photo capture
+router.patch('/qc/:id/ml-results', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            unripePercentage,
+            semiripePercentage,
+            ripePercentage,
+            overripePercentage,
+            updatedBy,
+        } = req.body;
+
+        if (
+            unripePercentage === undefined ||
+            semiripePercentage === undefined ||
+            ripePercentage === undefined ||
+            overripePercentage === undefined
+        ) {
+            return res.status(400).json({ error: 'All ripeness percentage fields are required.' });
+        }
+
+        const updatedRows = await sequelize.query(`
+            UPDATE "QCData"
+            SET
+                "unripePercentage" = :unripePercentage,
+                "semiripePercentage" = :semiripePercentage,
+                "ripePercentage" = :ripePercentage,
+                "overripePercentage" = :overripePercentage,
+                "updatedAt" = NOW(),
+                "updatedBy" = :updatedBy
+            WHERE "id" = :id
+            RETURNING *;
+        `, {
+            replacements: {
+                id,
+                unripePercentage: Number(unripePercentage),
+                semiripePercentage: Number(semiripePercentage),
+                ripePercentage: Number(ripePercentage),
+                overripePercentage: Number(overripePercentage),
+                updatedBy: updatedBy || null,
+            },
+            type: sequelize.QueryTypes.SELECT,
+        });
+
+        if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
+            return res.status(404).json({ error: 'QCData record not found.' });
+        }
+
+        res.status(200).json(updatedRows[0]);
+    } catch (err) {
+        console.error('Error updating QC ML results:', err);
+        res.status(500).json({ error: 'Server error', details: err.message });
+    }
+});
+
 // Route for updating QC Data
 router.put('/qc/:id', async (req, res) => {
     try {
