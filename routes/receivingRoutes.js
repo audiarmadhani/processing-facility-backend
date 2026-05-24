@@ -2,6 +2,42 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 
+function validateCreateWithoutWeight(weight, totalBags, bagPayload) {
+  if (weight !== 0 && weight !== '0') {
+    return 'Batch must be created with weight 0. Record weights from the receiving table after creation.';
+  }
+  if (totalBags !== 0 && totalBags !== '0') {
+    return 'Batch must be created with totalBags 0. Record bag weights after creation.';
+  }
+  if (Array.isArray(bagPayload) && bagPayload.length > 0) {
+    return 'Bag weights cannot be submitted at batch creation. Use Record weight on the receiving table.';
+  }
+  return null;
+}
+
+function validateBagPayload(bagPayload) {
+  if (!Array.isArray(bagPayload) || bagPayload.length === 0) {
+    return 'At least one bag with weight is required.';
+  }
+  for (const bag of bagPayload) {
+    const bagNumber = Number(bag.bagNumber);
+    const bagWeight = Number(bag.weight);
+    if (!Number.isInteger(bagNumber) || bagNumber < 1) {
+      return 'Each bag must have a valid bag number (integer >= 1).';
+    }
+    if (isNaN(bagWeight) || bagWeight <= 0) {
+      return 'Each bag must have a weight greater than 0.';
+    }
+  }
+  const bagNumbers = bagPayload.map((b) => Number(b.bagNumber)).sort((a, b) => a - b);
+  for (let i = 0; i < bagNumbers.length; i++) {
+    if (bagNumbers[i] !== i + 1) {
+      return 'Bag numbers must be contiguous starting from 1 (1, 2, 3, ...).';
+    }
+  }
+  return null;
+}
+
 // Route for creating receiving data
 router.post('/receiving', async (req, res) => {
   const t = await sequelize.transaction();
@@ -9,9 +45,14 @@ router.post('/receiving', async (req, res) => {
     const { farmerID, farmerName, weight, totalBags, notes, type, producer, brix, bagPayload, createdBy, updatedBy, rfid } = req.body;
 
     // Basic validation
-    if (!farmerID || !farmerName || weight === undefined || !totalBags || !type || !producer || !createdBy || !updatedBy) {
+    if (!farmerID || !farmerName || weight === undefined || totalBags === undefined || !type || !producer || !createdBy || !updatedBy) {
       await t.rollback();
       return res.status(400).json({ error: 'Missing required fields.' });
+    }
+    const createWeightError = validateCreateWithoutWeight(weight, totalBags, bagPayload);
+    if (createWeightError) {
+      await t.rollback();
+      return res.status(400).json({ error: createWeightError });
     }
     if (!rfid) {
       await t.rollback();
@@ -88,20 +129,6 @@ router.post('/receiving', async (req, res) => {
       type: sequelize.QueryTypes.INSERT
     });
 
-    // Insert BagData
-    if (Array.isArray(bagPayload) && bagPayload.length > 0) {
-      const bagInsertQuery = `
-        INSERT INTO "BagData" ("batchNumber", "bagNumber", weight, "createdAt", "updatedAt")
-        VALUES ${bagPayload.map(() => '(?, ?, ?, ?, ?)').join(', ')} RETURNING *;
-      `;
-      const bagData = bagPayload.flatMap(bag => [batchNumber, bag.bagNumber, bag.weight, currentDate, currentDate]);
-      await sequelize.query(bagInsertQuery, {
-        replacements: bagData,
-        transaction: t,
-        type: sequelize.QueryTypes.INSERT
-      });
-    }
-
     // Update latest_batch
     await sequelize.query(
       'UPDATE latest_batch SET latest_batch_number = :batchNumber',
@@ -136,9 +163,14 @@ router.post('/receiving-green-beans', async (req, res) => {
     } = req.body;
 
     // Basic validation
-    if (!farmerID || !farmerName || weight === undefined || !totalBags || !type || !producer || !createdBy || !updatedBy || !processingType || !grade) {
+    if (!farmerID || !farmerName || weight === undefined || totalBags === undefined || !type || !producer || !createdBy || !updatedBy || !processingType || !grade) {
       await t.rollback();
       return res.status(400).json({ error: 'Missing required fields.' });
+    }
+    const createWeightError = validateCreateWithoutWeight(weight, totalBags, bagPayload);
+    if (createWeightError) {
+      await t.rollback();
+      return res.status(400).json({ error: createWeightError });
     }
     if (!rfid) {
       await t.rollback();
@@ -226,20 +258,6 @@ router.post('/receiving-green-beans', async (req, res) => {
       transaction: t,
       type: sequelize.QueryTypes.INSERT
     });
-
-    // Insert BagData (unchanged)
-    if (Array.isArray(bagPayload) && bagPayload.length > 0) {
-      const bagInsertQuery = `
-        INSERT INTO "BagData" ("batchNumber", "bagNumber", weight, "createdAt", "updatedAt")
-        VALUES ${bagPayload.map(() => '(?, ?, ?, ?, ?)').join(', ')} RETURNING *;
-      `;
-      const bagData = bagPayload.flatMap(bag => [batchNumber, bag.bagNumber, bag.weight, currentDate, currentDate]);
-      await sequelize.query(bagInsertQuery, {
-        replacements: bagData,
-        transaction: t,
-        type: sequelize.QueryTypes.INSERT
-      });
-    }
 
     // Update latest_gb_batch
     await sequelize.query(
@@ -340,6 +358,141 @@ router.get('/receiving', async (req, res) => {
   } catch (err) {
     console.error('Error fetching Receiving data:', err);
     res.status(500).json({ message: 'Failed to fetch Receiving data.' });
+  }
+});
+
+// Route to get bag weights for a batch
+router.get('/receiving/:batchNumber/bags', async (req, res) => {
+  let { batchNumber } = req.params;
+  batchNumber = batchNumber.trim();
+
+  try {
+    const receivingRows = await sequelize.query(
+      `SELECT "batchNumber", weight, "totalBags", merged
+       FROM "ReceivingData"
+       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
+       LIMIT 1`,
+      { replacements: { batchNumber }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    const receiving = Array.isArray(receivingRows) && receivingRows.length > 0 ? receivingRows[0] : null;
+    if (!receiving) {
+      return res.status(404).json({ error: 'Batch not found.' });
+    }
+
+    const bags = await sequelize.query(
+      `SELECT "bagNumber", weight
+       FROM "BagData"
+       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
+       ORDER BY "bagNumber" ASC`,
+      { replacements: { batchNumber }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    res.json({
+      batchNumber: receiving.batchNumber,
+      weight: receiving.weight,
+      totalBags: receiving.totalBags,
+      bags: Array.isArray(bags) ? bags : [],
+    });
+  } catch (err) {
+    console.error('Error fetching bag data:', err);
+    res.status(500).json({ error: 'Failed to fetch bag data.', details: err.message });
+  }
+});
+
+// Route to record or update bag weights for a batch
+router.put('/receiving/:batchNumber/weights', async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    let { batchNumber } = req.params;
+    batchNumber = batchNumber.trim();
+    const { bagPayload, updatedBy } = req.body;
+
+    if (!updatedBy) {
+      await t.rollback();
+      return res.status(400).json({ error: 'updatedBy is required.' });
+    }
+
+    const bagError = validateBagPayload(bagPayload);
+    if (bagError) {
+      await t.rollback();
+      return res.status(400).json({ error: bagError });
+    }
+
+    const receivingRows = await sequelize.query(
+      `SELECT "batchNumber", merged FROM "ReceivingData"
+       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
+       LIMIT 1`,
+      { replacements: { batchNumber }, transaction: t, type: sequelize.QueryTypes.SELECT }
+    );
+    const receiving = Array.isArray(receivingRows) && receivingRows.length > 0 ? receivingRows[0] : null;
+    if (!receiving) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Batch not found.' });
+    }
+    if (receiving.merged) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Cannot update weights for a merged batch.' });
+    }
+
+    const canonicalBatchNumber = receiving.batchNumber;
+    const currentDate = new Date();
+    const totalWeight = bagPayload.reduce((sum, bag) => sum + Number(bag.weight), 0);
+    const totalBags = bagPayload.length;
+
+    await sequelize.query(
+      `DELETE FROM "BagData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+      { replacements: { batchNumber: canonicalBatchNumber }, transaction: t, type: sequelize.QueryTypes.DELETE }
+    );
+
+    const bagInsertQuery = `
+      INSERT INTO "BagData" ("batchNumber", "bagNumber", weight, "createdAt", "updatedAt")
+      VALUES ${bagPayload.map(() => '(?, ?, ?, ?, ?)').join(', ')} RETURNING *;
+    `;
+    const bagData = bagPayload.flatMap((bag) => [
+      canonicalBatchNumber,
+      bag.bagNumber,
+      Number(bag.weight),
+      currentDate,
+      currentDate,
+    ]);
+    const insertedBags = await sequelize.query(bagInsertQuery, {
+      replacements: bagData,
+      transaction: t,
+      type: sequelize.QueryTypes.INSERT,
+    });
+
+    const updatedReceiving = await sequelize.query(
+      `UPDATE "ReceivingData"
+       SET weight = :weight, "totalBags" = :totalBags, "updatedAt" = :updatedAt, "updatedBy" = :updatedBy
+       WHERE LOWER("batchNumber") = LOWER(:batchNumber)
+       RETURNING *`,
+      {
+        replacements: {
+          weight: totalWeight,
+          totalBags,
+          updatedAt: currentDate,
+          updatedBy,
+          batchNumber: canonicalBatchNumber,
+        },
+        transaction: t,
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    await t.commit();
+
+    const receivingRow =
+      Array.isArray(updatedReceiving) && updatedReceiving.length > 0 ? updatedReceiving[0] : null;
+    res.json({
+      message: `Weights recorded for batch ${canonicalBatchNumber}`,
+      receivingData: receivingRow,
+      bags: Array.isArray(insertedBags) ? insertedBags : insertedBags?.[0] ?? [],
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error('Error updating batch weights:', err);
+    res.status(500).json({ error: 'Failed to update batch weights.', details: err.message });
   }
 });
 
