@@ -61,6 +61,45 @@ router.post('/drying-measurement', async (req, res) => {
 });
 
 /**
+ * GET /drying-measurements/latest
+ * Latest moisture reading per batch (by measurement_date, then created_at).
+ * Query: batchNumbers=comma,separated,list
+ */
+router.get('/drying-measurements/latest', async (req, res) => {
+  const { batchNumbers } = req.query;
+  if (!batchNumbers || typeof batchNumbers !== 'string') {
+    return res.status(400).json({ error: 'batchNumbers query parameter is required' });
+  }
+
+  const batchList = batchNumbers
+    .split(',')
+    .map((b) => b.trim())
+    .filter(Boolean);
+
+  if (batchList.length === 0) {
+    return res.status(200).json([]);
+  }
+
+  try {
+    const rows = await sequelize.query(`
+      SELECT DISTINCT ON ("batchNumber")
+        "batchNumber", moisture, measurement_date, created_at
+      FROM "DryingMeasurements"
+      WHERE "batchNumber" IN (:batchList)
+      ORDER BY "batchNumber", measurement_date DESC, created_at DESC
+    `, {
+      replacements: { batchList },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    res.status(200).json(rows);
+  } catch (error) {
+    console.error('Error fetching latest moisture measurements:', error);
+    res.status(500).json({ error: 'Failed to fetch latest moisture measurements', details: error.message });
+  }
+});
+
+/**
  * GET /drying-measurements/:batchNumber
  * Fetches all moisture measurements for a specific batch, ordered by measurement date.
  */
