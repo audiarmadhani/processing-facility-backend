@@ -711,7 +711,7 @@ router.post('/assign-drying', async (req, res) => {
 });
 
 router.post('/finish-drying', async (req, res) => {
-  const { batchNumber, rfid } = req.body;
+  const { batchNumber, rfid, exited_at } = req.body;
 
   if (!batchNumber || !rfid) {
     return res.status(400).json({
@@ -719,11 +719,24 @@ router.post('/finish-drying', async (req, res) => {
     });
   }
 
+  if (!exited_at) {
+    return res.status(400).json({ error: 'exited_at is required' });
+  }
+
+  const exitedAtValue = new Date(exited_at);
+  if (isNaN(exitedAtValue.getTime())) {
+    return res.status(400).json({ error: 'Invalid exited_at date format' });
+  }
+
+  if (exitedAtValue > new Date()) {
+    return res.status(400).json({ error: 'exited_at cannot be in the future' });
+  }
+
   const t = await sequelize.transaction();
 
   try {
     const [active] = await sequelize.query(`
-      SELECT id
+      SELECT id, entered_at
       FROM "DryingData"
       WHERE "batchNumber" = :batchNumber
       AND rfid = :rfid
@@ -743,19 +756,30 @@ router.post('/finish-drying', async (req, res) => {
       });
     }
 
+    if (active.entered_at) {
+      const enteredAt = new Date(active.entered_at);
+      if (!isNaN(enteredAt.getTime()) && exitedAtValue < enteredAt) {
+        await t.rollback();
+        return res.status(400).json({
+          error: 'Finish date cannot be before start drying date'
+        });
+      }
+    }
+
     await sequelize.query(`
       UPDATE "DryingData"
-      SET exited_at = NOW()
+      SET exited_at = :exited_at
       WHERE id = :id
     `, {
-      replacements: { id: active.id },
+      replacements: { id: active.id, exited_at: exitedAtValue },
       transaction: t
     });
 
     await t.commit();
 
     res.status(200).json({
-      message: 'Drying finished successfully'
+      message: 'Drying finished successfully',
+      exited_at: exitedAtValue
     });
 
   } catch (err) {
