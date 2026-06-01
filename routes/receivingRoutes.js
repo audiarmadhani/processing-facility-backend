@@ -15,6 +15,19 @@ function validateCreateWithoutWeight(weight, totalBags, bagPayload) {
   return null;
 }
 
+function normalizeDriverHandoffCode(raw) {
+  if (raw == null || raw === '') {
+    return { code: null };
+  }
+  const code = String(raw).replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
+  if (code.length !== 6) {
+    return {
+      error: 'Driver pickup code must be exactly 6 letters or numbers.',
+    };
+  }
+  return { code };
+}
+
 function validateBagPayload(bagPayload) {
   if (!Array.isArray(bagPayload) || bagPayload.length === 0) {
     return 'At least one bag with weight is required.';
@@ -42,7 +55,21 @@ function validateBagPayload(bagPayload) {
 router.post('/receiving', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { farmerID, farmerName, weight, totalBags, notes, type, producer, brix, bagPayload, createdBy, updatedBy, rfid } = req.body;
+    const {
+      farmerID,
+      farmerName,
+      weight,
+      totalBags,
+      notes,
+      type,
+      producer,
+      brix,
+      bagPayload,
+      createdBy,
+      updatedBy,
+      rfid,
+      driverPickupHandoffCode,
+    } = req.body;
 
     // Basic validation
     if (!farmerID || !farmerName || weight === undefined || totalBags === undefined || !type || !producer || !createdBy || !updatedBy) {
@@ -61,6 +88,12 @@ router.post('/receiving', async (req, res) => {
     if (brix !== undefined && (typeof brix !== 'number' || brix < 0)) {
       await t.rollback();
       return res.status(400).json({ error: 'Brix must be a non-negative number.' });
+    }
+
+    const handoffResult = normalizeDriverHandoffCode(driverPickupHandoffCode);
+    if (handoffResult.error) {
+      await t.rollback();
+      return res.status(400).json({ error: handoffResult.error });
     }
 
     // Retrieve or initialize the latest batch number
@@ -101,10 +134,12 @@ router.post('/receiving', async (req, res) => {
     const [receivingData] = await sequelize.query(`
       INSERT INTO "ReceivingData" (
         "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type, producer, brix,
-        "receivingDate", "createdAt", "updatedAt", "createdBy", "updatedBy", "rfid", "currentAssign"
+        "receivingDate", "createdAt", "updatedAt", "createdBy", "updatedBy", "rfid", "currentAssign",
+        "driverPickupHandoffCode"
       ) VALUES (
         :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type, :producer, :brix,
-        :receivingDate, :createdAt, :updatedAt, :createdBy, :updatedBy, :rfid, :currentAssign
+        :receivingDate, :createdAt, :updatedAt, :createdBy, :updatedBy, :rfid, :currentAssign,
+        :driverPickupHandoffCode
       ) RETURNING *;
     `, {
       replacements: {
@@ -124,6 +159,7 @@ router.post('/receiving', async (req, res) => {
         updatedBy,
         rfid,
         currentAssign: 1,
+        driverPickupHandoffCode: handoffResult.code,
       },
       transaction: t,
       type: sequelize.QueryTypes.INSERT
@@ -159,7 +195,7 @@ router.post('/receiving-green-beans', async (req, res) => {
     const {
       farmerID, farmerName, weight, totalBags, notes,
       type, producer, processingType, grade, bagPayload,
-      createdBy, updatedBy, rfid, price, moisture
+      createdBy, updatedBy, rfid, price, moisture, driverPickupHandoffCode,
     } = req.body;
 
     // Basic validation
@@ -184,6 +220,12 @@ router.post('/receiving-green-beans', async (req, res) => {
     if (moisture !== undefined && (isNaN(Number(moisture)) || Number(moisture) < 0)) {
       await t.rollback();
       return res.status(400).json({ error: 'Moisture must be a non-negative number.' });
+    }
+
+    const handoffResult = normalizeDriverHandoffCode(driverPickupHandoffCode);
+    if (handoffResult.error) {
+      await t.rollback();
+      return res.status(400).json({ error: handoffResult.error });
     }
 
     // Get current date and format it
@@ -225,12 +267,12 @@ router.post('/receiving-green-beans', async (req, res) => {
         "batchNumber", "farmerID", "farmerName", weight, "totalBags", notes, type, producer,
         "processingType", "grade", "commodityType", "receivingDate", "createdAt", "updatedAt",
         "createdBy", "updatedBy", "rfid", "currentAssign",
-        price, moisture
+        price, moisture, "driverPickupHandoffCode"
       ) VALUES (
         :batchNumber, :farmerID, :farmerName, :weight, :totalBags, :notes, :type, :producer,
         :processingType, :grade, :commodityType, :receivingDate, :createdAt, :updatedAt,
         :createdBy, :updatedBy, :rfid, :currentAssign,
-        :price, :moisture
+        :price, :moisture, :driverPickupHandoffCode
       ) RETURNING *;
     `, {
       replacements: {
@@ -253,7 +295,8 @@ router.post('/receiving-green-beans', async (req, res) => {
         rfid,
         currentAssign: 1,
         price: price !== undefined ? Number(price) : null,
-        moisture: moisture !== undefined ? Number(moisture) : null
+        moisture: moisture !== undefined ? Number(moisture) : null,
+        driverPickupHandoffCode: handoffResult.code,
       },
       transaction: t,
       type: sequelize.QueryTypes.INSERT

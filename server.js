@@ -42,22 +42,44 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 
 // Middleware configuration
-app.use(cors({
-  origin: (origin, callback) => {
-    const allowedOrigins = [
-      'http://localhost:3000', // Replace with your local frontend address
-      'https://kopifabriek-platform.vercel.app', // Replace with your deployed frontend URL
-    ];
+const allowedOrigins = [
+  'http://localhost:3000', // Platform frontend (local)
+  'http://localhost:3001', // Cherry pickup driver app (local)
+  'https://kopifabriek-platform.vercel.app', // Platform frontend (production)
+  process.env.DRIVER_APP_ORIGIN, // e.g. https://your-driver-app.vercel.app
+].filter(Boolean);
 
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true); // Allow requests from these origins
-    } else {
-      callback(new Error('Not allowed by CORS')); // Block other origins
-    }
-  },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Server-to-server or same-origin requests (no Origin header)
+      if (!origin) {
+        return callback(null, true);
+      }
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      // Any localhost port in development
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
+      ) {
+        return callback(null, true);
+      }
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        /^http:\/\/localhost:\d+$/.test(origin)
+      ) {
+        return callback(null, true);
+      }
+      console.warn('[CORS] Blocked origin:', origin);
+      return callback(new Error('Not allowed by CORS'));
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 204,
+  })
+);
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
