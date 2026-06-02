@@ -101,6 +101,7 @@ router.post('/fermentation', async (req, res) => {
       referenceNumber,
       version,
       experimentNumber,
+      purpose,
       description,
       farmerName,
       type,
@@ -281,6 +282,7 @@ router.post('/fermentation', async (req, res) => {
         "referenceNumber",
         "version",
         "experimentNumber",
+        "purpose",
         "description",
         "farmerName",
         "type",
@@ -410,6 +412,7 @@ router.post('/fermentation', async (req, res) => {
         :referenceNumber,
         :version,
         :experimentNumber,
+        :purpose,
         :description,
         :farmerName,
         :type,
@@ -525,6 +528,7 @@ router.post('/fermentation', async (req, res) => {
         "endDate" = EXCLUDED."endDate",
         "processingType" = EXCLUDED."processingType",
         "version" = EXCLUDED."version",
+        "purpose" = EXCLUDED."purpose",
         "description" = EXCLUDED."description",
         "farmerName" = EXCLUDED."farmerName",
         "type" = EXCLUDED."type",
@@ -572,6 +576,7 @@ router.post('/fermentation', async (req, res) => {
           referenceNumber,
           version: toNullableInt(version),
           experimentNumber,
+          purpose,
           description,
           farmerName,
           type,
@@ -910,6 +915,7 @@ router.patch('/fermentation/details/:batchNumber', async (req, res) => {
     setIfValid('processingType', d.processingType);
     setIfValid('referenceNumber', d.referenceNumber);
     setIfValid('experimentNumber', d.experimentNumber);
+    setIfValid('purpose', d.purpose);
     setIfValid('description', d.description);
     setIfValid('farmerName', d.farmerName);
     setIfValid('type', d.type);
