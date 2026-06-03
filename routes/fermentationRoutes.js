@@ -11,6 +11,28 @@ const toNullableInt = (v) =>
 const toNullableDate = (v) =>
   v ? new Date(v) : null;
 
+const ACTIVE_BATCH_STATUSES = ['Draft', 'Awaiting Batch', 'In Progress'];
+
+async function assertBatchNotActivelyUsed(batchNumber, excludeId = null) {
+  if (!batchNumber) return;
+  const [row] = await sequelize.query(
+    `SELECT id FROM "FermentationData"
+     WHERE "batchNumber" = :batchNumber
+     AND status IN ('Draft', 'Awaiting Batch', 'In Progress')
+     AND (:excludeId IS NULL OR id != :excludeId)
+     LIMIT 1`,
+    {
+      replacements: { batchNumber, excludeId: excludeId ?? null },
+      type: sequelize.QueryTypes.SELECT,
+    }
+  );
+  if (row) {
+    const err = new Error(`Batch ${batchNumber} is already linked to an active fermentation entry`);
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 // Route for fetching available tanks
 router.get('/fermentation/available-tanks', async (req, res) => {
   try {
@@ -72,6 +94,11 @@ router.get('/fermentation/available-batches', async (req, res) => {
       WHERE r.merged = FALSE
       AND d."batchNumber" IS NULL
       AND r."commodityType" = 'Cherry'
+      AND r."batchNumber" NOT IN (
+        SELECT "batchNumber" FROM "FermentationData"
+        WHERE "batchNumber" IS NOT NULL
+        AND status IN ('Draft', 'Awaiting Batch', 'In Progress')
+      )
       GROUP BY r."batchNumber", r."farmerName", r."type", r.weight
       ORDER BY r."batchNumber" DESC;`,
       {
@@ -216,21 +243,55 @@ router.post('/fermentation', async (req, res) => {
       waterTemperature,
       coolerTemperature
 
+      ,
+      intent
+
     } = req.body;
 
+    const saveIntent = intent === 'draft' ? 'draft' : 'start';
+
     // ---- required guards ----
-    if (!batchNumber || !createdBy || !version) {
+    if (!createdBy || version === undefined || version === null || version === '') {
       return res.status(400).json({
-        error: 'batchNumber, createdBy, and version are required',
+        error: 'createdBy and version are required',
       });
     }
 
-    // ---- canonical dates ----
-    const startDate = new Date(fermentationStart);
-    const endDate = toNullableDate(fermentationEnd);
+    if (!referenceNumber || !experimentNumber) {
+      return res.status(400).json({
+        error: 'referenceNumber and experimentNumber are required',
+      });
+    }
 
-    if (isNaN(startDate.getTime())) {
-      return res.status(400).json({ error: 'Invalid fermentationStart' });
+    const trimmedBatch = batchNumber?.trim() || null;
+
+    try {
+      await assertBatchNotActivelyUsed(trimmedBatch, null);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
+
+    // ---- canonical dates & status ----
+    let startDate = null;
+    let endDate = toNullableDate(fermentationEnd);
+    let status;
+
+    if (saveIntent === 'draft') {
+      status = 'Draft';
+      if (fermentationStart) {
+        const parsed = new Date(fermentationStart);
+        if (!isNaN(parsed.getTime())) startDate = parsed;
+      }
+    } else {
+      if (fermentationStart) {
+        startDate = new Date(fermentationStart);
+      } else {
+        startDate = new Date();
+      }
+      if (isNaN(startDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid fermentationStart' });
+      }
+      status = trimmedBatch ? 'In Progress' : 'Awaiting Batch';
     }
 
     // ---- normalize numeric fields ----
@@ -268,7 +329,7 @@ router.post('/fermentation', async (req, res) => {
     }
 
     // ---- INSERT ----
-    await sequelize.query(
+    const inserted = await sequelize.query(
       `
       INSERT INTO "FermentationData" (
         "batchNumber",
@@ -406,7 +467,7 @@ router.post('/fermentation', async (req, res) => {
         :startDate,
         :endDate,
         :createdBy,
-        'In Progress',
+        :status,
 
         :processingType,
         :referenceNumber,
@@ -521,11 +582,13 @@ router.post('/fermentation', async (req, res) => {
         NOW(),
         NOW()
       )
-      ON CONFLICT ("batchNumber", "referenceNumber", "experimentNumber")
+      ON CONFLICT ("referenceNumber", "version", "experimentNumber")
       DO UPDATE SET
+        "batchNumber" = EXCLUDED."batchNumber",
         "tank" = EXCLUDED."tank",
         "startDate" = EXCLUDED."startDate",
         "endDate" = EXCLUDED."endDate",
+        "status" = EXCLUDED."status",
         "processingType" = EXCLUDED."processingType",
         "version" = EXCLUDED."version",
         "purpose" = EXCLUDED."purpose",
@@ -562,15 +625,17 @@ router.post('/fermentation', async (req, res) => {
         "tankAmount" = EXCLUDED."tankAmount",
         "leachateTarget" = EXCLUDED."leachateTarget",
 
-        "updatedAt" = NOW();
+        "updatedAt" = NOW()
+      RETURNING id;
       `,
       {
         replacements: {
-          batchNumber,
+          batchNumber: trimmedBatch,
           tank,
           startDate,
           endDate,
           createdBy,
+          status,
 
           processingType,
           referenceNumber,
@@ -691,10 +756,15 @@ router.post('/fermentation', async (req, res) => {
           waterTemperature: toNullableFloat(waterTemperature),
           coolerTemperature: toNullableFloat(coolerTemperature),
         },
+        type: sequelize.QueryTypes.SELECT,
       }
     );
 
-    res.status(201).json({ message: 'Fermentation created successfully' });
+    res.status(201).json({
+      message: saveIntent === 'draft' ? 'Draft saved successfully' : 'Fermentation started successfully',
+      id: inserted[0]?.id,
+      status,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({
@@ -707,23 +777,42 @@ router.post('/fermentation', async (req, res) => {
 // Route for fetching all fermentation data
 router.get('/fermentation', async (req, res) => {
   try {
-    const [rows] = await sequelize.query(
+    const rows = await sequelize.query(
       `SELECT 
         f.*, 
-        r."farmerName",
+        COALESCE(r."farmerName", f."farmerName") AS "farmerName",
         r.weight AS receiving_weight,
-        "startDate" as "fermentationStart",
-        "endDate" as "fermentationEnd"
+        f."startDate" as "fermentationStart",
+        f."endDate" as "fermentationEnd"
       FROM "FermentationData" f
       LEFT JOIN "ReceivingData" r ON f."batchNumber" = r."batchNumber"
-      WHERE r.merged = FALSE
-      ORDER BY f."fermentationStart" DESC;`
+      WHERE f."batchNumber" IS NULL OR r.merged = FALSE
+      ORDER BY f."createdAt" DESC, f."startDate" DESC NULLS LAST;`,
+      { type: sequelize.QueryTypes.SELECT }
     );
 
     res.json(rows || []);
   } catch (err) {
     console.error('Error fetching fermentation data:', err);
     res.status(500).json({ error: 'Failed to fetch fermentation data', details: err.message });
+  }
+});
+
+router.get('/fermentation/details/id/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const fermentation = await sequelize.query(`
+      SELECT * FROM "FermentationData" f WHERE f.id = :id
+    `, {
+      replacements: { id: parseInt(id, 10) },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    res.status(200).json(fermentation);
+  } catch (error) {
+    console.error('Error fetching fermentation data:', error);
+    res.status(500).json({ error: 'Failed to fetch fermentation data', details: error.message });
   }
 });
 
@@ -839,6 +928,194 @@ router.get('/fermentation-weight-measurements/:batchNumber', async (req, res) =>
   } catch (err) {
     console.error('Error fetching weight measurements:', err);
     res.status(500).json({ error: 'Failed to fetch weight measurements', details: err.message });
+  }
+});
+
+router.patch('/fermentation/details/id/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const d = req.body;
+
+    const updates = {};
+    const replacements = { id: parseInt(id, 10) };
+
+    const setIfValid = (key, value) => {
+      if (value !== undefined && value !== null && value !== '') {
+        updates[key] = `:${key}`;
+        replacements[key] = value;
+      }
+    };
+
+    const setNumber = (key, value) => {
+      if (value !== undefined && value !== null && value !== '') {
+        const num = Number(value);
+        if (isNaN(num)) throw new Error(`Invalid number for ${key}`);
+        updates[key] = `:${key}`;
+        replacements[key] = num;
+      }
+    };
+
+    const setDate = (key, value) => {
+      if (value !== undefined && value !== null && value !== '') {
+        updates[key] = `:${key}`;
+        replacements[key] = new Date(value);
+      }
+    };
+
+    setDate('startDate', d.fermentationStart);
+    setDate('endDate', d.fermentationEnd);
+    setDate('harvestAt', d.harvestAt);
+    setDate('harvestDate', d.harvestDate);
+    setDate('receivedAt', d.receivedAt);
+    setDate('preFermentationStorageStart', d.preFermentationStorageStart);
+    setDate('preFermentationStorageEnd', d.preFermentationStorageEnd);
+
+    setNumber('pressure', d.pressure);
+    setNumber('pH', d.pH);
+    setNumber('totalVolume', d.totalVolume);
+    setNumber('waterUsed', d.waterUsed);
+    setNumber('starterUsed', d.starterUsed);
+    setNumber('stirring', d.stirring);
+    setNumber('avgTemperature', d.avgTemperature);
+    setNumber('tankAmount', d.tankAmount);
+    setNumber('leachateTarget', d.leachateTarget);
+    setNumber('leachate', d.leachate);
+    setNumber('brewTankTemperature', d.brewTankTemperature);
+    setNumber('waterTemperature', d.waterTemperature);
+    setNumber('coolerTemperature', d.coolerTemperature);
+    setNumber('secondPressure', d.secondPressure);
+    setNumber('secondTemperature', d.secondTemperature);
+    setNumber('fermentationTimeTarget', d.fermentationTimeTarget);
+    setNumber('secondFermentationTimeTarget', d.secondFermentationTimeTarget);
+
+    setIfValid('processingType', d.processingType);
+    setIfValid('referenceNumber', d.referenceNumber);
+    setIfValid('experimentNumber', d.experimentNumber);
+    setIfValid('purpose', d.purpose);
+    setIfValid('description', d.description);
+    setIfValid('farmerName', d.farmerName);
+    setIfValid('type', d.type);
+    setIfValid('variety', d.variety);
+    setIfValid('fermentation', d.fermentation);
+    setIfValid('secondFermentation', d.secondFermentation);
+    setIfValid('secondFermentationTank', d.secondFermentationTank);
+    setIfValid('gas', d.gas);
+    setIfValid('secondGas', d.secondGas);
+    setIfValid('isSubmerged', d.isSubmerged);
+    setIfValid('secondIsSubmerged', d.secondIsSubmerged);
+    setIfValid('quality', d.quality);
+    setIfValid('brix', d.brix);
+    setIfValid('tank', d.tank);
+    setIfValid('fermentationStarter', d.fermentationStarter);
+    setNumber('fermentationStarterAmount', d.fermentationStarterAmount);
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    const setClause = Object.entries(updates)
+      .map(([key, val]) => `"${key}" = ${val}`)
+      .join(', ');
+
+    await sequelize.query(
+      `UPDATE "FermentationData"
+       SET ${setClause}, "updatedAt" = NOW()
+       WHERE id = :id`,
+      { replacements }
+    );
+
+    res.json({ message: 'Fermentation updated safely' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: 'Failed to update fermentation data',
+      details: err.message,
+    });
+  }
+});
+
+router.patch('/fermentation/:id/assign-batch', async (req, res) => {
+  const entryId = parseInt(req.params.id, 10);
+  const { batchNumber } = req.body;
+
+  if (!entryId || !batchNumber?.trim()) {
+    return res.status(400).json({ error: 'id and batchNumber are required' });
+  }
+
+  const trimmedBatch = batchNumber.trim();
+
+  try {
+    const [entry] = await sequelize.query(
+      `SELECT id, status, "batchNumber", "farmerName", type, variety
+       FROM "FermentationData"
+       WHERE id = :id`,
+      { replacements: { id: entryId }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (!entry) {
+      return res.status(404).json({ error: 'Fermentation entry not found' });
+    }
+
+    if (!['Draft', 'Awaiting Batch'].includes(entry.status)) {
+      return res.status(400).json({ error: 'Batch can only be assigned to Draft or Awaiting Batch entries' });
+    }
+
+    if (entry.status === 'Awaiting Batch' && entry.batchNumber) {
+      return res.status(400).json({ error: 'Batch cannot be reassigned after fermentation has started' });
+    }
+
+    await assertBatchNotActivelyUsed(trimmedBatch, entryId);
+
+    const [receiving] = await sequelize.query(
+      `SELECT "farmerName", type, variety FROM "ReceivingData"
+       WHERE "batchNumber" = :batchNumber AND merged = FALSE
+       LIMIT 1`,
+      { replacements: { batchNumber: trimmedBatch }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (!receiving) {
+      return res.status(404).json({ error: 'Batch not found in receiving data' });
+    }
+
+    const farmerName = entry.farmerName || receiving.farmerName || null;
+    const type = entry.type || receiving.type || null;
+    const variety = entry.variety || receiving.variety || null;
+    const newStatus = entry.status === 'Awaiting Batch' ? 'In Progress' : entry.status;
+
+    await sequelize.query(
+      `UPDATE "FermentationData"
+       SET "batchNumber" = :batchNumber,
+           "farmerName" = :farmerName,
+           type = :type,
+           variety = :variety,
+           status = :status,
+           "updatedAt" = NOW()
+       WHERE id = :id`,
+      {
+        replacements: {
+          id: entryId,
+          batchNumber: trimmedBatch,
+          farmerName,
+          type,
+          variety,
+          status: newStatus,
+        },
+      }
+    );
+
+    res.json({
+      message: `Batch ${trimmedBatch} assigned successfully`,
+      status: newStatus,
+      farmerName,
+      type,
+      variety,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({
+      error: err.message || 'Failed to assign batch',
+      details: err.message,
+    });
   }
 });
 
@@ -972,6 +1249,74 @@ router.patch('/fermentation/details/:batchNumber', async (req, res) => {
   }
 });
 
+router.put('/fermentation/finish/id/:id', async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const entryId = parseInt(req.params.id, 10);
+    const { fermentationEnd } = req.body;
+
+    if (!fermentationEnd) {
+      await t.rollback();
+      return res.status(400).json({ error: 'fermentationEnd is required' });
+    }
+
+    const parsedEndDate = new Date(fermentationEnd);
+    if (isNaN(parsedEndDate)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid fermentationEnd format' });
+    }
+
+    if (parsedEndDate > new Date()) {
+      await t.rollback();
+      return res.status(400).json({ error: 'fermentationEnd cannot be in the future' });
+    }
+
+    const [entry] = await sequelize.query(
+      `SELECT id, "batchNumber", "startDate", status FROM "FermentationData"
+       WHERE id = :id AND status = 'In Progress'`,
+      { replacements: { id: entryId }, transaction: t, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (!entry) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Entry not found or not in progress' });
+    }
+
+    if (!entry.batchNumber) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Assign a batch before finishing fermentation' });
+    }
+
+    const parsedStartDate = new Date(entry.startDate);
+    if (parsedEndDate < parsedStartDate) {
+      await t.rollback();
+      return res.status(400).json({ error: 'fermentationEnd cannot be before fermentationStart' });
+    }
+
+    const [fermentationData] = await sequelize.query(
+      `UPDATE "FermentationData"
+       SET "endDate" = :fermentationEnd, status = 'Finished', "updatedAt" = NOW()
+       WHERE id = :id
+       RETURNING *`,
+      {
+        replacements: { id: entryId, fermentationEnd: parsedEndDate },
+        transaction: t,
+        type: sequelize.QueryTypes.UPDATE,
+      }
+    );
+
+    await t.commit();
+    res.json({
+      message: `Fermentation finished for batch ${entry.batchNumber}`,
+      fermentationData: fermentationData[0],
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error('Error finishing fermentation:', err);
+    res.status(500).json({ error: 'Failed to finish fermentation', details: err.message });
+  }
+});
+
 // Route to finish fermentation for a batch
 router.put('/fermentation/finish/:batchNumber', async (req, res) => {
   const t = await sequelize.transaction();
@@ -1039,21 +1384,60 @@ router.put('/fermentation/finish/:batchNumber', async (req, res) => {
 });
 
 router.get('/fermentation/check-experiment', async (req, res) => {
-  const { experimentNumber } = req.query;
+  const { experimentNumber, excludeId } = req.query;
+
+  if (!experimentNumber) {
+    return res.json({ exists: false });
+  }
 
   const result = await sequelize.query(
     `
     SELECT 1 FROM "FermentationData"
     WHERE "experimentNumber" = :experimentNumber
+    AND (:excludeId IS NULL OR id != :excludeId)
     LIMIT 1
     `,
     {
-      replacements: { experimentNumber },
+      replacements: {
+        experimentNumber,
+        excludeId: excludeId ? parseInt(excludeId, 10) : null,
+      },
       type: sequelize.QueryTypes.SELECT,
     }
   );
 
   res.json({ exists: result.length > 0 });
+});
+
+router.delete('/fermentation/id/:id', async (req, res) => {
+  try {
+    const entryId = parseInt(req.params.id, 10);
+    if (!entryId) {
+      return res.status(400).json({ error: 'Valid id is required' });
+    }
+
+    const deleted = await sequelize.query(
+      `
+      DELETE FROM "FermentationData"
+      WHERE id = :id
+      AND status IN ('Draft', 'Awaiting Batch', 'Finished')
+      RETURNING id
+      `,
+      { replacements: { id: entryId }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (!deleted.length) {
+      return res.status(400).json({ error: 'Entry not found or cannot be deleted while in progress' });
+    }
+
+    res.json({ message: 'Entry deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: 'Failed to delete entry',
+      details: err.message,
+    });
+  }
 });
 
 // DELETE /api/fermentation/:batchNumber
