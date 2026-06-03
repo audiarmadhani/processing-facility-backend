@@ -11,7 +11,7 @@ const toNullableInt = (v) =>
 const toNullableDate = (v) =>
   v ? new Date(v) : null;
 
-const ACTIVE_BATCH_STATUSES = ['Draft', 'Awaiting Batch', 'In Progress'];
+const ACTIVE_BATCH_STATUSES = ['Awaiting Batch', 'In Progress'];
 
 const WITA_TZ = 'Asia/Makassar';
 const MORNING_WINDOW_START = 6;
@@ -61,7 +61,7 @@ async function assertBatchNotActivelyUsed(batchNumber, excludeId = null) {
   const [row] = await sequelize.query(
     `SELECT id FROM "FermentationData"
      WHERE "batchNumber" = :batchNumber
-     AND status IN ('Draft', 'Awaiting Batch', 'In Progress')
+     AND status IN ('Awaiting Batch', 'In Progress')
      AND (:excludeId IS NULL OR id != :excludeId)
      LIMIT 1`,
     {
@@ -140,7 +140,7 @@ router.get('/fermentation/available-batches', async (req, res) => {
       AND r."batchNumber" NOT IN (
         SELECT "batchNumber" FROM "FermentationData"
         WHERE "batchNumber" IS NOT NULL
-        AND status IN ('Draft', 'Awaiting Batch', 'In Progress')
+        AND status IN ('Awaiting Batch', 'In Progress')
       )
       GROUP BY r."batchNumber", r."farmerName", r."type", r.weight
       ORDER BY r."batchNumber" DESC;`,
@@ -286,12 +286,7 @@ router.post('/fermentation', async (req, res) => {
       waterTemperature,
       coolerTemperature
 
-      ,
-      intent
-
     } = req.body;
-
-    const saveIntent = intent === 'draft' ? 'draft' : 'start';
 
     // ---- required guards ----
     if (!createdBy || version === undefined || version === null || version === '') {
@@ -319,13 +314,7 @@ router.post('/fermentation', async (req, res) => {
     let endDate = toNullableDate(fermentationEnd);
     let status;
 
-    if (saveIntent === 'draft') {
-      status = 'Draft';
-      if (fermentationStart) {
-        const parsed = new Date(fermentationStart);
-        if (!isNaN(parsed.getTime())) startDate = parsed;
-      }
-    } else {
+    if (trimmedBatch) {
       if (fermentationStart) {
         startDate = new Date(fermentationStart);
       } else {
@@ -334,7 +323,13 @@ router.post('/fermentation', async (req, res) => {
       if (isNaN(startDate.getTime())) {
         return res.status(400).json({ error: 'Invalid fermentationStart' });
       }
-      status = trimmedBatch ? 'In Progress' : 'Awaiting Batch';
+      status = 'In Progress';
+    } else {
+      status = 'Awaiting Batch';
+      if (fermentationStart) {
+        const parsed = new Date(fermentationStart);
+        if (!isNaN(parsed.getTime())) startDate = parsed;
+      }
     }
 
     // ---- normalize numeric fields ----
@@ -804,7 +799,9 @@ router.post('/fermentation', async (req, res) => {
     );
 
     res.status(201).json({
-      message: saveIntent === 'draft' ? 'Draft saved successfully' : 'Fermentation started successfully',
+      message: trimmedBatch
+        ? 'Fermentation started successfully'
+        : 'Order sheet saved — awaiting batch assignment',
       id: inserted[0]?.id,
       status,
     });
@@ -1099,12 +1096,12 @@ router.patch('/fermentation/:id/assign-batch', async (req, res) => {
       return res.status(404).json({ error: 'Fermentation entry not found' });
     }
 
-    if (!['Draft', 'Awaiting Batch'].includes(entry.status)) {
-      return res.status(400).json({ error: 'Batch can only be assigned to Draft or Awaiting Batch entries' });
+    if (entry.status !== 'Awaiting Batch') {
+      return res.status(400).json({ error: 'Batch can only be assigned to Awaiting Batch entries' });
     }
 
-    if (entry.status === 'Awaiting Batch' && entry.batchNumber) {
-      return res.status(400).json({ error: 'Batch cannot be reassigned after fermentation has started' });
+    if (entry.batchNumber) {
+      return res.status(400).json({ error: 'Batch cannot be reassigned once assigned' });
     }
 
     await assertBatchNotActivelyUsed(trimmedBatch, entryId);
@@ -1123,7 +1120,7 @@ router.patch('/fermentation/:id/assign-batch', async (req, res) => {
     const farmerName = entry.farmerName || receiving.farmerName || null;
     const type = entry.type || receiving.type || null;
     const variety = entry.variety || receiving.variety || null;
-    const newStatus = entry.status === 'Awaiting Batch' ? 'In Progress' : entry.status;
+    const newStatus = 'In Progress';
 
     await sequelize.query(
       `UPDATE "FermentationData"
@@ -1132,6 +1129,7 @@ router.patch('/fermentation/:id/assign-batch', async (req, res) => {
            type = :type,
            variety = :variety,
            status = :status,
+           "startDate" = COALESCE("startDate", NOW()),
            "updatedAt" = NOW()
        WHERE id = :id`,
       {
@@ -1463,7 +1461,7 @@ router.delete('/fermentation/id/:id', async (req, res) => {
       `
       DELETE FROM "FermentationData"
       WHERE id = :id
-      AND status IN ('Draft', 'Awaiting Batch', 'Finished')
+      AND status IN ('Awaiting Batch', 'Finished')
       RETURNING id
       `,
       { replacements: { id: entryId }, type: sequelize.QueryTypes.SELECT }

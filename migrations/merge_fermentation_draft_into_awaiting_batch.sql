@@ -1,4 +1,4 @@
--- Allow Awaiting Batch status (run on platform Postgres)
+-- Merge Draft status into Awaiting Batch (run on platform Postgres)
 UPDATE "FermentationData"
 SET status = 'Awaiting Batch'
 WHERE status = 'Draft';
