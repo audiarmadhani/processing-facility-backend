@@ -13,6 +13,49 @@ const toNullableDate = (v) =>
 
 const ACTIVE_BATCH_STATUSES = ['Draft', 'Awaiting Batch', 'In Progress'];
 
+const WITA_TZ = 'Asia/Makassar';
+const MORNING_WINDOW_START = 6;
+const MORNING_WINDOW_END = 12;
+const EVENING_WINDOW_START = 17;
+const EVENING_WINDOW_END = 21;
+
+function getWitaNow() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: WITA_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: 'numeric',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(now);
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  const hourPart = get('hour');
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    hour: hourPart === '24' ? 0 : parseInt(hourPart, 10),
+  };
+}
+
+function getActivePeriodFromHour(hour) {
+  if (hour >= MORNING_WINDOW_START && hour < MORNING_WINDOW_END) return 'morning';
+  if (hour >= EVENING_WINDOW_START && hour < EVENING_WINDOW_END) return 'evening';
+  return null;
+}
+
+function mapFermentationRow(row) {
+  return {
+    id: row.id,
+    batchNumber: row.batchNumber,
+    experimentNumber: row.experimentNumber,
+    referenceNumber: row.referenceNumber,
+    version: row.version,
+    tank: row.tank,
+    status: row.status,
+  };
+}
+
 async function assertBatchNotActivelyUsed(batchNumber, excludeId = null) {
   if (!batchNumber) return;
   const [row] = await sequelize.query(
@@ -1527,6 +1570,193 @@ router.delete('/fermentation-weight-measurements', async (req, res) => {
     res.status(500).json({
       error: 'Delete failed',
     });
+  }
+});
+
+router.get('/fermentation/check-ins/pending', async (req, res) => {
+  try {
+    const { date: checkInDate, hour } = getWitaNow();
+    const activePeriod = getActivePeriodFromHour(hour);
+    const inReminderWindow = activePeriod !== null;
+
+    const activeRows = await sequelize.query(
+      `SELECT id, "batchNumber", "experimentNumber", "referenceNumber", version, tank, status
+       FROM "FermentationData"
+       WHERE status = 'In Progress'
+       AND "batchNumber" IS NOT NULL
+       ORDER BY "batchNumber" ASC`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (!activeRows.length) {
+      return res.json({
+        activePeriod,
+        inReminderWindow,
+        checkInDate,
+        pending: [],
+        overdue: [],
+      });
+    }
+
+    const fermentationIds = activeRows.map((r) => r.id);
+    const checkIns = await sequelize.query(
+      `SELECT "fermentationId", period
+       FROM "FermentationCheckIns"
+       WHERE "fermentationId" IN (:fermentationIds)
+       AND "checkInDate" = :checkInDate`,
+      {
+        replacements: { fermentationIds, checkInDate },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    const checkInMap = new Map();
+    for (const ci of checkIns) {
+      if (!checkInMap.has(ci.fermentationId)) {
+        checkInMap.set(ci.fermentationId, new Set());
+      }
+      checkInMap.get(ci.fermentationId).add(ci.period);
+    }
+
+    const pending = [];
+    const overdue = [];
+
+    for (const row of activeRows) {
+      const periods = checkInMap.get(row.id) || new Set();
+      const hasMorning = periods.has('morning');
+      const hasEvening = periods.has('evening');
+      const base = mapFermentationRow(row);
+
+      if (activePeriod === 'morning' && !hasMorning) {
+        pending.push({ ...base, missingPeriod: 'morning' });
+      }
+      if (activePeriod === 'evening' && !hasEvening) {
+        pending.push({ ...base, missingPeriod: 'evening' });
+      }
+
+      if (!hasMorning && hour >= MORNING_WINDOW_END) {
+        overdue.push({ ...base, missingPeriod: 'morning' });
+      }
+      if (!hasEvening && hour >= EVENING_WINDOW_END) {
+        overdue.push({ ...base, missingPeriod: 'evening' });
+      }
+    }
+
+    res.json({
+      activePeriod,
+      inReminderWindow,
+      checkInDate,
+      pending,
+      overdue,
+    });
+  } catch (err) {
+    console.error('Error fetching pending check-ins:', err);
+    res.status(500).json({ error: 'Failed to fetch pending check-ins', details: err.message });
+  }
+});
+
+router.get('/fermentation/:id/check-ins', async (req, res) => {
+  try {
+    const fermentationId = parseInt(req.params.id, 10);
+    if (!fermentationId) {
+      return res.status(400).json({ error: 'Valid fermentation id is required' });
+    }
+
+    const rows = await sequelize.query(
+      `SELECT id, "fermentationId", "batchNumber", period, "checkInDate", notes, "imageUrl", "createdBy", "createdAt"
+       FROM "FermentationCheckIns"
+       WHERE "fermentationId" = :fermentationId
+       ORDER BY "checkInDate" DESC, period DESC, "createdAt" DESC`,
+      {
+        replacements: { fermentationId },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching check-ins:', err);
+    res.status(500).json({ error: 'Failed to fetch check-ins', details: err.message });
+  }
+});
+
+router.post('/fermentation/:id/check-in', async (req, res) => {
+  try {
+    const fermentationId = parseInt(req.params.id, 10);
+    const { notes, imageUrl, period: bodyPeriod, createdBy } = req.body;
+
+    if (!fermentationId) {
+      return res.status(400).json({ error: 'Valid fermentation id is required' });
+    }
+    if (!imageUrl?.trim()) {
+      return res.status(400).json({ error: 'imageUrl is required' });
+    }
+    if (!createdBy?.trim()) {
+      return res.status(400).json({ error: 'createdBy is required' });
+    }
+
+    const [entry] = await sequelize.query(
+      `SELECT id, "batchNumber", status FROM "FermentationData" WHERE id = :id`,
+      {
+        replacements: { id: fermentationId },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    if (!entry) {
+      return res.status(404).json({ error: 'Fermentation entry not found' });
+    }
+    if (entry.status !== 'In Progress') {
+      return res.status(400).json({ error: 'Check-in is only allowed for In Progress fermentations' });
+    }
+    if (!entry.batchNumber) {
+      return res.status(400).json({ error: 'Assign a batch before checking in' });
+    }
+
+    const { date: checkInDate, hour } = getWitaNow();
+    const period = bodyPeriod || getActivePeriodFromHour(hour);
+    if (!period) {
+      return res.status(400).json({
+        error: 'Check-in is only allowed during morning (06:00–12:00 WITA) or evening (17:00–21:00 WITA) windows',
+      });
+    }
+    if (bodyPeriod && !['morning', 'evening'].includes(bodyPeriod)) {
+      return res.status(400).json({ error: 'period must be morning or evening' });
+    }
+
+    const [inserted] = await sequelize.query(
+      `INSERT INTO "FermentationCheckIns" (
+        "fermentationId", "batchNumber", period, "checkInDate", notes, "imageUrl", "createdBy"
+      ) VALUES (
+        :fermentationId, :batchNumber, :period, :checkInDate, :notes, :imageUrl, :createdBy
+      )
+      RETURNING *`,
+      {
+        replacements: {
+          fermentationId,
+          batchNumber: entry.batchNumber,
+          period,
+          checkInDate,
+          notes: notes?.trim() || null,
+          imageUrl: imageUrl.trim(),
+          createdBy: createdBy.trim(),
+        },
+        type: sequelize.QueryTypes.INSERT,
+      }
+    );
+
+    res.status(201).json({
+      message: `${period === 'morning' ? 'Morning' : 'Evening'} check-in saved`,
+      checkIn: inserted[0],
+    });
+  } catch (err) {
+    if (err.parent?.code === '23505') {
+      return res.status(409).json({
+        error: 'Already checked in for this period today',
+      });
+    }
+    console.error('Error saving check-in:', err);
+    res.status(500).json({ error: 'Failed to save check-in', details: err.message });
   }
 });
 
