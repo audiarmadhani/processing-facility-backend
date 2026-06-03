@@ -1,6 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
+const {
+  ALL_TANK_CODES,
+  NON_BLOCKING_TANKS,
+  normalizeTanksInput,
+  validateTanks,
+  tanksToDenormalized,
+  deriveTankAmount,
+  assertTanksAvailable,
+  replaceFermentationTanks,
+  attachTanksToRows,
+  applyTanksPatchUpdate,
+} = require('../utils/fermentationTanks');
 
 const toNullableFloat = (v) =>
   v === '' || v === undefined || v === null ? null : parseFloat(v);
@@ -45,13 +57,17 @@ function getActivePeriodFromHour(hour) {
 }
 
 function mapFermentationRow(row) {
+  const tanks = row.tanks?.length
+    ? row.tanks
+    : normalizeTanksInput({ tank: row.tank });
   return {
     id: row.id,
     batchNumber: row.batchNumber,
     experimentNumber: row.experimentNumber,
     referenceNumber: row.referenceNumber,
     version: row.version,
-    tank: row.tank,
+    tank: tanks.length ? tanksToDenormalized(tanks) : row.tank,
+    tanks,
     status: row.status,
   };
 }
@@ -79,41 +95,30 @@ async function assertBatchNotActivelyUsed(batchNumber, excludeId = null) {
 // Route for fetching available tanks
 router.get('/fermentation/available-tanks', async (req, res) => {
   try {
-    const allBlueBarrelCodes = Array.from({ length: 50 }, (_, i) => 
-      `BB-HQ-${String(i + 1).padStart(4, '0')}`
-    );
+    const excludeId = req.query.excludeFermentationId
+      ? parseInt(req.query.excludeFermentationId, 10)
+      : null;
 
-    const allBucketCodes = Array.from({ length: 50 }, (_, i) => 
-      `BUC-HQ-${String(i + 1).padStart(4, '0')}`
-    );
-
-    const allTanks = [
-      'Biomaster',
-      'Carrybrew',
-      'Washing Track',
-      ...allBlueBarrelCodes,
-      ...allBucketCodes,
-      'Bag', // fermentation in bag (after buckets in tank picker)
-    ];
-
-    const inUseTanks = await sequelize.query(
-      `SELECT DISTINCT tank 
-       FROM "FermentationData" 
-       WHERE status = :status
-       AND tank NOT IN ('Carrybrew', 'Biomaster', 'Bag')`,
+    const inUseRows = await sequelize.query(
+      `SELECT DISTINCT ft.tank
+       FROM "FermentationTanks" ft
+       INNER JOIN "FermentationData" f ON f.id = ft."fermentationId"
+       WHERE f.status = :status
+       AND ft.tank NOT IN (:nonBlocking)
+       AND (:excludeId IS NULL OR f.id != :excludeId)`,
       {
-        replacements: { status: 'In Progress' },
-        type: sequelize.QueryTypes.SELECT
+        replacements: {
+          status: 'In Progress',
+          nonBlocking: NON_BLOCKING_TANKS,
+          excludeId: excludeId && !Number.isNaN(excludeId) ? excludeId : null,
+        },
+        type: sequelize.QueryTypes.SELECT,
       }
     );
 
-    const inUseTanksArray = Array.isArray(inUseTanks) ? inUseTanks : inUseTanks ? [inUseTanks] : [];
-    console.log('inUseTanks:', inUseTanksArray);
+    const inUseTankNames = inUseRows.map((row) => row.tank).filter(Boolean);
+    const availableTanks = ALL_TANK_CODES.filter((t) => !inUseTankNames.includes(t));
 
-    const inUseTankNames = inUseTanksArray.map(row => row.tank).filter(tank => tank);
-
-    const availableTanks = allTanks.filter(tank => !inUseTankNames.includes(tank));
-    
     res.json(availableTanks);
   } catch (err) {
     console.error('Error fetching available tanks:', err);
@@ -164,6 +169,7 @@ router.post('/fermentation', async (req, res) => {
     const {
       batchNumber,
       tank,
+      tanks: tanksBody,
       fermentationStart,
       fermentationEnd,
       createdBy,
@@ -301,6 +307,21 @@ router.post('/fermentation', async (req, res) => {
       });
     }
 
+    const tanksList = normalizeTanksInput({ tanks: tanksBody, tank });
+    const tanksError = validateTanks(tanksList);
+    if (tanksError) {
+      return res.status(400).json({ error: tanksError });
+    }
+
+    try {
+      await assertTanksAvailable(sequelize, tanksList, null);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
+
+    const denormalizedTank = tanksToDenormalized(tanksList);
+    const resolvedTankAmount = deriveTankAmount(tanksList, toNullableInt(tankAmount));
+
     const trimmedBatch = batchNumber?.trim() || null;
 
     try {
@@ -350,7 +371,7 @@ router.post('/fermentation', async (req, res) => {
       quality: toNullableFloat(quality),
       brix: toNullableFloat(brix),
       pH: toNullableFloat(pH),
-      tankAmount: toNullableInt(tankAmount),
+      tankAmount: resolvedTankAmount,
       leachateTarget: toNullableFloat(leachateTarget),
       leachate: toNullableFloat(leachate),
       brewTankTemperature: toNullableFloat(brewTankTemperature),
@@ -669,7 +690,7 @@ router.post('/fermentation', async (req, res) => {
       {
         replacements: {
           batchNumber: trimmedBatch,
-          tank,
+          tank: denormalizedTank,
           startDate,
           endDate,
           createdBy,
@@ -787,7 +808,7 @@ router.post('/fermentation', async (req, res) => {
           airlock,
 
           // EXTRA
-          tankAmount: toNullableInt(tankAmount),
+          tankAmount: resolvedTankAmount,
           leachateTarget: toNullableFloat(leachateTarget),
           leachate: toNullableFloat(leachate),
           brewTankTemperature: toNullableFloat(brewTankTemperature),
@@ -798,17 +819,23 @@ router.post('/fermentation', async (req, res) => {
       }
     );
 
+    const fermentationId = inserted[0]?.id;
+    if (fermentationId) {
+      await replaceFermentationTanks(sequelize, fermentationId, tanksList);
+    }
+
     res.status(201).json({
       message: trimmedBatch
         ? 'Fermentation started successfully'
         : 'Order sheet saved — awaiting batch assignment',
-      id: inserted[0]?.id,
+      id: fermentationId,
       status,
+      tanks: tanksList,
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      error: 'Failed to create fermentation data',
+    res.status(err.statusCode || 500).json({
+      error: err.message || 'Failed to create fermentation data',
       details: err.message,
     });
   }
@@ -831,7 +858,8 @@ router.get('/fermentation', async (req, res) => {
       { type: sequelize.QueryTypes.SELECT }
     );
 
-    res.json(rows || []);
+    const withTanks = await attachTanksToRows(sequelize, rows || []);
+    res.json(withTanks);
   } catch (err) {
     console.error('Error fetching fermentation data:', err);
     res.status(500).json({ error: 'Failed to fetch fermentation data', details: err.message });
@@ -849,7 +877,8 @@ router.get('/fermentation/details/id/:id', async (req, res) => {
       type: sequelize.QueryTypes.SELECT,
     });
 
-    res.status(200).json(fermentation);
+    const withTanks = await attachTanksToRows(sequelize, fermentation || []);
+    res.status(200).json(withTanks);
   } catch (error) {
     console.error('Error fetching fermentation data:', error);
     res.status(500).json({ error: 'Failed to fetch fermentation data', details: error.message });
@@ -867,7 +896,8 @@ router.get('/fermentation/details/:batchNumber', async (req, res) => {
       type: sequelize.QueryTypes.SELECT,
     });
 
-    res.status(200).json(fermentation);
+    const withTanks = await attachTanksToRows(sequelize, fermentation || []);
+    res.status(200).json(withTanks);
   } catch (error) {
     console.error('Error fetching fermentation data:', error);
     res.status(500).json({ error: 'Failed to fetch fermentation data', details: error.message });
@@ -975,9 +1005,30 @@ router.patch('/fermentation/details/id/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const d = req.body;
+    const entryId = parseInt(id, 10);
+
+    const [entry] = await sequelize.query(
+      `SELECT id, status FROM "FermentationData" WHERE id = :id`,
+      { replacements: { id: entryId }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (!entry) {
+      return res.status(404).json({ error: 'Fermentation entry not found' });
+    }
+
+    let tanksPatch = { updated: false };
+    try {
+      tanksPatch = await applyTanksPatchUpdate(sequelize, {
+        fermentationId: entryId,
+        status: entry.status,
+        body: d,
+      });
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
 
     const updates = {};
-    const replacements = { id: parseInt(id, 10) };
+    const replacements = { id: entryId };
 
     const setIfValid = (key, value) => {
       if (value !== undefined && value !== null && value !== '') {
@@ -1045,26 +1096,33 @@ router.patch('/fermentation/details/id/:id', async (req, res) => {
     setIfValid('secondIsSubmerged', d.secondIsSubmerged);
     setIfValid('quality', d.quality);
     setIfValid('brix', d.brix);
-    setIfValid('tank', d.tank);
+    if (!d.tanks && d.tank !== undefined) {
+      setIfValid('tank', d.tank);
+    }
     setIfValid('fermentationStarter', d.fermentationStarter);
     setNumber('fermentationStarterAmount', d.fermentationStarterAmount);
 
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && !tanksPatch.updated) {
       return res.status(400).json({ error: 'No valid fields to update' });
     }
 
-    const setClause = Object.entries(updates)
-      .map(([key, val]) => `"${key}" = ${val}`)
-      .join(', ');
+    if (Object.keys(updates).length > 0) {
+      const setClause = Object.entries(updates)
+        .map(([key, val]) => `"${key}" = ${val}`)
+        .join(', ');
 
-    await sequelize.query(
-      `UPDATE "FermentationData"
-       SET ${setClause}, "updatedAt" = NOW()
-       WHERE id = :id`,
-      { replacements }
-    );
+      await sequelize.query(
+        `UPDATE "FermentationData"
+         SET ${setClause}, "updatedAt" = NOW()
+         WHERE id = :id`,
+        { replacements }
+      );
+    }
 
-    res.json({ message: 'Fermentation updated safely' });
+    res.json({
+      message: 'Fermentation updated safely',
+      tanks: tanksPatch.updated ? tanksPatch.tanks : undefined,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({
@@ -1166,6 +1224,29 @@ router.patch('/fermentation/details/:batchNumber', async (req, res) => {
     const { batchNumber } = req.params;
     const d = req.body;
 
+    const [entry] = await sequelize.query(
+      `SELECT id, status FROM "FermentationData"
+       WHERE "batchNumber" = :batchNumber
+       ORDER BY "createdAt" DESC
+       LIMIT 1`,
+      { replacements: { batchNumber }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (!entry) {
+      return res.status(404).json({ error: 'Fermentation entry not found' });
+    }
+
+    let tanksPatch = { updated: false };
+    try {
+      tanksPatch = await applyTanksPatchUpdate(sequelize, {
+        fermentationId: entry.id,
+        status: entry.status,
+        body: d,
+      });
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
+
     const updates = {};
     const replacements = { batchNumber };
 
@@ -1247,39 +1328,40 @@ router.patch('/fermentation/details/:batchNumber', async (req, res) => {
     setIfValid('secondIsSubmerged', d.secondIsSubmerged);
     setIfValid('quality', d.quality);
     setIfValid('brix', d.brix);
-    setIfValid('tank', d.tank);
+    if (!d.tanks && d.tank !== undefined) {
+      setIfValid('tank', d.tank);
+    }
     setIfValid('fermentationStarter', d.fermentationStarter);
     setNumber('fermentationStarterAmount', d.fermentationStarterAmount);
 
-    // -------------------------
-    // 🚨 NOTHING TO UPDATE
-    // -------------------------
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && !tanksPatch.updated) {
       return res.status(400).json({ error: 'No valid fields to update' });
     }
 
-    // -------------------------
-    // 🧱 BUILD QUERY
-    // -------------------------
-    const setClause = Object.entries(updates)
-      .map(([key, val]) => `"${key}" = ${val}`)
-      .join(', ');
+    if (Object.keys(updates).length > 0) {
+      const setClause = Object.entries(updates)
+        .map(([key, val]) => `"${key}" = ${val}`)
+        .join(', ');
 
-    const query = `
-      UPDATE "FermentationData"
-      SET ${setClause},
-          "updatedAt" = NOW()
-      WHERE id = (
-        SELECT id FROM "FermentationData"
-        WHERE "batchNumber" = :batchNumber
-        ORDER BY "createdAt" DESC
-        LIMIT 1
-      )
-    `;
+      const query = `
+        UPDATE "FermentationData"
+        SET ${setClause},
+            "updatedAt" = NOW()
+        WHERE id = (
+          SELECT id FROM "FermentationData"
+          WHERE "batchNumber" = :batchNumber
+          ORDER BY "createdAt" DESC
+          LIMIT 1
+        )
+      `;
 
-    await sequelize.query(query, { replacements });
+      await sequelize.query(query, { replacements });
+    }
 
-    res.json({ message: 'Fermentation updated safely' });
+    res.json({
+      message: 'Fermentation updated safely',
+      tanks: tanksPatch.updated ? tanksPatch.tanks : undefined,
+    });
 
   } catch (err) {
     console.error(err);
@@ -1577,7 +1659,7 @@ router.get('/fermentation/check-ins/pending', async (req, res) => {
     const activePeriod = getActivePeriodFromHour(hour);
     const inReminderWindow = activePeriod !== null;
 
-    const activeRows = await sequelize.query(
+    const activeRowsRaw = await sequelize.query(
       `SELECT id, "batchNumber", "experimentNumber", "referenceNumber", version, tank, status
        FROM "FermentationData"
        WHERE status = 'In Progress'
@@ -1585,6 +1667,8 @@ router.get('/fermentation/check-ins/pending', async (req, res) => {
        ORDER BY "batchNumber" ASC`,
       { type: sequelize.QueryTypes.SELECT }
     );
+
+    const activeRows = await attachTanksToRows(sequelize, activeRowsRaw || []);
 
     if (!activeRows.length) {
       return res.json({
