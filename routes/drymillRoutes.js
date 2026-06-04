@@ -1809,6 +1809,37 @@ router.post('/dry-mill/merge', async (req, res) => {
   }
 });
 
+// GET /dry-mill/batch-merges/:batchNumber — merge metadata for order sheet PDF
+router.get('/dry-mill/batch-merges/:batchNumber', async (req, res) => {
+  const { batchNumber } = req.params;
+
+  if (!batchNumber || !String(batchNumber).trim()) {
+    return res.status(400).json({ error: 'Batch number is required.' });
+  }
+
+  try {
+    const rows = await sequelize.query(
+      `SELECT new_batch_number, original_batch_numbers, total_weight, processing_type, merged_at, notes
+       FROM "DryMillBatchMerges"
+       WHERE LOWER(new_batch_number) = LOWER(:batchNumber)
+       LIMIT 1`,
+      {
+        replacements: { batchNumber: String(batchNumber).trim() },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'No merge data found for this batch number.' });
+    }
+
+    return res.json(rows[0]);
+  } catch (err) {
+    console.error('Error fetching dry mill batch merge data:', err);
+    return res.status(500).json({ error: 'Failed to fetch batch merge data', details: err.message });
+  }
+});
+
 // GET /drymill/grades-aggregate/:batchNumber
 router.get('/drymill/grades-aggregate/:batchNumber', async (req, res) => {
   try {
