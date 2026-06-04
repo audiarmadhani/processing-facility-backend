@@ -16,6 +16,20 @@ router.use(cors({
 // Handle CORS preflight requests
 router.options('*', cors());
 
+function parseOptionalWeightProcessed(weightProcessed) {
+  if (weightProcessed === undefined || weightProcessed === null) {
+    return { value: null };
+  }
+  if (typeof weightProcessed === 'string' && weightProcessed.trim() === '') {
+    return { value: null };
+  }
+  const parsed = parseFloat(weightProcessed.toString().replace(',', '.'));
+  if (isNaN(parsed) || parsed <= 0) {
+    return { error: 'Weight processed must be a positive number.' };
+  }
+  return { value: Math.round(parsed * 100) / 100 };
+}
+
 // Generate new batch number for merge
 router.get('/new-batch-number', async (req, res) => {
   let t;
@@ -114,7 +128,7 @@ router.post('/split', async (req, res) => {
     }
 
     const [processed] = await sequelize.query(
-      `SELECT SUM("weightProcessed") AS "totalWeightProcessed"
+      `SELECT SUM(COALESCE("weightProcessed", 0)) AS "totalWeightProcessed"
        FROM "PreprocessingData"
        WHERE LOWER("batchNumber") = LOWER(:originalBatchNumber)`,
       { 
@@ -341,7 +355,7 @@ router.post('/merge', async (req, res) => {
     }
 
     const processed = await sequelize.query(
-      `SELECT "batchNumber", SUM("weightProcessed") AS "totalProcessed"
+      `SELECT "batchNumber", SUM(COALESCE("weightProcessed", 0)) AS "totalProcessed"
        FROM "PreprocessingData"
        WHERE LOWER("batchNumber") IN (:batchNumbers)
        GROUP BY "batchNumber"`,
@@ -532,15 +546,15 @@ router.post('/preprocessing', async (req, res) => {
   try {
     const { batchNumber, weightProcessed, processingDate, producer, productLine, processingType, quality, createdBy, notes } = req.body;
 
-    if (!batchNumber || weightProcessed === undefined || !producer || !productLine || !processingType || !quality) {
-      return res.status(400).json({ error: 'Batch number, weight processed, producer, product line, processing type, and quality are required.' });
+    if (!batchNumber || !producer || !productLine || !processingType || !quality) {
+      return res.status(400).json({ error: 'Batch number, producer, product line, processing type, and quality are required.' });
     }
 
-    const parsedWeight = parseFloat(weightProcessed.toString().replace(',', '.'));
-    if (isNaN(parsedWeight) || parsedWeight <= 0) {
-      return res.status(400).json({ error: 'Weight processed must be a positive number.' });
+    const weightResult = parseOptionalWeightProcessed(weightProcessed);
+    if (weightResult.error) {
+      return res.status(400).json({ error: weightResult.error });
     }
-    const roundedWeightProcessed = Math.round(parsedWeight * 100) / 100;
+    const roundedWeightProcessed = weightResult.value;
 
     t = await sequelize.transaction();
 
@@ -567,7 +581,7 @@ router.post('/preprocessing', async (req, res) => {
     const batchType = batch.type;
 
     const [processed] = await sequelize.query(
-      `SELECT SUM("weightProcessed") AS "totalWeightProcessed", COALESCE(BOOL_OR(finished), FALSE) AS finished 
+      `SELECT SUM(COALESCE("weightProcessed", 0)) AS "totalWeightProcessed", COALESCE(BOOL_OR(finished), FALSE) AS finished 
        FROM "PreprocessingData" 
        WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
       { replacements: { batchNumber: batchNumber.trim() }, type: sequelize.QueryTypes.SELECT, transaction: t }
@@ -584,7 +598,7 @@ router.post('/preprocessing', async (req, res) => {
       return res.status(400).json({ error: 'Batch is already marked as finished.' });
     }
 
-    if (roundedWeightProcessed > roundedWeightAvailable) {
+    if (roundedWeightProcessed != null && roundedWeightProcessed > roundedWeightAvailable) {
       await t.rollback();
       return res.status(400).json({ error: `Cannot process ${roundedWeightProcessed} kg. Only ${roundedWeightAvailable} kg available.` });
     }
@@ -726,6 +740,125 @@ router.post('/preprocessing', async (req, res) => {
     if (t) await t.rollback();
     console.error('Error creating preprocessing data:', err);
     res.status(err.message.includes('not found') ? 404 : 500).json({ error: 'Server error', details: err.message });
+  }
+});
+
+// Set weight on a preprocessing record (e.g. after send to wet mill without weight)
+router.patch('/preprocessing/record/:id/weight', async (req, res) => {
+  let t;
+  try {
+    const { id } = req.params;
+    const { weightProcessed, updatedBy } = req.body;
+
+    const recordId = parseInt(id, 10);
+    if (!recordId || isNaN(recordId)) {
+      return res.status(400).json({ error: 'Valid preprocessing record id is required.' });
+    }
+
+    const weightResult = parseOptionalWeightProcessed(weightProcessed);
+    if (weightResult.error || weightResult.value == null) {
+      return res.status(400).json({ error: weightResult.error || 'Weight processed is required and must be a positive number.' });
+    }
+    const roundedWeight = weightResult.value;
+
+    t = await sequelize.transaction();
+
+    const [record] = await sequelize.query(
+      `SELECT id, "batchNumber", "weightProcessed", finished, merged
+       FROM "PreprocessingData"
+       WHERE id = :id
+       LIMIT 1`,
+      {
+        replacements: { id: recordId },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+
+    if (!record) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Preprocessing record not found.' });
+    }
+
+    if (record.merged) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Cannot update weight on a merged record.' });
+    }
+
+    if (record.finished) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batch is already marked as finished.' });
+    }
+
+    const [batch] = await sequelize.query(
+      `SELECT "weight", merged FROM "ReceivingData" WHERE LOWER("batchNumber") = LOWER(:batchNumber)`,
+      {
+        replacements: { batchNumber: record.batchNumber },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+
+    if (!batch || batch.merged) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batch not found or is merged.' });
+    }
+
+    const [processed] = await sequelize.query(
+      `SELECT SUM(COALESCE("weightProcessed", 0)) AS "totalWeightProcessed",
+              COALESCE(BOOL_OR(finished), FALSE) AS finished
+       FROM "PreprocessingData"
+       WHERE LOWER("batchNumber") = LOWER(:batchNumber) AND id != :id`,
+      {
+        replacements: { batchNumber: record.batchNumber, id: recordId },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+
+    if (processed.finished) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Batch is already marked as finished.' });
+    }
+
+    const totalWeight = Math.round(parseFloat(batch.weight) * 100) / 100;
+    const otherProcessed = Math.round((parseFloat(processed.totalWeightProcessed) || 0) * 100) / 100;
+    const weightAvailable = Math.round((totalWeight - otherProcessed) * 100) / 100;
+
+    if (roundedWeight > weightAvailable) {
+      await t.rollback();
+      return res.status(400).json({
+        error: `Cannot set ${roundedWeight} kg. Only ${weightAvailable} kg available for this batch.`,
+      });
+    }
+
+    const [updated] = await sequelize.query(
+      `UPDATE "PreprocessingData"
+       SET "weightProcessed" = :weightProcessed,
+           "updatedAt" = :updatedAt
+       WHERE id = :id
+       RETURNING *`,
+      {
+        replacements: {
+          id: recordId,
+          weightProcessed: roundedWeight,
+          updatedAt: new Date(),
+        },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+
+    await t.commit();
+    res.json({
+      message: 'Weight processed updated successfully.',
+      preprocessingData: updated,
+      updatedBy: updatedBy || null,
+    });
+  } catch (err) {
+    if (t) await t.rollback();
+    console.error('Error updating preprocessing weight:', err);
+    res.status(500).json({ error: 'Failed to update weight processed.', details: err.message });
   }
 });
 
@@ -974,7 +1107,7 @@ router.get('/preprocessing/:batchNumber', async (req, res) => {
         p."batchNumber", p."weightProcessed", p."processingDate", p."producer", 
         p."productLine", p."processingType", p."quality", p."lotNumber", p."referenceNumber", 
         p.finished, p.notes, p."createdAt", p."updatedAt", p."createdBy", p.merged,
-        SUM(p."weightProcessed") OVER (PARTITION BY p."batchNumber") AS "totalWeightProcessed",
+        SUM(COALESCE(p."weightProcessed", 0)) OVER (PARTITION BY p."batchNumber") AS "totalWeightProcessed",
         COALESCE(BOOL_OR(p.finished), FALSE) AS batch_finished,
         b.original_batch_numbers
        FROM "PreprocessingData" p
