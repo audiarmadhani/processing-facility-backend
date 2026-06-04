@@ -184,7 +184,7 @@ router.post('/postproqc', async (req, res) => {
          "kulitTandukBesar", "kulitTandukSedang", "kulitTandukKecil", "bijiPecah", "bijiMuda", "bijiBerlubangSatu",
          "bijiBerlubangLebihSatu", "bijiBertutul", "rantingBesar", "rantingSedang", "rantingKecil", "totalBobotKotoran", 
          "isCompleted", "createdAt", "updatedAt")
-         VALUES (:batchNumber, :seranggaHidup, :bijiBauBusuk, :kelembapan, :bijiHitam, :bijiHitamSebagian, :bijiHitamPecah,
+         VALUES (:batchNumber, :seranggaHidup, :bijiBauBusuk, :kelembapan, :waterActivity, :triage, :bijiHitam, :bijiHitamSebagian, :bijiHitamPecah,
          :kopiGelondong, :bijiCoklat, :kulitKopiBesar, :kulitKopiSedang, :kulitKopiKecil, :bijiBerKulitTanduk,
          :kulitTandukBesar, :kulitTandukSedang, :kulitTandukKecil, :bijiPecah, :bijiMuda, :bijiBerlubangSatu,
          :bijiBerlubangLebihSatu, :bijiBertutul, :rantingBesar, :rantingSedang, :rantingKecil, :totalBobotKotoran, 
@@ -388,6 +388,248 @@ router.post("/postproqc/image", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save QC image" });
+  }
+});
+
+const BATCH_YEAR_FILTER = `AND r."batchNumber" LIKE '2026%'`;
+
+const dryingWeightSubquery = `
+  LEFT JOIN (
+    SELECT "batchNumber", "processingType", SUM(weight)::numeric(10,2) AS drying_weight
+    FROM "DryingWeightMeasurements"
+    GROUP BY "batchNumber", "processingType"
+  ) dw ON dw."batchNumber" = pp."batchNumber" AND dw."processingType" = pp."processingType"
+`;
+
+const latestMoistureSubquery = `
+  LEFT JOIN (
+    SELECT "batchNumber", moisture AS latest_moisture
+    FROM (
+      SELECT "batchNumber", moisture,
+        ROW_NUMBER() OVER (PARTITION BY "batchNumber" ORDER BY measurement_date DESC NULLS LAST) AS rn
+      FROM "DryingMeasurements"
+    ) m WHERE rn = 1
+  ) lm ON lm."batchNumber" = d."batchNumber"
+`;
+
+// GB QC pipeline: drying / dried / roast queues
+router.get('/gb-qc/pipeline-lists', async (req, res) => {
+  try {
+    const drying = await sequelize.query(
+      `
+      SELECT
+        r."batchNumber",
+        pp."processingType",
+        r."farmerName",
+        pp."lotNumber",
+        pp."referenceNumber",
+        pp."producer",
+        pp."productLine",
+        d."dryingArea",
+        d.entered_at AS "dryingEnteredAt",
+        COALESCE(dw.drying_weight, 0)::float AS "dryingWeight",
+        lm.latest_moisture AS "latestMoisture",
+        'In drying' AS "status"
+      FROM "DryingData" d
+      INNER JOIN "ReceivingData" r ON d."batchNumber" = r."batchNumber"
+      INNER JOIN "PreprocessingData" pp ON pp."batchNumber" = r."batchNumber"
+      ${dryingWeightSubquery}
+      ${latestMoistureSubquery}
+      WHERE d.exited_at IS NULL
+        AND COALESCE(r.merged, false) = false
+        ${BATCH_YEAR_FILTER}
+      ORDER BY d.entered_at DESC NULLS LAST, r."batchNumber", pp."processingType"
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    const dried = await sequelize.query(
+      `
+      SELECT
+        r."batchNumber",
+        pp."processingType",
+        r."farmerName",
+        pp."lotNumber",
+        pp."referenceNumber",
+        pp."producer",
+        pp."productLine",
+        d."dryingArea",
+        d.exited_at AS "dryingExitedAt",
+        COALESCE(dw.drying_weight, 0)::float AS "dryingWeight",
+        lm.latest_moisture AS "latestMoisture",
+        'Dried — awaiting dry mill' AS "status"
+      FROM "DryingData" d
+      INNER JOIN "ReceivingData" r ON d."batchNumber" = r."batchNumber"
+      INNER JOIN "PreprocessingData" pp ON pp."batchNumber" = r."batchNumber"
+      ${dryingWeightSubquery}
+      ${latestMoistureSubquery}
+      WHERE d.exited_at IS NOT NULL
+        AND COALESCE(r.merged, false) = false
+        ${BATCH_YEAR_FILTER}
+        AND NOT EXISTS (
+          SELECT 1 FROM "DryMillData" dm
+          WHERE dm."batchNumber" = pp."batchNumber"
+            AND dm."processingType" = pp."processingType"
+            AND dm.entered_at IS NOT NULL
+        )
+      ORDER BY d.exited_at DESC NULLS LAST, r."batchNumber", pp."processingType"
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    const roast = await sequelize.query(
+      `
+      SELECT
+        dm."batchNumber",
+        dm."processingType",
+        r."farmerName",
+        pp."lotNumber",
+        pp."referenceNumber",
+        pp."producer",
+        pp."productLine",
+        dm.exited_at AS "dryMillExitedAt",
+        COALESCE(dw.drying_weight, 0)::float AS "dryingWeight",
+        CASE
+          WHEN q."batchNumber" IS NULL THEN 'Awaiting roast'
+          WHEN q."isCompleted" = false THEN 'QC in progress'
+          ELSE 'Awaiting roast'
+        END AS "status"
+      FROM "DryMillData" dm
+      INNER JOIN "ReceivingData" r ON dm."batchNumber" = r."batchNumber"
+      INNER JOIN "PreprocessingData" pp
+        ON pp."batchNumber" = dm."batchNumber"
+        AND pp."processingType" = dm."processingType"
+      ${dryingWeightSubquery}
+      LEFT JOIN "PostprocessingQCData" q ON q."batchNumber" = dm."batchNumber"
+      WHERE dm.exited_at IS NOT NULL
+        AND COALESCE(r.merged, false) = false
+        ${BATCH_YEAR_FILTER}
+        AND NOT EXISTS (
+          SELECT 1 FROM "GbQcRoastLog" rl
+          WHERE rl."batchNumber" = dm."batchNumber"
+            AND rl."processingType" = dm."processingType"
+        )
+        AND (q."isCompleted" IS NULL OR q."isCompleted" = false)
+      ORDER BY dm.exited_at DESC NULLS LAST, dm."batchNumber", dm."processingType"
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    const readyForQc = await sequelize.query(
+      `
+      SELECT
+        rl."batchNumber",
+        rl."processingType",
+        r."farmerName",
+        pp."lotNumber",
+        pp."referenceNumber",
+        pp."producer",
+        pp."productLine",
+        rl."roastedAt",
+        rl."roastedBy",
+        rl.notes AS "roastNotes",
+        COALESCE(dw.drying_weight, 0)::float AS "dryingWeight",
+        CASE
+          WHEN q."batchNumber" IS NULL THEN 'Ready for QC'
+          WHEN q."isCompleted" = false THEN 'QC started'
+          ELSE 'Ready for QC'
+        END AS "status"
+      FROM "GbQcRoastLog" rl
+      INNER JOIN "ReceivingData" r ON rl."batchNumber" = r."batchNumber"
+      INNER JOIN "PreprocessingData" pp
+        ON pp."batchNumber" = rl."batchNumber"
+        AND pp."processingType" = rl."processingType"
+      ${dryingWeightSubquery}
+      LEFT JOIN "PostprocessingQCData" q ON q."batchNumber" = rl."batchNumber"
+      WHERE COALESCE(r.merged, false) = false
+        ${BATCH_YEAR_FILTER}
+        AND (q."isCompleted" IS NULL OR q."isCompleted" = false)
+      ORDER BY rl."roastedAt" DESC NULLS LAST
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    res.json({ drying, dried, roast, readyForQc });
+  } catch (err) {
+    console.error('Error fetching GB QC pipeline lists:', err);
+    res.status(500).json({
+      message: 'Failed to fetch pipeline lists',
+      details: err.message,
+    });
+  }
+});
+
+router.post('/gb-qc/roast', async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { batchNumber, processingType, roastedAt, notes, roastedBy } = req.body;
+
+    if (!batchNumber || !processingType) {
+      await t.rollback();
+      return res.status(400).json({ message: 'batchNumber and processingType are required' });
+    }
+
+    const [dryMill] = await sequelize.query(
+      `
+      SELECT exited_at
+      FROM "DryMillData"
+      WHERE "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
+        AND exited_at IS NOT NULL
+      LIMIT 1
+      `,
+      {
+        replacements: { batchNumber, processingType },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+
+    if (!dryMill) {
+      await t.rollback();
+      return res.status(400).json({
+        message: 'Batch must be exited from dry mill before recording roast',
+      });
+    }
+
+    const roastedAtValue = roastedAt ? new Date(roastedAt) : new Date();
+    if (isNaN(roastedAtValue.getTime())) {
+      await t.rollback();
+      return res.status(400).json({ message: 'Invalid roastedAt date' });
+    }
+
+    const rows = await sequelize.query(
+      `
+      INSERT INTO "GbQcRoastLog" (
+        "batchNumber", "processingType", "roastedAt", "roastedBy", "notes", "createdAt"
+      )
+      VALUES (:batchNumber, :processingType, :roastedAt, :roastedBy, :notes, NOW())
+      ON CONFLICT ("batchNumber", "processingType")
+      DO UPDATE SET
+        "roastedAt" = EXCLUDED."roastedAt",
+        "roastedBy" = EXCLUDED."roastedBy",
+        "notes" = EXCLUDED."notes"
+      RETURNING *
+      `,
+      {
+        replacements: {
+          batchNumber,
+          processingType,
+          roastedAt: roastedAtValue,
+          roastedBy: roastedBy || null,
+          notes: notes || null,
+        },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+
+    await t.commit();
+    res.status(201).json(rows[0] || { batchNumber, processingType, roastedAt: roastedAtValue });
+  } catch (err) {
+    await t.rollback();
+    console.error('Error recording roast:', err);
+    res.status(500).json({ message: 'Failed to record roast', details: err.message });
   }
 });
 
