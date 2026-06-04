@@ -454,7 +454,13 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
         pp."producer",
         pp."productLine",
         d."dryingArea",
+        d.entered_at AS "dryingEnteredAt",
         d.exited_at AS "dryingExitedAt",
+        CASE
+          WHEN d.entered_at IS NOT NULL AND d.exited_at IS NOT NULL
+          THEN ROUND(EXTRACT(EPOCH FROM (d.exited_at - d.entered_at)) / 86400.0, 1)
+          ELSE NULL
+        END AS "dryingDays",
         COALESCE(dw.drying_weight, 0)::float AS "dryingWeight",
         lm.latest_moisture AS "latestMoisture",
         'Dried — awaiting dry mill' AS "status"
