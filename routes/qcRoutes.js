@@ -91,23 +91,32 @@ router.post('/qc', async (req, res) => {
 
 // Route for fetching all QC data
 router.get('/qc', async (req, res) => {
+    const yearFilter = `"batchNumber" LIKE '2026%'`;
+    const orderBy = `ORDER BY "receivingDate" DESC`;
+
+    const runQcQuery = async (sql, label) => {
+        try {
+            return await sequelize.query(sql, { type: sequelize.QueryTypes.SELECT });
+        } catch (err) {
+            console.error(`Error fetching QC data (${label}):`, err);
+            return [];
+        }
+    };
+
     try {
-        const [allRows] = await sequelize.query(
-            `SELECT * FROM "QCData_v" WHERE "batchNumber" LIKE '2026%' ORDER BY "receivingDate" DESC;`
-        );
-
-        const [latestRows] = await sequelize.query(
-            `SELECT * FROM "QCData_v" WHERE DATE("qcDate") = DATE(NOW()) AND "batchNumber" LIKE '2026%' ORDER BY "receivingDate" DESC`
-        );
-
-        const [distinctRows] = await sequelize.query(
-            `SELECT * FROM "QCData_vm" WHERE "batchNumber" LIKE '2026%' ORDER BY "receivingDate" DESC;`
-        );
+        const [allRows, latestRows, distinctRows] = await Promise.all([
+            runQcQuery(`SELECT * FROM "QCData_v" WHERE ${yearFilter} ${orderBy}`, 'allRows'),
+            runQcQuery(
+                `SELECT * FROM "QCData_v" WHERE DATE("qcDate") = DATE(NOW()) AND ${yearFilter} ${orderBy}`,
+                'latestRows'
+            ),
+            runQcQuery(`SELECT * FROM "QCData_vm" WHERE ${yearFilter} ${orderBy}`, 'distinctRows'),
+        ]);
 
         res.json({ latestRows, allRows, distinctRows });
     } catch (err) {
         console.error('Error fetching QC data:', err);
-        res.status(500).json({ message: 'Failed to fetch QC data.' });
+        res.status(500).json({ message: 'Failed to fetch QC data.', details: err.message });
     }
 });
 
