@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
 const rateLimit = require('express-rate-limit');
+const { fermentationExperimentJoin } = require('../utils/fermentationExperiment');
 
 const WAREHOUSE_ROWS = ['A', 'B', 'C', 'D', 'E'];
 
@@ -697,10 +698,12 @@ router.get('/pending-drying', async (req, res) => {
       SELECT r."batchNumber",
              r."farmerName",
              r."processingType",
-             r."type"
+             r."type",
+             fer."experimentNumber"
       FROM "ReceivingData" r
       LEFT JOIN "DryingData" d 
         ON r."batchNumber" = d."batchNumber"
+      ${fermentationExperimentJoin('r')}
       WHERE d."batchNumber" IS NULL
       AND r.merged = FALSE
       AND r."batchNumber" LIKE '2026%'

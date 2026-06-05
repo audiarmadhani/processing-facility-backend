@@ -8,6 +8,7 @@ const fs = require("fs");
 const { google } = require("googleapis");
 
 const upload = multer({ dest: "uploads/" });
+const { fermentationExperimentJoin } = require('../utils/fermentationExperiment');
 
 // Define PostprocessingData model
 const PostprocessingData = sequelize.define(
@@ -543,16 +544,6 @@ const latestMoistureSubquery = `
       FROM "DryingMeasurements"
     ) m WHERE rn = 1
   ) lm ON lm."batchNumber" = d."batchNumber"
-`;
-
-const fermentationExperimentJoin = (batchAlias = 'r') => `
-  LEFT JOIN LATERAL (
-    SELECT fd."experimentNumber"
-    FROM "FermentationData" fd
-    WHERE fd."batchNumber" = ${batchAlias}."batchNumber"
-    ORDER BY fd.id DESC
-    LIMIT 1
-  ) fer ON true
 `;
 
 // GB QC pipeline: drying / dried / roast queues

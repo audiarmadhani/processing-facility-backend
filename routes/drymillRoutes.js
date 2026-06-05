@@ -4,6 +4,7 @@ const sequelize = require('../config/database');
 const validator = require('validator');
 const winston = require('winston');
 const { v4: uuidv4 } = require('uuid');
+const { fermentationExperimentJoin } = require('../utils/fermentationExperiment');
 
 // Configure Winston logger
 const logger = winston.createLogger({
@@ -701,6 +702,55 @@ router.get('/drymill/huller-event/:batchNumber/:producer', async (req, res) => {
   }
 });
 
+const STEP_EVENT_PROCESS_STEPS = ['huller', 'suton', 'sizer', 'handpicking'];
+
+router.get('/drymill/step-event/:batchNumber/:producer', async (req, res) => {
+  try {
+    const { batchNumber, producer } = req.params;
+    const { processingType, processStep } = req.query;
+
+    if (!processingType) {
+      return res.status(400).json({ error: 'processingType query param is required' });
+    }
+    if (!processStep || !STEP_EVENT_PROCESS_STEPS.includes(processStep)) {
+      return res.status(400).json({
+        error: 'processStep query param is required (huller, suton, sizer, or handpicking)',
+      });
+    }
+
+    const [row] = await sequelize.query(
+      `
+      SELECT
+        "inputWeight",
+        "outputWeight",
+        "warehouseRow",
+        "warehouseColumn",
+        "createdAt",
+        "updatedAt"
+      FROM "DryMillProcessEvents"
+      WHERE "batchNumber" = :batchNumber
+        AND "producer" = :producer
+        AND "processingType" = :processingType
+        AND "processStep" = :processStep
+      ORDER BY
+        CASE WHEN "warehouseRow" IS NOT NULL AND "warehouseColumn" IS NOT NULL THEN 0 ELSE 1 END,
+        "updatedAt" DESC NULLS LAST,
+        "createdAt" DESC
+      LIMIT 1
+      `,
+      {
+        replacements: { batchNumber, producer, processingType, processStep },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    res.json(row || null);
+  } catch (err) {
+    console.error('step-event fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch step event', details: err.message });
+  }
+});
+
 // POST route to update bags for a specific grade (sub-batch)
 // POST route to update bags for a specific grade (sub-batch)
 // NOTE: now accepts processStep and returns affected DryMillGrades row ids in response
@@ -1046,9 +1096,11 @@ router.get('/dry-mill-data', async (req, res) => {
     t = await sequelize.transaction();
 
     const data = await sequelize.query(`
-      SELECT * FROM "DryMillData_v"
-      WHERE "batchNumber" LIKE '2026%'
-      ORDER BY "dryMillEntered" DESC
+      SELECT dm.*, fer."experimentNumber"
+      FROM "DryMillData_v" dm
+      ${fermentationExperimentJoin('dm')}
+      WHERE dm."batchNumber" LIKE '2026%'
+      ORDER BY dm."dryMillEntered" DESC
     `, {
       type: sequelize.QueryTypes.SELECT,
       transaction: t

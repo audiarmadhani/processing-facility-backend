@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { sequelize } = require('../models');
+const { fermentationExperimentJoin } = require('../utils/fermentationExperiment');
 
 // Route to create QC data
 router.post('/qc', async (req, res) => {
@@ -110,7 +111,13 @@ router.get('/qc', async (req, res) => {
                 `SELECT * FROM "QCData_v" WHERE DATE("qcDate") = DATE(NOW()) AND ${yearFilter} ${orderBy}`,
                 'latestRows'
             ),
-            runQcQuery(`SELECT * FROM "QCData_vm" WHERE ${yearFilter} ${orderBy}`, 'distinctRows'),
+            runQcQuery(
+                `SELECT q.*, fer."experimentNumber"
+                 FROM "QCData_vm" q
+                 ${fermentationExperimentJoin('q')}
+                 WHERE ${yearFilter} ${orderBy}`,
+                'distinctRows'
+            ),
         ]);
 
         res.json({ latestRows, allRows, distinctRows });
