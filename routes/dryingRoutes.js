@@ -363,6 +363,44 @@ router.post('/drying-weight-measurement', async (req, res) => {
 });
 
 /**
+ * GET /drying-weight-measurements/aggregated
+ * Fetches the latest total weight per batchNumber, summing weights for the most recent measurement date.
+ * Optional query param: batchNumbers (comma-separated list to filter batches).
+ * Must be registered before /:batchNumber so "aggregated" is not captured as a batch id.
+ */
+router.get('/drying-weight-measurements/aggregated', async (req, res) => {
+  const { batchNumbers } = req.query;
+  let batchNumberArray = batchNumbers ? batchNumbers.split(',').map(b => b.trim()) : null;
+
+  try {
+    let query = `
+      WITH LatestDates AS (
+        SELECT "batchNumber", MAX(measurement_date) AS max_date
+        FROM "DryingWeightMeasurements"
+        ${batchNumberArray ? 'WHERE "batchNumber" IN (:batchNumbers)' : ''}
+        GROUP BY "batchNumber"
+      )
+      SELECT dwm."batchNumber", SUM(dwm.weight) AS total_weight, ld.max_date AS measurement_date
+      FROM "DryingWeightMeasurements" dwm
+      INNER JOIN LatestDates ld
+        ON dwm."batchNumber" = ld."batchNumber" AND dwm.measurement_date = ld.max_date
+      GROUP BY dwm."batchNumber", ld.max_date
+      ORDER BY dwm."batchNumber"
+    `;
+
+    const data = await sequelize.query(query, {
+      replacements: batchNumberArray ? { batchNumbers: batchNumberArray } : {},
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('Error fetching aggregated weight measurements:', error);
+    res.status(500).json({ error: 'Failed to fetch aggregated weight measurements', details: error.message });
+  }
+});
+
+/**
  * GET /drying-weight-measurements/:batchNumber
  * Fetches all weight measurements for a specific batch, ordered by measurement date, processing type, and bag number.
  */
@@ -414,43 +452,6 @@ router.get('/drying-weight-measurements/:batchNumber', async (req, res) => {
   } catch (error) {
     console.error('Error fetching weight measurements:', error);
     res.status(500).json({ error: 'Failed to fetch weight measurements', details: error.message });
-  }
-});
-
-/**
- * GET /drying-weight-measurements/aggregated
- * Fetches the latest total weight per batchNumber, summing weights for the most recent measurement date.
- * Optional query param: batchNumbers (comma-separated list to filter batches).
- */
-router.get('/drying-weight-measurements/aggregated', async (req, res) => {
-  const { batchNumbers } = req.query;
-  let batchNumberArray = batchNumbers ? batchNumbers.split(',').map(b => b.trim()) : null;
-
-  try {
-    let query = `
-      WITH LatestDates AS (
-        SELECT "batchNumber", MAX(measurement_date) AS max_date
-        FROM "DryingWeightMeasurements"
-        ${batchNumberArray ? 'WHERE "batchNumber" IN (:batchNumbers)' : ''}
-        GROUP BY "batchNumber"
-      )
-      SELECT dwm."batchNumber", SUM(dwm.weight) AS total_weight, ld.max_date AS measurement_date
-      FROM "DryingWeightMeasurements" dwm
-      INNER JOIN LatestDates ld
-        ON dwm."batchNumber" = ld."batchNumber" AND dwm.measurement_date = ld.max_date
-      GROUP BY dwm."batchNumber", ld.max_date
-      ORDER BY dwm."batchNumber"
-    `;
-
-    const data = await sequelize.query(query, {
-      replacements: batchNumberArray ? { batchNumbers: batchNumberArray } : {},
-      type: sequelize.QueryTypes.SELECT,
-    });
-
-    res.status(200).json(data);
-  } catch (error) {
-    console.error('Error fetching aggregated weight measurements:', error);
-    res.status(500).json({ error: 'Failed to fetch aggregated weight measurements', details: error.message });
   }
 });
 

@@ -1625,6 +1625,46 @@ router.post('/dry-mill/merge', async (req, res) => {
       return res.status(400).json({ error: 'Cannot merge batches that have sub-batches.' });
     }
 
+    const sourceBatchNumbers = parsedBatches.map((b) => b.batchNumber.toUpperCase());
+
+    const hulledBatches = await sequelize.query(
+      `SELECT DISTINCT UPPER(e."batchNumber") AS "batchNumber"
+       FROM "DryMillProcessEvents" e
+       WHERE e."processStep" = 'huller'
+         AND e."outputWeight" > 0
+         AND e."processingType" = :processingType
+         AND UPPER(e."batchNumber") IN (:batchNumbers)`,
+      {
+        replacements: { batchNumbers: sourceBatchNumbers, processingType },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+    if (hulledBatches.length !== parsedBatches.length) {
+      await t.rollback();
+      return res.status(400).json({
+        error: 'All selected batches must have huller output saved before merging.',
+      });
+    }
+
+    const roastedBatches = await sequelize.query(
+      `SELECT DISTINCT UPPER(rl."batchNumber") AS "batchNumber"
+       FROM "GbQcRoastLog" rl
+       WHERE rl."processingType" = :processingType
+         AND UPPER(rl."batchNumber") IN (:batchNumbers)`,
+      {
+        replacements: { batchNumbers: sourceBatchNumbers, processingType },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+    if (roastedBatches.length !== parsedBatches.length) {
+      await t.rollback();
+      return res.status(400).json({
+        error: 'All selected batches must have a recorded sample roast before merging.',
+      });
+    }
+
     // Use current timestamp as fallback for enteredAt
     const enteredAt = batches.every(b => b.dryMillEntered && !isNaN(new Date(b.dryMillEntered)))
       ? batches.reduce((min, b) => {
@@ -1777,6 +1817,92 @@ router.post('/dry-mill/merge', async (req, res) => {
         transaction: t
       }
     );
+
+    const [hullerTotalRow] = await sequelize.query(
+      `SELECT COALESCE(SUM(e."outputWeight"), 0)::float AS total
+       FROM "DryMillProcessEvents" e
+       WHERE e."processStep" = 'huller'
+         AND e."processingType" = :processingType
+         AND UPPER(e."batchNumber") IN (:batchNumbers)`,
+      {
+        replacements: { batchNumbers: sourceBatchNumbers, processingType },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+    const mergedHullerTotal = parseFloat(hullerTotalRow?.total) || 0;
+    const originalBatchList = parsedBatches.map((b) => b.batchNumber).join(', ');
+
+    if (mergedHullerTotal > 0) {
+      await sequelize.query(
+        `INSERT INTO "DryMillProcessEvents" (
+          "batchNumber", "processingType", "processStep", "producer", "grade",
+          "inputWeight", "outputWeight", "operator", "notes", "step_sequence",
+          "createdAt", "updatedAt"
+        ) VALUES (
+          :batchNumber, :processingType, 'huller', :producer, NULL,
+          0, :outputWeight, :operator, :notes, 1, NOW(), NOW()
+        )
+        ON CONFLICT ON CONSTRAINT drymill_process_events_unique_constraint
+        DO UPDATE SET
+          "outputWeight" = EXCLUDED."outputWeight",
+          "operator" = EXCLUDED."operator",
+          "notes" = EXCLUDED."notes",
+          "updatedAt" = NOW()`,
+        {
+          replacements: {
+            batchNumber: newBatchNumber,
+            processingType,
+            producer,
+            outputWeight: mergedHullerTotal,
+            operator: createdBy,
+            notes: `Merged huller total from: ${originalBatchList}`,
+          },
+          type: sequelize.QueryTypes.INSERT,
+          transaction: t,
+        }
+      );
+    }
+
+    const roastRows = await sequelize.query(
+      `SELECT rl."batchNumber", rl."roastedAt", rl."roastedBy", rl.notes
+       FROM "GbQcRoastLog" rl
+       WHERE rl."processingType" = :processingType
+         AND UPPER(rl."batchNumber") IN (:batchNumbers)
+       ORDER BY rl."roastedAt" DESC`,
+      {
+        replacements: { batchNumbers: sourceBatchNumbers, processingType },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+
+    if (roastRows.length === parsedBatches.length) {
+      const latestRoast = roastRows[0];
+      await sequelize.query(
+        `INSERT INTO "GbQcRoastLog" (
+          "batchNumber", "processingType", "roastedAt", "roastedBy", "notes", "createdAt"
+        ) VALUES (
+          :batchNumber, :processingType, :roastedAt, :roastedBy, :notes, NOW()
+        )
+        ON CONFLICT ("batchNumber", "processingType")
+        DO UPDATE SET
+          "roastedAt" = EXCLUDED."roastedAt",
+          "roastedBy" = EXCLUDED."roastedBy",
+          "notes" = EXCLUDED."notes"`,
+        {
+          replacements: {
+            batchNumber: newBatchNumber,
+            processingType,
+            roastedAt: latestRoast.roastedAt,
+            roastedBy: latestRoast.roastedBy || createdBy,
+            notes: `Merged from sample roasts: ${originalBatchList}`,
+          },
+          type: sequelize.QueryTypes.INSERT,
+          transaction: t,
+        }
+      );
+    }
 
     await t.commit();
     console.log('Merge completed successfully:', { newBatchNumber, totalWeight });
