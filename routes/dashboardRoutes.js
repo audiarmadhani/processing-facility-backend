@@ -1359,82 +1359,92 @@ router.get('/dashboard-metrics', async (req, res) => {
         `;
 
 
-        // Execute queries
-        const [totalBatchesResult] = await sequelize.query(totalBatchesQuery);
- 
-        const [totalArabicaWeightResult] = await sequelize.query(totalArabicaWeightQuery);
-        const [totalRobustaWeightResult] = await sequelize.query(totalRobustaWeightQuery);
-        const [lastmonthArabicaWeightResult] = await sequelize.query(lastmonthArabicaWeightQuery);
-        const [lastmonthRobustaWeightResult] = await sequelize.query(lastmonthRobustaWeightQuery);
- 
-        const [totalArabicaCostResult] = await sequelize.query(totalArabicaCostQuery);
-        const [totalRobustaCostResult] = await sequelize.query(totalRobustaCostQuery);
-        const [lastmonthArabicaCostResult] = await sequelize.query(lastmonthArabicaCostQuery);
-        const [lastmonthRobustaCostResult] = await sequelize.query(lastmonthRobustaCostQuery);
- 
-        const [avgArabicaCostResult] = await sequelize.query(avgArabicaCostQuery);
-        const [avgRobustaCostResult] = await sequelize.query(avgRobustaCostQuery);
-        const [lastmonthAvgArabicaCostResult] = await sequelize.query(lastmonthAvgArabicaCostQuery);
-        const [lastmonthAvgRobustaCostResult] = await sequelize.query(lastmonthAvgRobustaCostQuery);
- 
-        const [totalArabicaProcessedResult] = await sequelize.query(totalArabicaProcessedQuery);
-        const [totalRobustaProcessedResult] = await sequelize.query(totalRobustaProcessedQuery);
-        const [lastmonthArabicaProcessedResult] = await sequelize.query(lastmonthArabicaProcessedQuery);
-        const [lastmonthRobustaProcessedResult] = await sequelize.query(lastmonthRobustaProcessedQuery);
- 
-        const [totalArabicaProductionResult] = await sequelize.query(totalArabicaProductionQuery);
-        const [totalRobustaProductionResult] = await sequelize.query(totalRobustaProductionQuery);
-        const [lastmonthArabicaProductionResult] = await sequelize.query(lastmonthArabicaProductionQuery);
-        const [lastmonthRobustaProductionResult] = await sequelize.query(lastmonthRobustaProductionQuery);
- 
-        const [activeArabicaFarmersResult] = await sequelize.query(activeArabicaFarmersQuery);
-        const [activeRobustaFarmersResult] = await sequelize.query(activeRobustaFarmersQuery);
- 
-        const [pendingArabicaQCResult] = await sequelize.query(pendingArabicaQCQuery);
-        const [pendingRobustaQCResult] = await sequelize.query(pendingRobustaQCQuery);
- 
-        const [pendingArabicaProcessingResult] = await sequelize.query(pendingArabicaProcessingQuery);
-        const [pendingArabicaWeightProcessingResult] = await sequelize.query(pendingArabicaWeightProcessingQuery);
-        const [pendingRobustaProcessingResult] = await sequelize.query(pendingRobustaProcessingQuery);
-        const [pendingRobustaWeightProcessingResult] = await sequelize.query(pendingRobustaWeightProcessingQuery);
- 
-        const [totalWeightBagsbyDateResult] = await sequelize.query(totalWeightBagsbyDateQuery);
-        const [totalCostbyDateResult] = await sequelize.query(totalCostbyDateQuery);
-        const [landCoveredArabicaResult] = await sequelize.query(landCoveredArabicaQuery);
-        const [landCoveredRobustaResult] = await sequelize.query(landCoveredRobustaQuery);
- 
-        const [arabicaYieldResult] = await sequelize.query(arabicaYieldQuery);
-        const [robustaYieldResult] = await sequelize.query(robustaYieldQuery);
- 
-        const [arabicaTotalWeightbyDateResult] = await sequelize.query(arabicaTotalWeightbyDateQuery);
-        const [robustaTotalWeightbyDateResult] = await sequelize.query(robustaTotalWeightbyDateQuery);
- 
-        const [arabicaWeightMoMResult] = await sequelize.query(arabicaWeightMoMQuery);
-        const [robustaWeightMoMResult] = await sequelize.query(robustaWeightMoMQuery);
- 
-        const [arabicaCostMoMResult] = await sequelize.query(arabicaCostMoMQuery);
-        const [robustaCostMoMResult] = await sequelize.query(robustaCostMoMQuery);
- 
-        const [arabicaAvgCostMoMResult] = await sequelize.query(arabicaAvgCostMoMQuery);
-        const [robustaAvgCostMoMResult] = await sequelize.query(robustaAvgCostMoMQuery);
- 
-        const [arabicaProcessedMoMResult] = await sequelize.query(arabicaProcessedMoMQuery);
-        const [robustaProcessedMoMResult] = await sequelize.query(robustaProcessedMoMQuery);
- 
-        const [arabicaProductionMoMResult] = await sequelize.query(arabicaProductionMoMQuery);
-        const [robustaProductionMoMResult] = await sequelize.query(robustaProductionMoMQuery);
+        const executeQuery = async (query, fallbackRows = []) => {
+            try {
+                const [rows] = await sequelize.query(query);
+                return Array.isArray(rows) ? rows : fallbackRows;
+            } catch (queryError) {
+                console.error('dashboard-metrics query failed', queryError.message);
+                return fallbackRows;
+            }
+        };
 
-        const [arabicaCherryQualitybyDateResult] = await sequelize.query(arabicaCherryQualitybyDateQuery);
-        const [robustaCherryQualitybyDateResult] = await sequelize.query(robustaCherryQualitybyDateQuery);
+        // Execute queries with fallbacks so one chart query cannot crash the whole endpoint.
+        const totalBatchesResult = await executeQuery(totalBatchesQuery, [{}]);
 
-        const [arabicaFarmersContributionResult] = await sequelize.query(arabicaFarmersContributionQuery);
-        const [robustaFarmersContributionResult] = await sequelize.query(robustaFarmersContributionQuery);
+        const totalArabicaWeightResult = await executeQuery(totalArabicaWeightQuery, [{}]);
+        const totalRobustaWeightResult = await executeQuery(totalRobustaWeightQuery, [{}]);
+        const lastmonthArabicaWeightResult = await executeQuery(lastmonthArabicaWeightQuery, [{}]);
+        const lastmonthRobustaWeightResult = await executeQuery(lastmonthRobustaWeightQuery, [{}]);
 
-        const [arabicaSankeyResult] = await sequelize.query(arabicaSankeyQuery);
-        const [robustaSankeyResult] = await sequelize.query(robustaSankeyQuery);
+        const totalArabicaCostResult = await executeQuery(totalArabicaCostQuery, [{}]);
+        const totalRobustaCostResult = await executeQuery(totalRobustaCostQuery, [{}]);
+        const lastmonthArabicaCostResult = await executeQuery(lastmonthArabicaCostQuery, [{}]);
+        const lastmonthRobustaCostResult = await executeQuery(lastmonthRobustaCostQuery, [{}]);
 
-        const [arabicaAchievementResult] = await sequelize.query(arabicaAchievementQuery);
-        const [robustaAchievementResult] = await sequelize.query(robustaAchievementQuery); 
+        const avgArabicaCostResult = await executeQuery(avgArabicaCostQuery, [{}]);
+        const avgRobustaCostResult = await executeQuery(avgRobustaCostQuery, [{}]);
+        const lastmonthAvgArabicaCostResult = await executeQuery(lastmonthAvgArabicaCostQuery, [{}]);
+        const lastmonthAvgRobustaCostResult = await executeQuery(lastmonthAvgRobustaCostQuery, [{}]);
+
+        const totalArabicaProcessedResult = await executeQuery(totalArabicaProcessedQuery, [{}]);
+        const totalRobustaProcessedResult = await executeQuery(totalRobustaProcessedQuery, [{}]);
+        const lastmonthArabicaProcessedResult = await executeQuery(lastmonthArabicaProcessedQuery, [{}]);
+        const lastmonthRobustaProcessedResult = await executeQuery(lastmonthRobustaProcessedQuery, [{}]);
+
+        const totalArabicaProductionResult = await executeQuery(totalArabicaProductionQuery, [{}]);
+        const totalRobustaProductionResult = await executeQuery(totalRobustaProductionQuery, [{}]);
+        const lastmonthArabicaProductionResult = await executeQuery(lastmonthArabicaProductionQuery, [{}]);
+        const lastmonthRobustaProductionResult = await executeQuery(lastmonthRobustaProductionQuery, [{}]);
+
+        const activeArabicaFarmersResult = await executeQuery(activeArabicaFarmersQuery, [{}]);
+        const activeRobustaFarmersResult = await executeQuery(activeRobustaFarmersQuery, [{}]);
+
+        const pendingArabicaQCResult = await executeQuery(pendingArabicaQCQuery, [{}]);
+        const pendingRobustaQCResult = await executeQuery(pendingRobustaQCQuery, [{}]);
+
+        const pendingArabicaProcessingResult = await executeQuery(pendingArabicaProcessingQuery, [{}]);
+        const pendingArabicaWeightProcessingResult = await executeQuery(pendingArabicaWeightProcessingQuery, [{}]);
+        const pendingRobustaProcessingResult = await executeQuery(pendingRobustaProcessingQuery, [{}]);
+        const pendingRobustaWeightProcessingResult = await executeQuery(pendingRobustaWeightProcessingQuery, [{}]);
+
+        const totalWeightBagsbyDateResult = await executeQuery(totalWeightBagsbyDateQuery, []);
+        const totalCostbyDateResult = await executeQuery(totalCostbyDateQuery, []);
+        const landCoveredArabicaResult = await executeQuery(landCoveredArabicaQuery, [{}]);
+        const landCoveredRobustaResult = await executeQuery(landCoveredRobustaQuery, [{}]);
+
+        const arabicaYieldResult = await executeQuery(arabicaYieldQuery, [{}]);
+        const robustaYieldResult = await executeQuery(robustaYieldQuery, [{}]);
+
+        const arabicaTotalWeightbyDateResult = await executeQuery(arabicaTotalWeightbyDateQuery, []);
+        const robustaTotalWeightbyDateResult = await executeQuery(robustaTotalWeightbyDateQuery, []);
+
+        const arabicaWeightMoMResult = await executeQuery(arabicaWeightMoMQuery, []);
+        const robustaWeightMoMResult = await executeQuery(robustaWeightMoMQuery, []);
+
+        const arabicaCostMoMResult = await executeQuery(arabicaCostMoMQuery, []);
+        const robustaCostMoMResult = await executeQuery(robustaCostMoMQuery, []);
+
+        const arabicaAvgCostMoMResult = await executeQuery(arabicaAvgCostMoMQuery, []);
+        const robustaAvgCostMoMResult = await executeQuery(robustaAvgCostMoMQuery, []);
+
+        const arabicaProcessedMoMResult = await executeQuery(arabicaProcessedMoMQuery, []);
+        const robustaProcessedMoMResult = await executeQuery(robustaProcessedMoMQuery, []);
+
+        const arabicaProductionMoMResult = await executeQuery(arabicaProductionMoMQuery, []);
+        const robustaProductionMoMResult = await executeQuery(robustaProductionMoMQuery, []);
+
+        const arabicaCherryQualitybyDateResult = await executeQuery(arabicaCherryQualitybyDateQuery, []);
+        const robustaCherryQualitybyDateResult = await executeQuery(robustaCherryQualitybyDateQuery, []);
+
+        const arabicaFarmersContributionResult = await executeQuery(arabicaFarmersContributionQuery, []);
+        const robustaFarmersContributionResult = await executeQuery(robustaFarmersContributionQuery, []);
+
+        const arabicaSankeyResult = await executeQuery(arabicaSankeyQuery, []);
+        const robustaSankeyResult = await executeQuery(robustaSankeyQuery, []);
+
+        const arabicaAchievementResult = await executeQuery(arabicaAchievementQuery, []);
+        const robustaAchievementResult = await executeQuery(robustaAchievementQuery, []);
  
  
         // Extract the relevant values from query results
