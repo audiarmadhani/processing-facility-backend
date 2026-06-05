@@ -93,6 +93,48 @@ router.post('/drying-measurement', async (req, res) => {
 });
 
 /**
+ * PUT /drying-measurement/:id
+ * Updates a moisture measurement's moisture and measurement_date.
+ * Requires: moisture (0-100), measurement_date.
+ */
+router.put('/drying-measurement/:id', async (req, res) => {
+  const { id } = req.params;
+  const { moisture, measurement_date } = req.body;
+
+  if (moisture === undefined || !measurement_date) {
+    return res.status(400).json({ error: 'moisture and measurement_date are required' });
+  }
+  if (typeof moisture !== 'number' || moisture < 0 || moisture > 100) {
+    return res.status(400).json({ error: 'Moisture must be a number between 0 and 100' });
+  }
+  const parsedDate = new Date(measurement_date);
+  if (isNaN(parsedDate) || parsedDate > new Date()) {
+    return res.status(400).json({ error: 'Invalid or future measurement_date' });
+  }
+
+  try {
+    const [result] = await sequelize.query(`
+      UPDATE "DryingMeasurements"
+      SET moisture = :moisture, measurement_date = :measurement_date
+      WHERE id = :id
+      RETURNING id, "batchNumber", moisture, measurement_date, created_at
+    `, {
+      replacements: { id, moisture, measurement_date },
+      type: sequelize.QueryTypes.UPDATE,
+    });
+
+    if (!result) {
+      return res.status(404).json({ error: `Moisture measurement with id ${id} not found` });
+    }
+
+    res.status(200).json({ message: 'Moisture measurement updated', measurement: result });
+  } catch (error) {
+    console.error('Error updating moisture measurement:', error);
+    res.status(500).json({ error: 'Failed to update moisture measurement', details: error.message });
+  }
+});
+
+/**
  * GET /drying-measurements/latest
  * Latest moisture reading per batch (by measurement_date, then created_at).
  * Query: batchNumbers=comma,separated,list
