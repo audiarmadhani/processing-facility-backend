@@ -493,7 +493,8 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
         pp."referenceNumber",
         pp."producer",
         pp."productLine",
-        dm.exited_at AS "dryMillExitedAt",
+        dm.entered_at AS "dryMillEnteredAt",
+        COALESCE(hw.huller_weight, 0)::float AS "hullerWeight",
         COALESCE(dw.drying_weight, 0)::float AS "dryingWeight",
         CASE
           WHEN q."batchNumber" IS NULL THEN 'Awaiting roast'
@@ -506,9 +507,19 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
         ON pp."batchNumber" = dm."batchNumber"
         AND pp."processingType" = dm."processingType"
       ${dryingWeightSubquery}
+      LEFT JOIN LATERAL (
+        SELECT SUM(e."outputWeight")::float AS huller_weight
+        FROM "DryMillProcessEvents" e
+        WHERE e."batchNumber" = dm."batchNumber"
+          AND e."processingType" = dm."processingType"
+          AND e."processStep" = 'huller'
+      ) hw ON true
       LEFT JOIN "PostprocessingQCData" q ON q."batchNumber" = dm."batchNumber"
-      WHERE dm.exited_at IS NOT NULL
+      WHERE dm.entered_at IS NOT NULL
+        AND dm.exited_at IS NULL
+        AND COALESCE(dm."dryMillMerged", false) = false
         AND COALESCE(r.merged, false) = false
+        AND COALESCE(hw.huller_weight, 0) > 0
         ${BATCH_YEAR_FILTER}
         AND NOT EXISTS (
           SELECT 1 FROM "GbQcRoastLog" rl
@@ -516,7 +527,7 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
             AND rl."processingType" = dm."processingType"
         )
         AND (q."isCompleted" IS NULL OR q."isCompleted" = false)
-      ORDER BY dm.exited_at DESC NULLS LAST, dm."batchNumber", dm."processingType"
+      ORDER BY dm.entered_at DESC NULLS LAST, dm."batchNumber", dm."processingType"
       `,
       { type: sequelize.QueryTypes.SELECT }
     );
@@ -577,11 +588,17 @@ router.post('/gb-qc/roast', async (req, res) => {
 
     const [dryMill] = await sequelize.query(
       `
-      SELECT exited_at
-      FROM "DryMillData"
-      WHERE "batchNumber" = :batchNumber
-        AND "processingType" = :processingType
-        AND exited_at IS NOT NULL
+      SELECT dm.entered_at, dm.exited_at, dm."dryMillMerged", COALESCE(hw.huller_weight, 0)::float AS "hullerWeight"
+      FROM "DryMillData" dm
+      LEFT JOIN LATERAL (
+        SELECT SUM(e."outputWeight")::float AS huller_weight
+        FROM "DryMillProcessEvents" e
+        WHERE e."batchNumber" = dm."batchNumber"
+          AND e."processingType" = dm."processingType"
+          AND e."processStep" = 'huller'
+      ) hw ON true
+      WHERE dm."batchNumber" = :batchNumber
+        AND dm."processingType" = :processingType
       LIMIT 1
       `,
       {
@@ -591,10 +608,31 @@ router.post('/gb-qc/roast', async (req, res) => {
       }
     );
 
-    if (!dryMill) {
+    if (!dryMill?.entered_at) {
       await t.rollback();
       return res.status(400).json({
-        message: 'Batch must be exited from dry mill before recording roast',
+        message: 'Batch must be entered in dry mill before recording roast',
+      });
+    }
+
+    if (dryMill.exited_at) {
+      await t.rollback();
+      return res.status(400).json({
+        message: 'Batch has already exited dry mill',
+      });
+    }
+
+    if (dryMill.dryMillMerged === true) {
+      await t.rollback();
+      return res.status(400).json({
+        message: 'Cannot record roast for a batch that was merged away',
+      });
+    }
+
+    if (!dryMill.hullerWeight || dryMill.hullerWeight <= 0) {
+      await t.rollback();
+      return res.status(400).json({
+        message: 'Batch must have huller output saved before recording roast',
       });
     }
 

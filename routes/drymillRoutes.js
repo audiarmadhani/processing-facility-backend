@@ -1768,13 +1768,14 @@ router.post('/dry-mill/merge', async (req, res) => {
     console.log('Inserting into DryMillData:', { batchNumber: newBatchNumber, enteredAt });
     await sequelize.query(
       `INSERT INTO "DryMillData" (
-        "batchNumber", "entered_at", "dryMillMerged"
+        "batchNumber", "processingType", "entered_at", "dryMillMerged"
       ) VALUES (
-        :batchNumber, :enteredAt, FALSE
+        :batchNumber, :processingType, :enteredAt, FALSE
       )`,
       {
         replacements: {
           batchNumber: newBatchNumber,
+          processingType,
           enteredAt: enteredAt
         },
         type: sequelize.QueryTypes.INSERT,
@@ -2219,6 +2220,27 @@ router.post("/drymill/process-event", async (req, res) => {
       return res.status(400).json({
         error: "Invalid outputWeight",
       });
+    }
+
+    const postHullerSteps = ['suton', 'sizer', 'handpicking'];
+    if (postHullerSteps.includes(processStep)) {
+      const [mergedRow] = await sequelize.query(
+        `SELECT "dryMillMerged"
+         FROM "DryMillData"
+         WHERE UPPER("batchNumber") = UPPER(:batchNumber)
+         LIMIT 1`,
+        {
+          replacements: { batchNumber },
+          type: sequelize.QueryTypes.SELECT,
+          transaction: t,
+        }
+      );
+      if (mergedRow?.dryMillMerged === true) {
+        await t.rollback();
+        return res.status(400).json({
+          error: 'This batch was merged away after hulling. Continue processing on the merged batch.',
+        });
+      }
     }
 
     const stepSequenceMap = {
