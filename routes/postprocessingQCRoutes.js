@@ -266,6 +266,7 @@ router.get('/postproqcfin', async (req, res) => {
       SELECT 
         a."batchNumber",
         b."referenceNumber",
+        fer."experimentNumber",
         DATE(b."storedDate") AS "storedDate",
         DATE(a."createdAt") AS "qcDate",
         a."generalQuality",
@@ -310,6 +311,7 @@ router.get('/postproqcfin', async (req, res) => {
         a."rantingKecil"
       FROM MAIN a
       LEFT JOIN "PostprocessingData" b ON a."batchNumber" = b."batchNumber"
+      ${fermentationExperimentJoin('a')}
       ORDER BY a."createdAt" DESC;
     `, { type: sequelize.QueryTypes.SELECT });
 
@@ -422,6 +424,16 @@ const latestMoistureSubquery = `
   ) lm ON lm."batchNumber" = d."batchNumber"
 `;
 
+const fermentationExperimentJoin = (batchAlias = 'r') => `
+  LEFT JOIN LATERAL (
+    SELECT fd."experimentNumber"
+    FROM "FermentationData" fd
+    WHERE fd."batchNumber" = ${batchAlias}."batchNumber"
+    ORDER BY fd.id DESC
+    LIMIT 1
+  ) fer ON true
+`;
+
 // GB QC pipeline: drying / dried / roast queues
 router.get('/gb-qc/pipeline-lists', async (req, res) => {
   try {
@@ -433,6 +445,7 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
         r."farmerName",
         pp."lotNumber",
         pp."referenceNumber",
+        fer."experimentNumber",
         pp."producer",
         pp."productLine",
         d."dryingArea",
@@ -445,6 +458,7 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
       INNER JOIN "PreprocessingData" pp ON pp."batchNumber" = r."batchNumber"
       ${dryingWeightSubquery}
       ${latestMoistureSubquery}
+      ${fermentationExperimentJoin('r')}
       WHERE d.exited_at IS NULL
         AND COALESCE(r.merged, false) = false
         ${BATCH_YEAR_FILTER}
@@ -461,6 +475,7 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
         r."farmerName",
         pp."lotNumber",
         pp."referenceNumber",
+        fer."experimentNumber",
         pp."producer",
         pp."productLine",
         d."dryingArea",
@@ -479,6 +494,7 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
       INNER JOIN "PreprocessingData" pp ON pp."batchNumber" = r."batchNumber"
       ${dryingWeightSubquery}
       ${latestMoistureSubquery}
+      ${fermentationExperimentJoin('r')}
       WHERE d.exited_at IS NOT NULL
         AND COALESCE(r.merged, false) = false
         ${BATCH_YEAR_FILTER}
@@ -501,6 +517,7 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
         r."farmerName",
         pp."lotNumber",
         pp."referenceNumber",
+        fer."experimentNumber",
         pp."producer",
         pp."productLine",
         dm.entered_at AS "dryMillEnteredAt",
@@ -517,6 +534,7 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
         ON pp."batchNumber" = dm."batchNumber"
         AND pp."processingType" = dm."processingType"
       ${dryingWeightSubquery}
+      ${fermentationExperimentJoin('r')}
       LEFT JOIN LATERAL (
         SELECT SUM(e."outputWeight")::float AS huller_weight
         FROM "DryMillProcessEvents" e
@@ -550,6 +568,7 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
         r."farmerName",
         pp."lotNumber",
         pp."referenceNumber",
+        fer."experimentNumber",
         pp."producer",
         pp."productLine",
         rl."roastedAt",
@@ -567,6 +586,7 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
         ON pp."batchNumber" = rl."batchNumber"
         AND pp."processingType" = rl."processingType"
       ${dryingWeightSubquery}
+      ${fermentationExperimentJoin('r')}
       LEFT JOIN "PostprocessingQCData" q ON q."batchNumber" = rl."batchNumber"
       WHERE COALESCE(r.merged, false) = false
         ${BATCH_YEAR_FILTER}
