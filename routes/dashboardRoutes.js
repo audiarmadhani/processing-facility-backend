@@ -2196,6 +2196,7 @@ router.get('/weight-flow-sankey', async (req, res) => {
         const conditions = [
             `btv.receiving_date BETWEEN '${formattedStart}' AND '${formattedEnd}'`,
             `rd.merged = FALSE`,
+            `rd.commodityType = 'Cherry'`,
         ];
 
         if (coffeeType) {
