@@ -59,6 +59,8 @@ const PostprocessingQCData = sequelize.define(
     rantingKecil: { type: DataTypes.INTEGER },
     totalBobotKotoran: { type: DataTypes.FLOAT },
     isCompleted: { type: DataTypes.BOOLEAN },
+    tastingNotes: { type: DataTypes.TEXT },
+    okForFurtherProcess: { type: DataTypes.BOOLEAN },
   },
   { tableName: 'PostprocessingQCData', timestamps: true }
 );
@@ -117,7 +119,7 @@ router.post('/postproqc', async (req, res) => {
       kopiGelondong, bijiCoklat, kulitKopiBesar, kulitKopiSedang, kulitKopiKecil, bijiBerKulitTanduk,
       kulitTandukBesar, kulitTandukSedang, kulitTandukKecil, bijiPecah, bijiMuda, bijiBerlubangSatu,
       bijiBerlubangLebihSatu, bijiBertutul, rantingBesar, rantingSedang, rantingKecil, totalBobotKotoran,
-      isCompleted
+      tastingNotes, okForFurtherProcess, isCompleted
     } = req.body;
 
     const existingQC = await sequelize.query(
@@ -160,6 +162,8 @@ router.post('/postproqc', async (req, res) => {
            "rantingSedang" = :rantingSedang, 
            "rantingKecil" = :rantingKecil, 
            "totalBobotKotoran" = :totalBobotKotoran,
+           "tastingNotes" = :tastingNotes,
+           "okForFurtherProcess" = :okForFurtherProcess,
            "isCompleted" = :isCompleted, 
            "updatedAt" = CURRENT_TIMESTAMP
          WHERE "batchNumber" = :batchNumber`,
@@ -169,6 +173,8 @@ router.post('/postproqc', async (req, res) => {
             kopiGelondong, bijiCoklat, kulitKopiBesar, kulitKopiSedang, kulitKopiKecil, bijiBerKulitTanduk,
             kulitTandukBesar, kulitTandukSedang, kulitTandukKecil, bijiPecah, bijiMuda, bijiBerlubangSatu,
             bijiBerlubangLebihSatu, bijiBertutul, rantingBesar, rantingSedang, rantingKecil, totalBobotKotoran,
+            tastingNotes: tastingNotes || null,
+            okForFurtherProcess: okForFurtherProcess ?? null,
             isCompleted,
           },
           type: sequelize.QueryTypes.UPDATE,
@@ -182,12 +188,14 @@ router.post('/postproqc', async (req, res) => {
          ("batchNumber", "seranggaHidup", "bijiBauBusuk", "kelembapan", "waterActivity", "triage", "bijiHitam", "bijiHitamSebagian", "bijiHitamPecah",
          "kopiGelondong", "bijiCoklat", "kulitKopiBesar", "kulitKopiSedang", "kulitKopiKecil", "bijiBerKulitTanduk",
          "kulitTandukBesar", "kulitTandukSedang", "kulitTandukKecil", "bijiPecah", "bijiMuda", "bijiBerlubangSatu",
-         "bijiBerlubangLebihSatu", "bijiBertutul", "rantingBesar", "rantingSedang", "rantingKecil", "totalBobotKotoran", 
+         "bijiBerlubangLebihSatu", "bijiBertutul", "rantingBesar", "rantingSedang", "rantingKecil", "totalBobotKotoran",
+         "tastingNotes", "okForFurtherProcess",
          "isCompleted", "createdAt", "updatedAt")
          VALUES (:batchNumber, :seranggaHidup, :bijiBauBusuk, :kelembapan, :waterActivity, :triage, :bijiHitam, :bijiHitamSebagian, :bijiHitamPecah,
          :kopiGelondong, :bijiCoklat, :kulitKopiBesar, :kulitKopiSedang, :kulitKopiKecil, :bijiBerKulitTanduk,
          :kulitTandukBesar, :kulitTandukSedang, :kulitTandukKecil, :bijiPecah, :bijiMuda, :bijiBerlubangSatu,
-         :bijiBerlubangLebihSatu, :bijiBertutul, :rantingBesar, :rantingSedang, :rantingKecil, :totalBobotKotoran, 
+         :bijiBerlubangLebihSatu, :bijiBertutul, :rantingBesar, :rantingSedang, :rantingKecil, :totalBobotKotoran,
+         :tastingNotes, :okForFurtherProcess,
          :isCompleted, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         {
           replacements: {
@@ -195,6 +203,8 @@ router.post('/postproqc', async (req, res) => {
             kopiGelondong, bijiCoklat, kulitKopiBesar, kulitKopiSedang, kulitKopiKecil, bijiBerKulitTanduk,
             kulitTandukBesar, kulitTandukSedang, kulitTandukKecil, bijiPecah, bijiMuda, bijiBerlubangSatu,
             bijiBerlubangLebihSatu, bijiBertutul, rantingBesar, rantingSedang, rantingKecil, totalBobotKotoran,
+            tastingNotes: tastingNotes || null,
+            okForFurtherProcess: okForFurtherProcess ?? null,
             isCompleted,
           },
           type: sequelize.QueryTypes.INSERT,
