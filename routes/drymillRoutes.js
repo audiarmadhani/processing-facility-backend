@@ -18,6 +18,37 @@ const logger = winston.createLogger({
   ]
 });
 
+const WAREHOUSE_ROWS = ['A', 'B', 'C', 'D', 'E'];
+
+function normalizeWarehouseRow(value) {
+  if (value == null || value === '') return null;
+  const row = String(value).trim().toUpperCase();
+  if (!WAREHOUSE_ROWS.includes(row)) return null;
+  return row;
+}
+
+function normalizeWarehouseColumn(value) {
+  if (value == null || value === '') return null;
+  const n = parseInt(value, 10);
+  if (!Number.isInteger(n) || n < 1 || n > 10) return null;
+  return n;
+}
+
+function validateWarehousePosition(warehouseRow, warehouseColumn) {
+  const row = normalizeWarehouseRow(warehouseRow);
+  const column = normalizeWarehouseColumn(warehouseColumn);
+  if (warehouseRow != null && warehouseRow !== '' && row == null) {
+    return { error: 'warehouseRow must be one of A, B, C, D, E' };
+  }
+  if (warehouseColumn != null && warehouseColumn !== '' && column == null) {
+    return { error: 'warehouseColumn must be an integer from 1 to 10' };
+  }
+  if ((row && !column) || (!row && column)) {
+    return { error: 'warehouseRow and warehouseColumn must both be set or both empty' };
+  }
+  return { row, column };
+}
+
 // Helper function to validate lot number format
 const validateLotNumber = (lotNumber) => {
   if (!lotNumber) return false;
@@ -628,6 +659,45 @@ router.get('/drymill/track-weight/:batchNumber/:producer', async (req, res) => {
       error: 'Failed to fetch track weight',
       details: err.message
     });
+  }
+});
+
+router.get('/drymill/huller-event/:batchNumber/:producer', async (req, res) => {
+  try {
+    const { batchNumber, producer } = req.params;
+    const { processingType } = req.query;
+
+    if (!processingType) {
+      return res.status(400).json({ error: 'processingType query param is required' });
+    }
+
+    const [row] = await sequelize.query(
+      `
+      SELECT
+        "inputWeight",
+        "outputWeight",
+        "warehouseRow",
+        "warehouseColumn",
+        "createdAt",
+        "updatedAt"
+      FROM "DryMillProcessEvents"
+      WHERE "batchNumber" = :batchNumber
+        AND "producer" = :producer
+        AND "processingType" = :processingType
+        AND "processStep" = 'huller'
+      ORDER BY "updatedAt" DESC NULLS LAST, "createdAt" DESC
+      LIMIT 1
+      `,
+      {
+        replacements: { batchNumber, producer, processingType },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    res.json(row || null);
+  } catch (err) {
+    console.error('huller-event fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch huller event', details: err.message });
   }
 });
 
@@ -2184,6 +2254,8 @@ router.post("/drymill/process-event", async (req, res) => {
       outputWeight,
       operator,
       notes,
+      warehouseRow,
+      warehouseColumn,
     } = req.body;
 
     // ----------------------------
@@ -2215,6 +2287,18 @@ router.post("/drymill/process-event", async (req, res) => {
       return res.status(400).json({
         error: "Invalid outputWeight",
       });
+    }
+
+    const parsedInput = parseWeight(inputWeight);
+    if (processStep === 'huller' && inputWeight != null && inputWeight !== '' && (isNaN(parsedInput) || parsedInput < 0)) {
+      await t.rollback();
+      return res.status(400).json({ error: 'Invalid inputWeight' });
+    }
+
+    const warehouseValidated = validateWarehousePosition(warehouseRow, warehouseColumn);
+    if (warehouseValidated.error) {
+      await t.rollback();
+      return res.status(400).json({ error: warehouseValidated.error });
     }
 
     const postHullerSteps = ['suton', 'sizer', 'handpicking'];
@@ -2263,6 +2347,8 @@ router.post("/drymill/process-event", async (req, res) => {
         "outputWeight",
         "operator",
         "notes",
+        "warehouseRow",
+        "warehouseColumn",
         "step_sequence",
         "createdAt",
         "updatedAt"
@@ -2277,6 +2363,8 @@ router.post("/drymill/process-event", async (req, res) => {
         :outputWeight,
         :operator,
         :notes,
+        :warehouseRow,
+        :warehouseColumn,
         :step_sequence,
         NOW(),
         NOW()
@@ -2287,6 +2375,8 @@ router.post("/drymill/process-event", async (req, res) => {
         "outputWeight" = EXCLUDED."outputWeight",
         "operator" = EXCLUDED."operator",
         "notes" = EXCLUDED."notes",
+        "warehouseRow" = EXCLUDED."warehouseRow",
+        "warehouseColumn" = EXCLUDED."warehouseColumn",
         "step_sequence" = EXCLUDED."step_sequence",
         "updatedAt" = NOW()
       RETURNING *;
@@ -2298,10 +2388,12 @@ router.post("/drymill/process-event", async (req, res) => {
           processStep,
           producer,
           grade: normalizedGrade,
-          inputWeight: inputWeight ? parseWeight(inputWeight) : 0,
+          inputWeight: inputWeight != null && inputWeight !== '' ? parseWeight(inputWeight) : 0,
           outputWeight: output,
           operator: operator || null,
           notes: notes || null,
+          warehouseRow: warehouseValidated.row,
+          warehouseColumn: warehouseValidated.column,
           step_sequence: stepSequenceMap[processStep] || 0,
         },
         type: sequelize.QueryTypes.INSERT,

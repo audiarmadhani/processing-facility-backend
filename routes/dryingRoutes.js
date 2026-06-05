@@ -3,6 +3,37 @@ const router = express.Router();
 const sequelize = require('../config/database');
 const rateLimit = require('express-rate-limit');
 
+const WAREHOUSE_ROWS = ['A', 'B', 'C', 'D', 'E'];
+
+function normalizeWarehouseRow(value) {
+  if (value == null || value === '') return null;
+  const row = String(value).trim().toUpperCase();
+  if (!WAREHOUSE_ROWS.includes(row)) return null;
+  return row;
+}
+
+function normalizeWarehouseColumn(value) {
+  if (value == null || value === '') return null;
+  const n = parseInt(value, 10);
+  if (!Number.isInteger(n) || n < 1 || n > 10) return null;
+  return n;
+}
+
+function validateWarehousePosition(warehouseRow, warehouseColumn) {
+  const row = normalizeWarehouseRow(warehouseRow);
+  const column = normalizeWarehouseColumn(warehouseColumn);
+  if (warehouseRow != null && warehouseRow !== '' && row == null) {
+    return { error: 'warehouseRow must be one of A, B, C, D, E' };
+  }
+  if (warehouseColumn != null && warehouseColumn !== '' && column == null) {
+    return { error: 'warehouseColumn must be an integer from 1 to 10' };
+  }
+  if ((row && !column) || (!row && column)) {
+    return { error: 'warehouseRow and warehouseColumn must both be set or both empty' };
+  }
+  return { row, column };
+}
+
 /**
  * GET /drying-data
  * Fetches all drying data records, including RFID, batch number, drying area, and timestamps.
@@ -10,7 +41,7 @@ const rateLimit = require('express-rate-limit');
 router.get('/drying-data', async (req, res) => {
   try {
     const data = await sequelize.query(`
-      SELECT rfid, "batchNumber", "dryingArea", entered_at, exited_at, created_at
+      SELECT rfid, "batchNumber", "dryingArea", "warehouseRow", "warehouseColumn", entered_at, exited_at, created_at
       FROM "DryingData"
       WHERE "batchNumber" LIKE '2026%'
       ORDER BY exited_at DESC, created_at ASC
@@ -316,6 +347,102 @@ router.post('/move-drying-area', async (req, res) => {
     await t.rollback();
     console.error('Error moving drying area:', error);
     res.status(500).json({ error: 'Failed to move drying area', details: error.message });
+  }
+});
+
+/**
+ * GET /drying-data/:batchNumber/warehouse-position
+ */
+router.get('/drying-data/:batchNumber/warehouse-position', async (req, res) => {
+  const { batchNumber } = req.params;
+  if (!batchNumber?.trim()) {
+    return res.status(400).json({ error: 'batchNumber is required' });
+  }
+
+  try {
+    const [row] = await sequelize.query(
+      `
+      SELECT "warehouseRow", "warehouseColumn"
+      FROM "DryingData"
+      WHERE "batchNumber" = :batchNumber
+      ORDER BY entered_at DESC NULLS LAST, id DESC
+      LIMIT 1
+      `,
+      {
+        replacements: { batchNumber: batchNumber.trim() },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    res.status(200).json({
+      warehouseRow: row?.warehouseRow ?? null,
+      warehouseColumn: row?.warehouseColumn ?? null,
+    });
+  } catch (error) {
+    console.error('Error fetching warehouse position:', error);
+    res.status(500).json({ error: 'Failed to fetch warehouse position', details: error.message });
+  }
+});
+
+/**
+ * PATCH /drying-data/:batchNumber/warehouse-position
+ */
+router.patch('/drying-data/:batchNumber/warehouse-position', async (req, res) => {
+  const { batchNumber } = req.params;
+  const { warehouseRow, warehouseColumn } = req.body;
+
+  if (!batchNumber?.trim()) {
+    return res.status(400).json({ error: 'batchNumber is required' });
+  }
+
+  const validated = validateWarehousePosition(warehouseRow, warehouseColumn);
+  if (validated.error) {
+    return res.status(400).json({ error: validated.error });
+  }
+
+  try {
+    const [target] = await sequelize.query(
+      `
+      SELECT id FROM "DryingData"
+      WHERE "batchNumber" = :batchNumber
+      ORDER BY entered_at DESC NULLS LAST, id DESC
+      LIMIT 1
+      `,
+      {
+        replacements: { batchNumber: batchNumber.trim() },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    if (!target?.id) {
+      return res.status(404).json({ error: 'No drying record found for this batch' });
+    }
+
+    const [updated] = await sequelize.query(
+      `
+      UPDATE "DryingData"
+      SET "warehouseRow" = :warehouseRow, "warehouseColumn" = :warehouseColumn
+      WHERE id = :id
+      RETURNING "batchNumber", "warehouseRow", "warehouseColumn"
+      `,
+      {
+        replacements: {
+          id: target.id,
+          warehouseRow: validated.row,
+          warehouseColumn: validated.column,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+      }
+    );
+
+    res.status(200).json({
+      message: 'Warehouse position saved',
+      warehouseRow: updated?.warehouseRow ?? null,
+      warehouseColumn: updated?.warehouseColumn ?? null,
+    });
+  } catch (error) {
+    console.error('Error saving warehouse position:', error);
+    res.status(500).json({ error: 'Failed to save warehouse position', details: error.message });
   }
 });
 
