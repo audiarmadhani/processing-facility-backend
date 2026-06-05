@@ -425,7 +425,6 @@ router.get('/receiving/cherry-receive-report', async (req, res) => {
         a.weight,
         a.producer,
         c.price,
-        pp."lotNumber",
         fer."experimentNumber"
       FROM "ReceivingData" a
       LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
@@ -435,27 +434,22 @@ router.get('/receiving/cherry-receive-report', async (req, res) => {
         GROUP BY "batchNumber"
       ) c ON a."batchNumber" = c."batchNumber"
       LEFT JOIN LATERAL (
-        SELECT pp2."lotNumber"
-        FROM "PreprocessingData" pp2
-        WHERE pp2."batchNumber" = a."batchNumber"
-        ORDER BY pp2."createdAt" DESC NULLS LAST
-        LIMIT 1
-      ) pp ON true
-      LEFT JOIN LATERAL (
         SELECT fd."experimentNumber"
         FROM "FermentationData" fd
         WHERE fd."batchNumber" = a."batchNumber"
         ORDER BY fd.id DESC
         LIMIT 1
       ) fer ON true
-      WHERE a.merged = FALSE
-        AND a."commodityType" = 'Cherry'
-        AND a."batchNumber" LIKE '2026%'
-        AND TO_CHAR(a."receivingDate" AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') = :date
+      WHERE (a."commodityType" IS NULL OR a."commodityType" = 'Cherry')
+        AND COALESCE(a."commodityType", '') <> 'Green Bean'
+        AND (
+          TO_CHAR(a."receivingDate" AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') = :date
+          OR a."batchNumber" LIKE :batchPrefix || '-%'
+        )
       ORDER BY a."batchNumber" ASC
       `,
       {
-        replacements: { date: String(date) },
+        replacements: { date: String(date), batchPrefix: String(date) },
         type: sequelize.QueryTypes.SELECT,
       }
     );
