@@ -1480,8 +1480,8 @@ router.get('/dashboard-metrics', async (req, res) => {
 				const landCoveredArabica = Number(landCoveredArabicaResult[0].sum) || 0;
 				const landCoveredRobusta = Number(landCoveredRobustaResult[0].sum) || 0;
 
-				const arabicaYield = arabicaYieldResult || 0;
-				const robustaYield = robustaYieldResult || 0;
+				const arabicaYield = Number(arabicaYieldResult[0]?.sum) || 0;
+				const robustaYield = Number(robustaYieldResult[0]?.sum) || 0;
 
 				// Arrays are not converted to numbers, so leave them as is
 				const totalWeightBagsbyDate = totalWeightBagsbyDateResult || [];
@@ -2155,6 +2155,117 @@ router.get('/environmental-metrics/raw', async (req, res) => {
     } catch (err) {
         console.error('Error fetching raw environmental data:', err);
         res.status(500).json({ message: 'Failed to fetch raw environmental data.' });
+    }
+});
+
+const { buildWeightFlowSankey } = require('../utils/weightFlowSankey');
+
+router.get('/weight-flow-sankey', async (req, res) => {
+    try {
+        const {
+            timeframe = 'this_month',
+            batchNumber,
+            processingType,
+            coffeeType,
+            commodityType,
+        } = req.query;
+
+        let currentStartDate, currentEndDate;
+        try {
+            const dateRanges = getDateRanges(timeframe);
+            [currentStartDate, currentEndDate] = dateRanges.currentRange;
+        } catch (error) {
+            return res.status(400).json({ message: error.message });
+        }
+
+        const formattedStart = currentStartDate.toISOString().split('T')[0];
+        const formattedEnd = currentEndDate.toISOString().split('T')[0];
+
+        const conditions = [
+            `btv.receiving_date BETWEEN '${formattedStart}' AND '${formattedEnd}'`,
+            `rd.merged = FALSE`,
+        ];
+
+        if (coffeeType) {
+            conditions.push(`rd.type = '${coffeeType.replace(/'/g, "''")}'`);
+        }
+        if (commodityType) {
+            conditions.push(`rd."commodityType" = '${commodityType.replace(/'/g, "''")}'`);
+        }
+        if (processingType) {
+            conditions.push(`btv."processingtype" = '${processingType.replace(/'/g, "''")}'`);
+        }
+        if (batchNumber) {
+            conditions.push(`btv."batchNumber" = '${batchNumber.replace(/'/g, "''")}'`);
+        }
+
+        const pipelineQuery = `
+            SELECT
+                btv."batchNumber",
+                btv."processingtype" AS "processingType",
+                rd.producer,
+                rd.type AS "coffeeType",
+                rd."commodityType",
+                btv.receiving_date,
+                COALESCE(CAST(btv.receiving_weight AS TEXT), 'N/A') AS receiving_weight,
+                COALESCE(CAST(btv.preprocessing_weight AS TEXT), 'N/A') AS preprocessing_weight,
+                COALESCE(CAST(btv.wetmill_weight AS TEXT), 'N/A') AS wetmill_weight,
+                COALESCE(CAST(btv.fermentation_weight AS TEXT), 'N/A') AS fermentation_weight,
+                COALESCE(CAST(btv.drying_weight AS TEXT), 'N/A') AS drying_weight,
+                COALESCE(CAST(btv.dry_mill_weight AS TEXT), 'N/A') AS dry_mill_weight
+            FROM "BatchTrackingView" btv
+            JOIN "ReceivingData" rd ON rd."batchNumber" = btv."batchNumber"
+            WHERE ${conditions.join(' AND ')}
+            ORDER BY btv."batchNumber", btv."processingtype"
+        `;
+
+        const gradeConditions = [];
+        if (coffeeType) {
+            gradeConditions.push(`pp.type = '${coffeeType.replace(/'/g, "''")}'`);
+        }
+        if (processingType) {
+            gradeConditions.push(`pp."processingType" = '${processingType.replace(/'/g, "''")}'`);
+        }
+        if (batchNumber) {
+            gradeConditions.push(`COALESCE(pp."parentBatchNumber", pp."batchNumber") = '${batchNumber.replace(/'/g, "''")}'`);
+        }
+
+        const gradeWhere = gradeConditions.length ? `WHERE ${gradeConditions.join(' AND ')}` : '';
+
+        const gradeQuery = `
+            SELECT
+                COALESCE(pp."parentBatchNumber", pp."batchNumber") AS "batchNumber",
+                pp."processingType",
+                pp.producer,
+                pp.quality AS grade,
+                SUM(pp.weight)::FLOAT AS stored_weight
+            FROM "PostprocessingData" pp
+            ${gradeWhere}
+            GROUP BY 1, 2, 3, 4
+        `;
+
+        const [pipelineRows] = await sequelize.query(pipelineQuery);
+        const [gradeRows] = await sequelize.query(gradeQuery);
+
+        const pipelineBatchKeys = new Set(
+            pipelineRows.map((r) => `${r.batchNumber}|${r.processingType}|${r.producer || ''}`)
+        );
+        const filteredGrades = gradeRows.filter(
+            (g) => pipelineBatchKeys.has(`${g.batchNumber}|${g.processingType}|${g.producer || ''}`)
+        );
+
+        const result = buildWeightFlowSankey(pipelineRows, filteredGrades, {
+            timeframe,
+            batchNumber: batchNumber || null,
+            processingType: processingType || null,
+            coffeeType: coffeeType || null,
+            commodityType: commodityType || null,
+        });
+
+        res.json(result);
+    } catch (err) {
+        console.error('Error fetching weight flow sankey:', err);
+        res.status(500).json({ message: 'Failed to fetch weight flow sankey data.' });
     }
 });
 
