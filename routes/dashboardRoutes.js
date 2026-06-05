@@ -2173,7 +2173,7 @@ const { buildWeightFlowSankey } = require('../utils/weightFlowSankey');
 router.get('/weight-flow-sankey', async (req, res) => {
     try {
         const {
-            timeframe = 'this_month',
+            timeframe = 'this_year',
             batchNumber,
             processingType,
             coffeeType,
