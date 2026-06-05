@@ -1647,8 +1647,8 @@ router.post('/dry-mill/merge', async (req, res) => {
       });
     }
 
-    const roastedBatches = await sequelize.query(
-      `SELECT DISTINCT UPPER(rl."batchNumber") AS "batchNumber"
+    const [roastedCountRow] = await sequelize.query(
+      `SELECT COUNT(DISTINCT UPPER(rl."batchNumber"))::int AS roasted_count
        FROM "GbQcRoastLog" rl
        WHERE rl."processingType" = :processingType
          AND UPPER(rl."batchNumber") IN (:batchNumbers)`,
@@ -1658,7 +1658,7 @@ router.post('/dry-mill/merge', async (req, res) => {
         transaction: t,
       }
     );
-    if (roastedBatches.length !== parsedBatches.length) {
+    if ((roastedCountRow?.roasted_count || 0) !== parsedBatches.length) {
       await t.rollback();
       return res.status(400).json({
         error: 'All selected batches must have a recorded sample roast before merging.',
@@ -1865,12 +1865,13 @@ router.post('/dry-mill/merge', async (req, res) => {
       );
     }
 
-    const roastRows = await sequelize.query(
-      `SELECT rl."batchNumber", rl."roastedAt", rl."roastedBy", rl.notes
+    const [sourceRoastSummary] = await sequelize.query(
+      `SELECT
+         COUNT(*)::int AS roast_count,
+         MAX(rl."roastedAt") AS latest_roasted_at
        FROM "GbQcRoastLog" rl
        WHERE rl."processingType" = :processingType
-         AND UPPER(rl."batchNumber") IN (:batchNumbers)
-       ORDER BY rl."roastedAt" DESC`,
+         AND UPPER(rl."batchNumber") IN (:batchNumbers)`,
       {
         replacements: { batchNumbers: sourceBatchNumbers, processingType },
         type: sequelize.QueryTypes.SELECT,
@@ -1878,26 +1879,20 @@ router.post('/dry-mill/merge', async (req, res) => {
       }
     );
 
-    if (roastRows.length === parsedBatches.length) {
-      const latestRoast = roastRows[0];
+    if ((roastedCountRow?.roasted_count || 0) === parsedBatches.length && sourceRoastSummary?.latest_roasted_at) {
       await sequelize.query(
         `INSERT INTO "GbQcRoastLog" (
           "batchNumber", "processingType", "roastedAt", "roastedBy", "notes", "createdAt"
         ) VALUES (
           :batchNumber, :processingType, :roastedAt, :roastedBy, :notes, NOW()
-        )
-        ON CONFLICT ("batchNumber", "processingType")
-        DO UPDATE SET
-          "roastedAt" = EXCLUDED."roastedAt",
-          "roastedBy" = EXCLUDED."roastedBy",
-          "notes" = EXCLUDED."notes"`,
+        )`,
         {
           replacements: {
             batchNumber: newBatchNumber,
             processingType,
-            roastedAt: latestRoast.roastedAt,
-            roastedBy: latestRoast.roastedBy || createdBy,
-            notes: `Merged from sample roasts: ${originalBatchList}`,
+            roastedAt: sourceRoastSummary.latest_roasted_at,
+            roastedBy: createdBy,
+            notes: `Merged sample roasts from: ${originalBatchList} (${sourceRoastSummary.roast_count || 0} total roasts)`,
           },
           type: sequelize.QueryTypes.INSERT,
           transaction: t,

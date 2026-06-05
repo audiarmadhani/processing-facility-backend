@@ -110,6 +110,101 @@ router.get('/postprocessingqcdata/:batchNumber', async (req, res) => {
   }
 });
 
+async function syncCuppingEntries(batchNumber, cuppingEntries, cuppedBy, transaction) {
+  if (!Array.isArray(cuppingEntries)) {
+    return;
+  }
+
+  const normalized = cuppingEntries
+    .map((entry) => ({
+      id: entry.id != null && entry.id !== '' ? Number(entry.id) : null,
+      cuppedAt: entry.cuppedAt || null,
+      notes: typeof entry.notes === 'string' ? entry.notes.trim() : '',
+      okForFurtherProcess:
+        entry.okForFurtherProcess === true || entry.okForFurtherProcess === false
+          ? entry.okForFurtherProcess
+          : entry.okForFurtherProcess === 'true'
+            ? true
+            : entry.okForFurtherProcess === 'false'
+              ? false
+              : null,
+    }))
+    .filter(
+      (entry) =>
+        entry.cuppedAt &&
+        entry.notes !== '' &&
+        entry.okForFurtherProcess !== null
+    );
+
+  const keepIds = normalized.filter((entry) => Number.isInteger(entry.id)).map((entry) => entry.id);
+
+  if (keepIds.length > 0) {
+    await sequelize.query(
+      `DELETE FROM "GbQcCuppingLog"
+       WHERE "batchNumber" = :batchNumber
+         AND id NOT IN (:keepIds)`,
+      {
+        replacements: { batchNumber, keepIds },
+        type: sequelize.QueryTypes.DELETE,
+        transaction,
+      }
+    );
+  } else {
+    await sequelize.query(
+      `DELETE FROM "GbQcCuppingLog" WHERE "batchNumber" = :batchNumber`,
+      {
+        replacements: { batchNumber },
+        type: sequelize.QueryTypes.DELETE,
+        transaction,
+      }
+    );
+  }
+
+  for (const entry of normalized) {
+    if (Number.isInteger(entry.id)) {
+      await sequelize.query(
+        `UPDATE "GbQcCuppingLog"
+         SET "cuppedAt" = :cuppedAt,
+             notes = :notes,
+             "okForFurtherProcess" = :okForFurtherProcess,
+             "cuppedBy" = COALESCE("cuppedBy", :cuppedBy)
+         WHERE id = :id AND "batchNumber" = :batchNumber`,
+        {
+          replacements: {
+            id: entry.id,
+            batchNumber,
+            cuppedAt: entry.cuppedAt,
+            notes: entry.notes,
+            okForFurtherProcess: entry.okForFurtherProcess,
+            cuppedBy: cuppedBy || null,
+          },
+          type: sequelize.QueryTypes.UPDATE,
+          transaction,
+        }
+      );
+    } else {
+      await sequelize.query(
+        `INSERT INTO "GbQcCuppingLog" (
+          "batchNumber", "cuppedAt", notes, "okForFurtherProcess", "cuppedBy", "createdAt"
+        ) VALUES (
+          :batchNumber, :cuppedAt, :notes, :okForFurtherProcess, :cuppedBy, NOW()
+        )`,
+        {
+          replacements: {
+            batchNumber,
+            cuppedAt: entry.cuppedAt,
+            notes: entry.notes,
+            okForFurtherProcess: entry.okForFurtherProcess,
+            cuppedBy: cuppedBy || null,
+          },
+          type: sequelize.QueryTypes.INSERT,
+          transaction,
+        }
+      );
+    }
+  }
+}
+
 // Route for saving or completing QC data
 router.post('/postproqc', async (req, res) => {
   const t = await sequelize.transaction();
@@ -119,7 +214,7 @@ router.post('/postproqc', async (req, res) => {
       kopiGelondong, bijiCoklat, kulitKopiBesar, kulitKopiSedang, kulitKopiKecil, bijiBerKulitTanduk,
       kulitTandukBesar, kulitTandukSedang, kulitTandukKecil, bijiPecah, bijiMuda, bijiBerlubangSatu,
       bijiBerlubangLebihSatu, bijiBertutul, rantingBesar, rantingSedang, rantingKecil, totalBobotKotoran,
-      tastingNotes, okForFurtherProcess, isCompleted
+      cuppingEntries, cuppedBy, isCompleted
     } = req.body;
 
     const existingQC = await sequelize.query(
@@ -162,8 +257,6 @@ router.post('/postproqc', async (req, res) => {
            "rantingSedang" = :rantingSedang, 
            "rantingKecil" = :rantingKecil, 
            "totalBobotKotoran" = :totalBobotKotoran,
-           "tastingNotes" = :tastingNotes,
-           "okForFurtherProcess" = :okForFurtherProcess,
            "isCompleted" = :isCompleted, 
            "updatedAt" = CURRENT_TIMESTAMP
          WHERE "batchNumber" = :batchNumber`,
@@ -173,8 +266,6 @@ router.post('/postproqc', async (req, res) => {
             kopiGelondong, bijiCoklat, kulitKopiBesar, kulitKopiSedang, kulitKopiKecil, bijiBerKulitTanduk,
             kulitTandukBesar, kulitTandukSedang, kulitTandukKecil, bijiPecah, bijiMuda, bijiBerlubangSatu,
             bijiBerlubangLebihSatu, bijiBertutul, rantingBesar, rantingSedang, rantingKecil, totalBobotKotoran,
-            tastingNotes: tastingNotes || null,
-            okForFurtherProcess: okForFurtherProcess ?? null,
             isCompleted,
           },
           type: sequelize.QueryTypes.UPDATE,
@@ -189,13 +280,11 @@ router.post('/postproqc', async (req, res) => {
          "kopiGelondong", "bijiCoklat", "kulitKopiBesar", "kulitKopiSedang", "kulitKopiKecil", "bijiBerKulitTanduk",
          "kulitTandukBesar", "kulitTandukSedang", "kulitTandukKecil", "bijiPecah", "bijiMuda", "bijiBerlubangSatu",
          "bijiBerlubangLebihSatu", "bijiBertutul", "rantingBesar", "rantingSedang", "rantingKecil", "totalBobotKotoran",
-         "tastingNotes", "okForFurtherProcess",
          "isCompleted", "createdAt", "updatedAt")
          VALUES (:batchNumber, :seranggaHidup, :bijiBauBusuk, :kelembapan, :waterActivity, :triage, :bijiHitam, :bijiHitamSebagian, :bijiHitamPecah,
          :kopiGelondong, :bijiCoklat, :kulitKopiBesar, :kulitKopiSedang, :kulitKopiKecil, :bijiBerKulitTanduk,
          :kulitTandukBesar, :kulitTandukSedang, :kulitTandukKecil, :bijiPecah, :bijiMuda, :bijiBerlubangSatu,
          :bijiBerlubangLebihSatu, :bijiBertutul, :rantingBesar, :rantingSedang, :rantingKecil, :totalBobotKotoran,
-         :tastingNotes, :okForFurtherProcess,
          :isCompleted, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         {
           replacements: {
@@ -203,14 +292,16 @@ router.post('/postproqc', async (req, res) => {
             kopiGelondong, bijiCoklat, kulitKopiBesar, kulitKopiSedang, kulitKopiKecil, bijiBerKulitTanduk,
             kulitTandukBesar, kulitTandukSedang, kulitTandukKecil, bijiPecah, bijiMuda, bijiBerlubangSatu,
             bijiBerlubangLebihSatu, bijiBertutul, rantingBesar, rantingSedang, rantingKecil, totalBobotKotoran,
-            tastingNotes: tastingNotes || null,
-            okForFurtherProcess: okForFurtherProcess ?? null,
             isCompleted,
           },
           type: sequelize.QueryTypes.INSERT,
           transaction: t,
         }
       );
+    }
+
+    if (Array.isArray(cuppingEntries)) {
+      await syncCuppingEntries(batchNumber, cuppingEntries, cuppedBy, t);
     }
 
     await t.commit();
@@ -354,6 +445,36 @@ router.get('/postprocessing/not-qced', async (req, res) => {
   } catch (err) {
     console.error('Error fetching not QCed batches:', err);
     res.status(500).json({ message: 'Failed to fetch not QCed batches' });
+  }
+});
+
+router.get('/gb-qc/cupping/:batchNumber', async (req, res) => {
+  try {
+    const { batchNumber } = req.params;
+    const cuppingEntries = await sequelize.query(
+      `
+      SELECT
+        id,
+        "batchNumber",
+        "cuppedAt",
+        notes,
+        "okForFurtherProcess",
+        "cuppedBy",
+        "createdAt"
+      FROM "GbQcCuppingLog"
+      WHERE "batchNumber" = :batchNumber
+      ORDER BY "cuppedAt" DESC, id DESC
+      `,
+      {
+        replacements: { batchNumber },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    res.json(cuppingEntries);
+  } catch (err) {
+    console.error('Error fetching cupping log:', err);
+    res.status(500).json({ message: 'Failed to fetch cupping log', details: err.message });
   }
 });
 
@@ -563,35 +684,46 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
     const readyForQc = await sequelize.query(
       `
       SELECT
-        rl."batchNumber",
-        rl."processingType",
+        latest."batchNumber",
+        latest."processingType",
         r."farmerName",
         pp."lotNumber",
         pp."referenceNumber",
         fer."experimentNumber",
         pp."producer",
         pp."productLine",
-        rl."roastedAt",
-        rl."roastedBy",
-        rl.notes AS "roastNotes",
+        latest."roastedAt",
+        latest."roastedBy",
+        latest.notes AS "roastNotes",
+        latest."roastCount",
         COALESCE(dw.drying_weight, 0)::float AS "dryingWeight",
         CASE
           WHEN q."batchNumber" IS NULL THEN 'Ready for QC'
           WHEN q."isCompleted" = false THEN 'QC started'
           ELSE 'Ready for QC'
         END AS "status"
-      FROM "GbQcRoastLog" rl
-      INNER JOIN "ReceivingData" r ON rl."batchNumber" = r."batchNumber"
+      FROM (
+        SELECT
+          rl."batchNumber",
+          rl."processingType",
+          COUNT(*)::int AS "roastCount",
+          (ARRAY_AGG(rl."roastedAt" ORDER BY rl."roastedAt" DESC))[1] AS "roastedAt",
+          (ARRAY_AGG(rl."roastedBy" ORDER BY rl."roastedAt" DESC))[1] AS "roastedBy",
+          (ARRAY_AGG(rl.notes ORDER BY rl."roastedAt" DESC))[1] AS notes
+        FROM "GbQcRoastLog" rl
+        GROUP BY rl."batchNumber", rl."processingType"
+      ) latest
+      INNER JOIN "ReceivingData" r ON latest."batchNumber" = r."batchNumber"
       INNER JOIN "PreprocessingData" pp
-        ON pp."batchNumber" = rl."batchNumber"
-        AND pp."processingType" = rl."processingType"
+        ON pp."batchNumber" = latest."batchNumber"
+        AND pp."processingType" = latest."processingType"
       ${dryingWeightSubquery}
       ${fermentationExperimentJoin('r')}
-      LEFT JOIN "PostprocessingQCData" q ON q."batchNumber" = rl."batchNumber"
+      LEFT JOIN "PostprocessingQCData" q ON q."batchNumber" = latest."batchNumber"
       WHERE COALESCE(r.merged, false) = false
         ${BATCH_YEAR_FILTER}
         AND (q."isCompleted" IS NULL OR q."isCompleted" = false)
-      ORDER BY rl."roastedAt" DESC NULLS LAST
+      ORDER BY latest."roastedAt" DESC NULLS LAST
       `,
       { type: sequelize.QueryTypes.SELECT }
     );
@@ -606,10 +738,57 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
   }
 });
 
+router.get('/gb-qc/roasts', async (req, res) => {
+  try {
+    const { batchNumber, processingType } = req.query;
+    if (!batchNumber || !processingType) {
+      return res.status(400).json({ message: 'batchNumber and processingType are required' });
+    }
+
+    const roasts = await sequelize.query(
+      `
+      SELECT
+        id,
+        "batchNumber",
+        "processingType",
+        "roastedAt",
+        "roastedBy",
+        notes,
+        "roastProfile",
+        "endTemp",
+        "firstCrackMinutes",
+        "createdAt"
+      FROM "GbQcRoastLog"
+      WHERE "batchNumber" = :batchNumber
+        AND "processingType" = :processingType
+      ORDER BY "roastedAt" DESC, id DESC
+      `,
+      {
+        replacements: { batchNumber, processingType },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    res.json(roasts);
+  } catch (err) {
+    console.error('Error fetching roast log:', err);
+    res.status(500).json({ message: 'Failed to fetch roast log', details: err.message });
+  }
+});
+
 router.post('/gb-qc/roast', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { batchNumber, processingType, roastedAt, notes, roastedBy } = req.body;
+    const {
+      batchNumber,
+      processingType,
+      roastedAt,
+      notes,
+      roastedBy,
+      roastProfile,
+      endTemp,
+      firstCrackMinutes,
+    } = req.body;
 
     if (!batchNumber || !processingType) {
       await t.rollback();
@@ -672,17 +851,25 @@ router.post('/gb-qc/roast', async (req, res) => {
       return res.status(400).json({ message: 'Invalid roastedAt date' });
     }
 
+    const parsedEndTemp =
+      endTemp === undefined || endTemp === null || endTemp === ''
+        ? null
+        : parseFloat(endTemp);
+    const parsedFirstCrackMinutes =
+      firstCrackMinutes === undefined || firstCrackMinutes === null || firstCrackMinutes === ''
+        ? null
+        : parseFloat(firstCrackMinutes);
+
     const rows = await sequelize.query(
       `
       INSERT INTO "GbQcRoastLog" (
-        "batchNumber", "processingType", "roastedAt", "roastedBy", "notes", "createdAt"
+        "batchNumber", "processingType", "roastedAt", "roastedBy", "notes",
+        "roastProfile", "endTemp", "firstCrackMinutes", "createdAt"
       )
-      VALUES (:batchNumber, :processingType, :roastedAt, :roastedBy, :notes, NOW())
-      ON CONFLICT ("batchNumber", "processingType")
-      DO UPDATE SET
-        "roastedAt" = EXCLUDED."roastedAt",
-        "roastedBy" = EXCLUDED."roastedBy",
-        "notes" = EXCLUDED."notes"
+      VALUES (
+        :batchNumber, :processingType, :roastedAt, :roastedBy, :notes,
+        :roastProfile, :endTemp, :firstCrackMinutes, NOW()
+      )
       RETURNING *
       `,
       {
@@ -692,6 +879,9 @@ router.post('/gb-qc/roast', async (req, res) => {
           roastedAt: roastedAtValue,
           roastedBy: roastedBy || null,
           notes: notes || null,
+          roastProfile: roastProfile?.trim() || null,
+          endTemp: Number.isFinite(parsedEndTemp) ? parsedEndTemp : null,
+          firstCrackMinutes: Number.isFinite(parsedFirstCrackMinutes) ? parsedFirstCrackMinutes : null,
         },
         type: sequelize.QueryTypes.SELECT,
         transaction: t,
