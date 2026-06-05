@@ -404,6 +404,69 @@ router.get('/receiving', async (req, res) => {
   }
 });
 
+router.get('/receiving/cherry-receive-report', async (req, res) => {
+  const { date } = req.query;
+
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+    return res.status(400).json({ error: 'date query param is required (YYYY-MM-DD)' });
+  }
+
+  try {
+    const rows = await sequelize.query(
+      `
+      SELECT
+        a."batchNumber",
+        (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') AS "receivingDate",
+        a."farmerName",
+        b.broker,
+        a.type,
+        b."farmVarieties",
+        a.brix,
+        a.weight,
+        a.producer,
+        c.price,
+        pp."lotNumber",
+        fer."experimentNumber"
+      FROM "ReceivingData" a
+      LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
+      LEFT JOIN (
+        SELECT "batchNumber", MAX(price) AS price
+        FROM "QCData"
+        GROUP BY "batchNumber"
+      ) c ON a."batchNumber" = c."batchNumber"
+      LEFT JOIN LATERAL (
+        SELECT pp2."lotNumber"
+        FROM "PreprocessingData" pp2
+        WHERE pp2."batchNumber" = a."batchNumber"
+        ORDER BY pp2."createdAt" DESC NULLS LAST
+        LIMIT 1
+      ) pp ON true
+      LEFT JOIN LATERAL (
+        SELECT fd."experimentNumber"
+        FROM "FermentationData" fd
+        WHERE fd."batchNumber" = a."batchNumber"
+        ORDER BY fd.id DESC
+        LIMIT 1
+      ) fer ON true
+      WHERE a.merged = FALSE
+        AND a."commodityType" = 'Cherry'
+        AND a."batchNumber" LIKE '2026%'
+        AND TO_CHAR(a."receivingDate" AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') = :date
+      ORDER BY a."batchNumber" ASC
+      `,
+      {
+        replacements: { date: String(date) },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    res.json({ date, rows });
+  } catch (err) {
+    console.error('Error fetching cherry receive report:', err);
+    res.status(500).json({ error: 'Failed to fetch cherry receive report', details: err.message });
+  }
+});
+
 // Route to get bag weights for a batch
 router.get('/receiving/:batchNumber/bags', async (req, res) => {
   let { batchNumber } = req.params;
