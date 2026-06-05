@@ -2173,12 +2173,14 @@ const { buildWeightFlowSankey } = require('../utils/weightFlowSankey');
 router.get('/weight-flow-sankey', async (req, res) => {
     try {
         const {
-            timeframe = 'this_year',
             batchNumber,
             processingType,
             coffeeType,
             commodityType,
         } = req.query;
+
+        // Weight flow is always scoped to the current calendar year.
+        const timeframe = 'this_year';
 
         let currentStartDate, currentEndDate;
         try {
@@ -2229,7 +2231,9 @@ router.get('/weight-flow-sankey', async (req, res) => {
             ORDER BY btv."batchNumber", btv."processingtype"
         `;
 
-        const gradeConditions = [];
+        const gradeConditions = [
+            `pp."storedDate" BETWEEN '${formattedStart}' AND '${formattedEnd}'`,
+        ];
         if (coffeeType) {
             gradeConditions.push(`pp.type = '${coffeeType.replace(/'/g, "''")}'`);
         }
@@ -2240,7 +2244,7 @@ router.get('/weight-flow-sankey', async (req, res) => {
             gradeConditions.push(`COALESCE(pp."parentBatchNumber", pp."batchNumber") = '${batchNumber.replace(/'/g, "''")}'`);
         }
 
-        const gradeWhere = gradeConditions.length ? `WHERE ${gradeConditions.join(' AND ')}` : '';
+        const gradeWhere = `WHERE ${gradeConditions.join(' AND ')}`;
 
         const gradeQuery = `
             SELECT

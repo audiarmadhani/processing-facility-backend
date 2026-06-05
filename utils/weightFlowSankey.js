@@ -136,21 +136,53 @@ function groupGradesByRowKey(gradeRows) {
   return map;
 }
 
-function buildWeightFlowSankey(pipelineRows, gradeRows = [], filters = {}) {
-  const gradesByKey = groupGradesByRowKey(gradeRows);
-  let reorderedBatchCount = 0;
-  let gradeBranchCount = 0;
-  const allLinks = [];
+function sumStageWeights(pipelineRows) {
+  return WEIGHT_FLOW_STAGES.map((stage, canonicalIndex) => ({
+    ...stage,
+    canonicalIndex,
+    weight: pipelineRows.reduce((sum, row) => sum + parseWeight(row[stage.field]), 0),
+  }));
+}
 
-  for (const row of pipelineRows) {
-    const grades = gradesByKey.get(rowKey(row)) || [];
-    gradeBranchCount += grades.length;
-    const { links, reordered } = buildLinksForRow(row, grades);
-    if (reordered) reorderedBatchCount += 1;
-    allLinks.push(...links);
+function aggregateGradeWeights(gradeRows) {
+  const map = new Map();
+  for (const grade of gradeRows) {
+    const weight = parseWeight(grade.stored_weight);
+    if (weight <= 0) continue;
+    map.set(grade.grade, (map.get(grade.grade) || 0) + weight);
+  }
+  return Array.from(map.entries()).map(([grade, stored_weight]) => ({ grade, stored_weight }));
+}
+
+function buildFacilityLinks(pipelineRows, gradeRows) {
+  const stageTotals = sumStageWeights(pipelineRows);
+  const receivingTotal = stageTotals[0]?.weight || 0;
+  if (receivingTotal <= 0) return { links: [], reordered: false, gradeBranchCount: 0 };
+
+  let lastIdx = 0;
+  for (let i = stageTotals.length - 1; i >= 0; i -= 1) {
+    if (stageTotals[i].weight > 0) {
+      lastIdx = i;
+      break;
+    }
   }
 
-  const aggregatedLinks = aggregateLinks(allLinks);
+  const { ordered, reordered } = reorderStagesMonotonically(stageTotals.slice(0, lastIdx + 1));
+  const links = buildLinearLinks(ordered);
+
+  const gradeTotals = aggregateGradeWeights(gradeRows);
+  const dryMillStage = ordered.find((s) => s.key === 'drymill');
+  if (gradeTotals.length > 0) {
+    const stageForGrades = dryMillStage || ordered[ordered.length - 1];
+    links.push(...buildGradeLinks(stageForGrades, gradeTotals));
+  }
+
+  return { links, reordered, gradeBranchCount: gradeTotals.length };
+}
+
+function buildWeightFlowSankey(pipelineRows, gradeRows = [], filters = {}) {
+  const { links, reordered, gradeBranchCount } = buildFacilityLinks(pipelineRows, gradeRows);
+  const aggregatedLinks = aggregateLinks(links);
   const totalReceivingWeight = pipelineRows.reduce(
     (sum, row) => sum + parseWeight(row.receiving_weight),
     0
@@ -160,7 +192,7 @@ function buildWeightFlowSankey(pipelineRows, gradeRows = [], filters = {}) {
     links: aggregatedLinks,
     meta: {
       batchCount: pipelineRows.length,
-      reorderedBatchCount,
+      reorderedBatchCount: reordered ? 1 : 0,
       gradeBranchCount,
       totalReceivingWeight: Math.round(totalReceivingWeight * 100) / 100,
       filters,
@@ -175,5 +207,7 @@ module.exports = {
   reorderStagesMonotonically,
   buildLinksForRow,
   aggregateLinks,
+  sumStageWeights,
+  buildFacilityLinks,
   buildWeightFlowSankey,
 };

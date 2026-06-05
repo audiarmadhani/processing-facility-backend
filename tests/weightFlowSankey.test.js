@@ -121,7 +121,7 @@ function testAggregation() {
       },
     ],
     [],
-    { timeframe: 'this_month' }
+    { timeframe: 'this_year' }
   );
 
   assert.strictEqual(result.meta.batchCount, 2);
@@ -132,6 +132,41 @@ function testAggregation() {
   assert.strictEqual(receivingToPrep.value, 270);
 }
 
+function testFacilityRollupEndToEnd() {
+  const result = buildWeightFlowSankey(
+    [
+      {
+        batchNumber: 'B1',
+        processingType: 'Washed',
+        producer: 'A',
+        receiving_weight: 100,
+        preprocessing_weight: 90,
+        wetmill_weight: 80,
+        fermentation_weight: 0,
+        drying_weight: 70,
+        dry_mill_weight: 60,
+      },
+      {
+        batchNumber: 'B2',
+        processingType: 'Natural',
+        producer: 'B',
+        receiving_weight: 200,
+        preprocessing_weight: 180,
+        wetmill_weight: 0,
+        fermentation_weight: 0,
+        drying_weight: 0,
+        dry_mill_weight: 0,
+      },
+    ],
+    [{ grade: 'G1', stored_weight: 50 }],
+    { timeframe: 'this_year' }
+  );
+
+  assert.ok(result.links.some((l) => l.from_node === 'Preprocessing' && l.to_node === 'Wet Mill'));
+  assert.ok(result.links.some((l) => l.from_node === 'Wet Mill' && l.to_node === 'Drying'));
+  assert.ok(result.links.some((l) => l.from_node === 'Dry Mill' && l.to_node === 'Stored: G1'));
+}
+
 function run() {
   testParseWeight();
   testFullCherryPath();
@@ -140,6 +175,7 @@ function run() {
   testGreenBeanShortcut();
   testLossNodes();
   testAggregation();
+  testFacilityRollupEndToEnd();
   console.log('weightFlowSankey tests passed');
 }
 
