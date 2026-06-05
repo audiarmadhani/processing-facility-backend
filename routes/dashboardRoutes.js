@@ -2176,11 +2176,11 @@ router.get('/weight-flow-sankey', async (req, res) => {
             batchNumber,
             processingType,
             coffeeType,
-            commodityType,
         } = req.query;
 
-        // Weight flow is always scoped to the current calendar year.
+        // Weight flow is always scoped to the current calendar year and cherry only.
         const timeframe = 'this_year';
+        const commodityType = 'Cherry';
 
         let currentStartDate, currentEndDate;
         try {
@@ -2196,14 +2196,11 @@ router.get('/weight-flow-sankey', async (req, res) => {
         const conditions = [
             `btv.receiving_date BETWEEN '${formattedStart}' AND '${formattedEnd}'`,
             `rd.merged = FALSE`,
-            `rd.commodityType = 'Cherry'`,
+            `rd."commodityType" = 'Cherry'`,
         ];
 
         if (coffeeType) {
             conditions.push(`rd.type = '${coffeeType.replace(/'/g, "''")}'`);
-        }
-        if (commodityType) {
-            conditions.push(`rd."commodityType" = '${commodityType.replace(/'/g, "''")}'`);
         }
         if (processingType) {
             conditions.push(`btv."processingtype" = '${processingType.replace(/'/g, "''")}'`);
@@ -2234,6 +2231,8 @@ router.get('/weight-flow-sankey', async (req, res) => {
 
         const gradeConditions = [
             `pp."storedDate" BETWEEN '${formattedStart}' AND '${formattedEnd}'`,
+            `rd."commodityType" = 'Cherry'`,
+            `rd.merged = FALSE`,
         ];
         if (coffeeType) {
             gradeConditions.push(`pp.type = '${coffeeType.replace(/'/g, "''")}'`);
@@ -2255,6 +2254,7 @@ router.get('/weight-flow-sankey', async (req, res) => {
                 pp.quality AS grade,
                 SUM(pp.weight)::FLOAT AS stored_weight
             FROM "PostprocessingData" pp
+            JOIN "ReceivingData" rd ON rd."batchNumber" = COALESCE(pp."parentBatchNumber", pp."batchNumber")
             ${gradeWhere}
             GROUP BY 1, 2, 3, 4
         `;
@@ -2274,7 +2274,7 @@ router.get('/weight-flow-sankey', async (req, res) => {
             batchNumber: batchNumber || null,
             processingType: processingType || null,
             coffeeType: coffeeType || null,
-            commodityType: commodityType || null,
+            commodityType,
         });
 
         res.json(result);
