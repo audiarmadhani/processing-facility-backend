@@ -370,7 +370,7 @@ router.get('/receiving', async (req, res) => {
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", MAX(price) price FROM "QCData" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
-       WHERE TO_CHAR("receivingDate" AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') = TO_CHAR(NOW() AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') 
+       WHERE TO_CHAR(a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') = TO_CHAR(NOW() AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD')
        AND a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData")
        ${commodityType ? 'AND a."commodityType" = :commodityType' : ''}
        AND a.merged = FALSE
@@ -440,16 +440,18 @@ router.get('/receiving/cherry-receive-report', async (req, res) => {
         ORDER BY fd.id DESC
         LIMIT 1
       ) fer ON true
-      WHERE (a."commodityType" IS NULL OR a."commodityType" = 'Cherry')
-        AND COALESCE(a."commodityType", '') <> 'Green Bean'
-        AND (
-          TO_CHAR(a."receivingDate" AT TIME ZONE 'Asia/Makassar', 'YYYY-MM-DD') = :date
-          OR a."batchNumber" LIKE :batchPrefix || '-%'
-        )
+      WHERE a.merged = FALSE
+        AND a."commodityType" = 'Cherry'
+        AND a."batchNumber" LIKE '2026%'
+        AND a."batchNumber" NOT LIKE '%MB'
+        AND TO_CHAR(
+          a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar',
+          'YYYY-MM-DD'
+        ) = :date
       ORDER BY a."batchNumber" ASC
       `,
       {
-        replacements: { date: String(date), batchPrefix: String(date) },
+        replacements: { date: String(date) },
         type: sequelize.QueryTypes.SELECT,
       }
     );
