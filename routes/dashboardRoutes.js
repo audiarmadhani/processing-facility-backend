@@ -2170,6 +2170,54 @@ router.get('/environmental-metrics/raw', async (req, res) => {
 
 const { buildWeightFlowSankey } = require('../utils/weightFlowSankey');
 
+function buildWeightFlowSankeyScope({ coffeeType, processingType, batchNumber } = {}) {
+    const timeframe = 'this_year';
+    const commodityType = 'Cherry';
+    const dateRanges = getDateRanges(timeframe);
+    const [currentStartDate, currentEndDate] = dateRanges.currentRange;
+    const formattedStart = currentStartDate.toISOString().split('T')[0];
+    const formattedEnd = currentEndDate.toISOString().split('T')[0];
+
+    const conditions = [
+        `btv.receiving_date BETWEEN '${formattedStart}' AND '${formattedEnd}'`,
+        `rd.merged = FALSE`,
+        `rd."commodityType" = 'Cherry'`,
+    ];
+
+    if (coffeeType) {
+        conditions.push(`rd.type = '${coffeeType.replace(/'/g, "''")}'`);
+    }
+    if (processingType) {
+        conditions.push(`btv."processingtype" = '${processingType.replace(/'/g, "''")}'`);
+    }
+    if (batchNumber) {
+        conditions.push(`btv."batchNumber" = '${batchNumber.replace(/'/g, "''")}'`);
+    }
+
+    return { timeframe, commodityType, formattedStart, formattedEnd, conditions };
+}
+
+router.get('/weight-flow-sankey/batches', async (req, res) => {
+    try {
+        const { coffeeType } = req.query;
+        const { conditions } = buildWeightFlowSankeyScope({ coffeeType });
+
+        const batchQuery = `
+            SELECT DISTINCT btv."batchNumber"
+            FROM "BatchTrackingView" btv
+            JOIN "ReceivingData" rd ON rd."batchNumber" = btv."batchNumber"
+            WHERE ${conditions.join(' AND ')}
+            ORDER BY btv."batchNumber"
+        `;
+
+        const [rows] = await sequelize.query(batchQuery);
+        res.json({ batchNumbers: rows.map((row) => row.batchNumber) });
+    } catch (err) {
+        console.error('Error fetching weight flow sankey batches:', err);
+        res.status(500).json({ message: 'Failed to fetch weight flow sankey batches.' });
+    }
+});
+
 router.get('/weight-flow-sankey', async (req, res) => {
     try {
         const {
@@ -2178,36 +2226,14 @@ router.get('/weight-flow-sankey', async (req, res) => {
             coffeeType,
         } = req.query;
 
-        // Weight flow is always scoped to the current calendar year and cherry only.
-        const timeframe = 'this_year';
-        const commodityType = 'Cherry';
-
-        let currentStartDate, currentEndDate;
+        let scope;
         try {
-            const dateRanges = getDateRanges(timeframe);
-            [currentStartDate, currentEndDate] = dateRanges.currentRange;
+            scope = buildWeightFlowSankeyScope({ coffeeType, processingType, batchNumber });
         } catch (error) {
             return res.status(400).json({ message: error.message });
         }
 
-        const formattedStart = currentStartDate.toISOString().split('T')[0];
-        const formattedEnd = currentEndDate.toISOString().split('T')[0];
-
-        const conditions = [
-            `btv.receiving_date BETWEEN '${formattedStart}' AND '${formattedEnd}'`,
-            `rd.merged = FALSE`,
-            `rd."commodityType" = 'Cherry'`,
-        ];
-
-        if (coffeeType) {
-            conditions.push(`rd.type = '${coffeeType.replace(/'/g, "''")}'`);
-        }
-        if (processingType) {
-            conditions.push(`btv."processingtype" = '${processingType.replace(/'/g, "''")}'`);
-        }
-        if (batchNumber) {
-            conditions.push(`btv."batchNumber" = '${batchNumber.replace(/'/g, "''")}'`);
-        }
+        const { timeframe, commodityType, formattedStart, formattedEnd, conditions } = scope;
 
         const pipelineQuery = `
             SELECT
