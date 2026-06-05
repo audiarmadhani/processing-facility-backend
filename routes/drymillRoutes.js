@@ -1757,12 +1757,11 @@ router.post('/dry-mill/merge', async (req, res) => {
 
     // Insert into DryMillBatchMerges
     console.log('Inserting into DryMillBatchMerges:', { newBatchNumber });
-    // Insert into DryMillBatchMerges (use text[] replacement)
     await sequelize.query(
       `INSERT INTO "DryMillBatchMerges" (
         new_batch_number, original_batch_numbers, merged_at, created_by, notes, total_weight, processing_type
       ) VALUES (
-        :newBatchNumber, :originalBatchNumbers::text[], :mergedAt, :createdBy, :notes, :totalWeight, :processingType
+        :newBatchNumber, ARRAY[:originalBatchNumbers], :mergedAt, :createdBy, :notes, :totalWeight, :processingType
       )`,
       {
         replacements: {
