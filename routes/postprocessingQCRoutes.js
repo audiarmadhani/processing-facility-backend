@@ -632,51 +632,73 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
 
     const roast = await sequelize.query(
       `
-      SELECT
-        dm."batchNumber",
-        dm."processingType",
-        r."farmerName",
-        pp."lotNumber",
-        pp."referenceNumber",
-        fer."experimentNumber",
-        pp."producer",
-        pp."productLine",
-        dm.entered_at AS "dryMillEnteredAt",
-        COALESCE(hw.huller_weight, 0)::float AS "hullerWeight",
-        COALESCE(dw.drying_weight, 0)::float AS "dryingWeight",
-        CASE
-          WHEN q."batchNumber" IS NULL THEN 'Awaiting roast'
-          WHEN q."isCompleted" = false THEN 'QC in progress'
-          ELSE 'Awaiting roast'
-        END AS "status"
-      FROM "DryMillData" dm
-      INNER JOIN "ReceivingData" r ON dm."batchNumber" = r."batchNumber"
-      INNER JOIN "PreprocessingData" pp
-        ON pp."batchNumber" = dm."batchNumber"
-        AND pp."processingType" = dm."processingType"
-      ${dryingWeightSubquery}
-      ${fermentationExperimentJoin('r')}
-      LEFT JOIN LATERAL (
-        SELECT SUM(e."outputWeight")::float AS huller_weight
-        FROM "DryMillProcessEvents" e
-        WHERE e."batchNumber" = dm."batchNumber"
-          AND e."processingType" = dm."processingType"
-          AND e."processStep" = 'huller'
-      ) hw ON true
-      LEFT JOIN "PostprocessingQCData" q ON q."batchNumber" = dm."batchNumber"
-      WHERE dm.entered_at IS NOT NULL
-        AND dm.exited_at IS NULL
-        AND COALESCE(dm."dryMillMerged", false) = false
-        AND COALESCE(r.merged, false) = false
-        AND COALESCE(hw.huller_weight, 0) > 0
-        ${BATCH_YEAR_FILTER}
-        AND NOT EXISTS (
-          SELECT 1 FROM "GbQcRoastLog" rl
-          WHERE rl."batchNumber" = dm."batchNumber"
-            AND rl."processingType" = dm."processingType"
-        )
-        AND (q."isCompleted" IS NULL OR q."isCompleted" = false)
-      ORDER BY dm.entered_at DESC NULLS LAST, dm."batchNumber", dm."processingType"
+      SELECT *
+      FROM (
+        SELECT DISTINCT ON (dm."batchNumber", dm."processingType")
+          dm."batchNumber",
+          dm."processingType",
+          r."farmerName",
+          pp."lotNumber",
+          pp."referenceNumber",
+          fer."experimentNumber",
+          pp."producer",
+          pp."productLine",
+          dm.entered_at AS "dryMillEnteredAt",
+          COALESCE(hw.huller_weight, 0)::float AS "hullerWeight",
+          COALESCE(dw.drying_weight, 0)::float AS "dryingWeight",
+          CASE
+            WHEN q."batchNumber" IS NULL THEN 'Awaiting roast'
+            WHEN q."isCompleted" = false THEN 'QC in progress'
+            ELSE 'Awaiting roast'
+          END AS "status"
+        FROM (
+          SELECT DISTINCT ON ("batchNumber", "processingType")
+            "batchNumber",
+            "processingType",
+            entered_at,
+            exited_at,
+            "dryMillMerged"
+          FROM "DryMillData"
+          ORDER BY "batchNumber", "processingType", entered_at DESC NULLS LAST
+        ) dm
+        INNER JOIN "ReceivingData" r ON dm."batchNumber" = r."batchNumber"
+        INNER JOIN LATERAL (
+          SELECT pp."lotNumber", pp."referenceNumber", pp."producer", pp."productLine"
+          FROM "PreprocessingData" pp
+          WHERE pp."batchNumber" = dm."batchNumber"
+            AND pp."processingType" = dm."processingType"
+          ORDER BY pp."createdAt" DESC NULLS LAST, pp."batchNumber"
+          LIMIT 1
+        ) pp ON true
+        LEFT JOIN (
+          SELECT "batchNumber", "processingType", SUM(weight)::numeric(10,2) AS drying_weight
+          FROM "DryingWeightMeasurements"
+          GROUP BY "batchNumber", "processingType"
+        ) dw ON dw."batchNumber" = dm."batchNumber" AND dw."processingType" = dm."processingType"
+        ${fermentationExperimentJoin('r')}
+        LEFT JOIN LATERAL (
+          SELECT SUM(e."outputWeight")::float AS huller_weight
+          FROM "DryMillProcessEvents" e
+          WHERE e."batchNumber" = dm."batchNumber"
+            AND e."processingType" = dm."processingType"
+            AND e."processStep" = 'huller'
+        ) hw ON true
+        LEFT JOIN "PostprocessingQCData" q ON q."batchNumber" = dm."batchNumber"
+        WHERE dm.entered_at IS NOT NULL
+          AND dm.exited_at IS NULL
+          AND COALESCE(dm."dryMillMerged", false) = false
+          AND COALESCE(r.merged, false) = false
+          AND COALESCE(hw.huller_weight, 0) > 0
+          ${BATCH_YEAR_FILTER}
+          AND NOT EXISTS (
+            SELECT 1 FROM "GbQcRoastLog" rl
+            WHERE rl."batchNumber" = dm."batchNumber"
+              AND rl."processingType" = dm."processingType"
+          )
+          AND (q."isCompleted" IS NULL OR q."isCompleted" = false)
+        ORDER BY dm."batchNumber", dm."processingType", dm.entered_at DESC NULLS LAST
+      ) roast_rows
+      ORDER BY "dryMillEnteredAt" DESC NULLS LAST, "batchNumber", "processingType"
       `,
       { type: sequelize.QueryTypes.SELECT }
     );
