@@ -107,6 +107,7 @@ function parseDate(raw) {
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
 
+  // Google Sheets export uses M/D/YYYY (e.g. 6/1/2026 = June 1, not Jan 6).
   const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if (slash) {
     const a = Number(slash[1]);
@@ -117,14 +118,17 @@ function parseDate(raw) {
     let day;
     let month;
     if (a > 12) {
+      // e.g. 18/02/26 → 18 Feb
       day = a;
       month = b;
     } else if (b > 12) {
+      // e.g. 4/14/2026 → 14 Apr (month/day)
       month = a;
       day = b;
     } else {
-      day = a;
-      month = b;
+      // Ambiguous e.g. 6/1/2026 → June 1 (M/D/Y, matches sheet sequence)
+      month = a;
+      day = b;
     }
     if (month < 1 || month > 12 || day < 1 || day > 31) return null;
     return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -210,6 +214,7 @@ function main() {
     });
 
   const statements = [];
+  const dateFixes = [];
   let sortOrder = 0;
 
   for (const r of dataRows) {
@@ -251,19 +256,56 @@ function main() {
       notes,
     };
 
-    if (qtyIn > 0) {
+    const appendMovement = (movementType, quantity) => {
       sortOrder += 1;
       statements.push(
-        buildMovementInsert({ ...base, sortOrder, movementType: 'IN', quantity: qtyIn })
+        buildMovementInsert({ ...base, sortOrder, movementType, quantity })
       );
-    }
-    if (qtyOut > 0) {
-      sortOrder += 1;
-      statements.push(
-        buildMovementInsert({ ...base, sortOrder, movementType: 'OUT', quantity: qtyOut })
-      );
-    }
+      dateFixes.push({
+        sortOrder,
+        transactionDate: tgl,
+        requestDate,
+        paidDate,
+      });
+    };
+
+    if (qtyIn > 0) appendMovement('IN', qtyIn);
+    if (qtyOut > 0) appendMovement('OUT', qtyOut);
   }
+
+  const fixDateLines = dateFixes.map((row) => {
+    const sets = [`"transactionDate" = '${row.transactionDate}'`];
+    if (row.requestDate) sets.push(`"requestDate" = '${row.requestDate}'`);
+    else sets.push('"requestDate" = NULL');
+    if (row.paidDate) sets.push(`"paidDate" = '${row.paidDate}'`);
+    else sets.push('"paidDate" = NULL');
+    return `UPDATE "OfficeInventoryMovements" SET ${sets.join(', ')} WHERE "importSortOrder" = ${row.sortOrder};`;
+  });
+
+  const fixSql = `-- Fix transaction dates after M/D/Y parse correction (no full re-import)
+-- Run on DB that was seeded from CSV with the old D/M parser.
+-- Generated: ${new Date().toISOString()}
+
+BEGIN;
+
+${fixDateLines.join('\n')}
+
+UPDATE "OfficeInventoryItems" i
+SET "currentStock" = COALESCE(stock.balance, 0),
+    "updatedAt" = NOW()
+FROM (
+  SELECT
+    m."itemId",
+    SUM(CASE WHEN m."movementType" = 'IN' THEN m.quantity ELSE -m.quantity END) AS balance
+  FROM "OfficeInventoryMovements" m
+  GROUP BY m."itemId"
+) stock
+WHERE i.id = stock."itemId";
+
+COMMIT;
+`;
+
+  const fixPath = path.join(__dirname, '../migrations/fix_office_inventory_transaction_dates.sql');
 
   const sql = `-- Seed office inventory from Google Sheet export
 -- Source: BTM Inventory - Inventory Log.csv
@@ -302,7 +344,9 @@ COMMIT;
 `;
 
   fs.writeFileSync(outPath, sql);
+  fs.writeFileSync(fixPath, fixSql);
   console.log(`Wrote ${outPath}`);
+  console.log(`Wrote ${fixPath}`);
   console.log(`CSV data rows: ${dataRows.length}, movements: ${sortOrder}`);
 }
 
