@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS "OfficeInventoryItems" (
   name TEXT NOT NULL,
   category TEXT NOT NULL,
   unit TEXT NOT NULL,
+  "itemType" TEXT,
   "currentStock" NUMERIC(18, 4) NOT NULL DEFAULT 0,
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -24,6 +25,14 @@ CREATE TABLE IF NOT EXISTS "OfficeInventoryMovements" (
   location TEXT,
   project TEXT,
   "transactionDate" DATE NOT NULL,
+  "itemType" TEXT,
+  "invoiceReference" TEXT,
+  "requestDate" DATE,
+  "paidDate" DATE,
+  "unitPrice" NUMERIC(18, 4),
+  "totalPrice" NUMERIC(18, 4),
+  notes TEXT,
+  "importSortOrder" INTEGER,
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

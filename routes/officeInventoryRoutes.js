@@ -121,7 +121,7 @@ router.get('/office-inventory/items', async (req, res) => {
   const { search } = req.query;
   try {
     let sql = `
-      SELECT id, name, category, unit, "currentStock", "createdAt", "updatedAt"
+      SELECT id, name, category, unit, "itemType", "currentStock", "createdAt", "updatedAt"
       FROM "OfficeInventoryItems"
     `;
     const replacements = {};
@@ -194,6 +194,13 @@ router.get('/office-inventory/movements', async (req, res) => {
          m.location,
          m.project,
          m."transactionDate",
+         m."itemType",
+         m."invoiceReference",
+         m."requestDate",
+         m."paidDate",
+         m."unitPrice",
+         m."totalPrice",
+         m.notes,
          m."createdAt"
        FROM "OfficeInventoryMovements" m
        JOIN "OfficeInventoryItems" i ON i.id = m."itemId"
@@ -226,6 +233,13 @@ router.post('/office-inventory/movements', async (req, res) => {
     location,
     project,
     transactionDate,
+    itemType,
+    invoiceReference,
+    requestDate,
+    paidDate,
+    unitPrice,
+    totalPrice,
+    notes,
   } = req.body;
 
   if (movementType !== 'IN' && movementType !== 'OUT') {
@@ -252,12 +266,28 @@ router.post('/office-inventory/movements', async (req, res) => {
     const delta = movementType === 'IN' ? qty : -qty;
     const newStock = Number(item.currentStock) + delta;
 
+    const parsedRequestDate = requestDate ? parseDateOnly(requestDate) : null;
+    const parsedPaidDate = paidDate ? parseDateOnly(paidDate) : null;
+    if (requestDate && !parsedRequestDate) {
+      const err = new Error('Invalid requestDate; use YYYY-MM-DD');
+      err.status = 400;
+      throw err;
+    }
+    if (paidDate && !parsedPaidDate) {
+      const err = new Error('Invalid paidDate; use YYYY-MM-DD');
+      err.status = 400;
+      throw err;
+    }
+
     const [movement] = await sequelize.query(
       `INSERT INTO "OfficeInventoryMovements"
-         ("itemId", "movementType", quantity, remarks, pic, location, project, "transactionDate", "createdAt")
+         ("itemId", "movementType", quantity, remarks, pic, location, project, "transactionDate",
+          "itemType", "invoiceReference", "requestDate", "paidDate", "unitPrice", "totalPrice", notes, "createdAt")
        VALUES
-         (:itemId, :movementType, :quantity, :remarks, :pic, :location, :project, :transactionDate, NOW())
-       RETURNING id, "itemId", "movementType", quantity, remarks, pic, location, project, "transactionDate", "createdAt"`,
+         (:itemId, :movementType, :quantity, :remarks, :pic, :location, :project, :transactionDate,
+          :itemType, :invoiceReference, :requestDate, :paidDate, :unitPrice, :totalPrice, :notes, NOW())
+       RETURNING id, "itemId", "movementType", quantity, remarks, pic, location, project, "transactionDate",
+         "itemType", "invoiceReference", "requestDate", "paidDate", "unitPrice", "totalPrice", notes, "createdAt"`,
       {
         replacements: {
           itemId: item.id,
@@ -268,6 +298,13 @@ router.post('/office-inventory/movements', async (req, res) => {
           location: location ? String(location).trim() : null,
           project: project ? String(project).trim() : null,
           transactionDate: parsedDate,
+          itemType: itemType ? String(itemType).trim() : null,
+          invoiceReference: invoiceReference ? String(invoiceReference).trim() : null,
+          requestDate: parsedRequestDate,
+          paidDate: parsedPaidDate,
+          unitPrice: unitPrice != null && Number.isFinite(Number(unitPrice)) ? Number(unitPrice) : null,
+          totalPrice: totalPrice != null && Number.isFinite(Number(totalPrice)) ? Number(totalPrice) : null,
+          notes: notes ? String(notes).trim() : null,
         },
         type: sequelize.QueryTypes.INSERT,
         transaction: t,
@@ -276,11 +313,17 @@ router.post('/office-inventory/movements', async (req, res) => {
 
     const [updatedItem] = await sequelize.query(
       `UPDATE "OfficeInventoryItems"
-       SET "currentStock" = :newStock, "updatedAt" = NOW()
+       SET "currentStock" = :newStock,
+           "itemType" = COALESCE(:itemType, "itemType"),
+           "updatedAt" = NOW()
        WHERE id = :itemId
-       RETURNING id, name, category, unit, "currentStock"`,
+       RETURNING id, name, category, unit, "itemType", "currentStock"`,
       {
-        replacements: { newStock, itemId: item.id },
+        replacements: {
+          newStock,
+          itemId: item.id,
+          itemType: itemType ? String(itemType).trim() : null,
+        },
         type: sequelize.QueryTypes.UPDATE,
         transaction: t,
       }
