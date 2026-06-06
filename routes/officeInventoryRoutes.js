@@ -3,7 +3,7 @@ const router = express.Router();
 const { sequelize } = require('../models');
 
 const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 500;
+const MAX_LIMIT = 5000;
 
 function parseLimit(raw) {
   const n = parseInt(raw, 10);
@@ -114,6 +114,21 @@ function computeStockAfterRows(movementsOnDay, openingByItemId) {
   });
 }
 
+function computeItemMovementHistory(rows) {
+  let balance = 0;
+  return rows.map((row) => {
+    const qty = Number(row.quantity) || 0;
+    const delta = row.movementType === 'IN' ? qty : -qty;
+    balance += delta;
+    return {
+      ...row,
+      quantityIn: row.movementType === 'IN' ? qty : null,
+      quantityOut: row.movementType === 'OUT' ? qty : null,
+      stockAfter: balance,
+    };
+  });
+}
+
 /**
  * GET /office-inventory/items
  */
@@ -214,6 +229,67 @@ router.get('/office-inventory/movements', async (req, res) => {
   } catch (error) {
     console.error('Error fetching office inventory movements:', error);
     res.status(500).json({ error: 'Failed to fetch office inventory movements', details: error.message });
+  }
+});
+
+/**
+ * GET /office-inventory/items/:itemId/movement-history
+ * Chronological movement ledger for one item with running stock (SO).
+ */
+router.get('/office-inventory/items/:itemId/movement-history', async (req, res) => {
+  const itemId = parseInt(req.params.itemId, 10);
+  if (!Number.isFinite(itemId)) {
+    return res.status(400).json({ error: 'Invalid itemId' });
+  }
+
+  try {
+    const [item] = await sequelize.query(
+      `SELECT id, name, category, unit, "itemType", "currentStock"
+       FROM "OfficeInventoryItems" WHERE id = :itemId`,
+      { replacements: { itemId }, type: sequelize.QueryTypes.SELECT }
+    );
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    const movements = await sequelize.query(
+      `SELECT
+         m.id,
+         m."itemId",
+         i.name,
+         i.category,
+         i.unit,
+         m."movementType",
+         m.quantity,
+         m.remarks,
+         m.pic,
+         m.location,
+         m.project,
+         m."transactionDate",
+         m."itemType",
+         m."invoiceReference",
+         m."requestDate",
+         m."paidDate",
+         m."unitPrice",
+         m."totalPrice",
+         m.notes,
+         m."importSortOrder",
+         m."createdAt"
+       FROM "OfficeInventoryMovements" m
+       JOIN "OfficeInventoryItems" i ON i.id = m."itemId"
+       WHERE m."itemId" = :itemId
+       ORDER BY
+         COALESCE(m."importSortOrder", 2147483647),
+         m."createdAt" ASC,
+         m.id ASC`,
+      { replacements: { itemId }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    const rows = computeItemMovementHistory(movements);
+    res.status(200).json({ item, rows });
+  } catch (error) {
+    console.error('Error fetching item movement history:', error);
+    res.status(500).json({ error: 'Failed to fetch item movement history', details: error.message });
   }
 });
 
