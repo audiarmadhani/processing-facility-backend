@@ -36,6 +36,7 @@ const IMSRoutes = require('./routes/IMSRoutes')
 const inventoryRoutes = require('./routes/inventoryRoutes')
 const updatesRoutes = require('./routes/updatesRoutes')
 const officeInventoryRoutes = require('./routes/officeInventoryRoutes')
+const driverPickupRoutes = require('./routes/driverPickupRoutes')
 
 // Load environment variables
 dotenv.config();
@@ -118,6 +119,7 @@ const apiRoutes = [
   inventoryRoutes,
   updatesRoutes,
   officeInventoryRoutes,
+  driverPickupRoutes,
 ];
 
 apiRoutes.forEach(route => app.use('/api', route));
