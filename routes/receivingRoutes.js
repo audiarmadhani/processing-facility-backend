@@ -404,6 +404,7 @@ router.get('/receiving', async (req, res) => {
   }
 });
 
+// date query param = batch date encoded in batchNumber (YYYY-MM-DD-####), not receivingDate
 router.get('/receiving/cherry-receive-report', async (req, res) => {
   const { date } = req.query;
 
@@ -416,6 +417,7 @@ router.get('/receiving/cherry-receive-report', async (req, res) => {
       `
       SELECT
         a."batchNumber",
+        SUBSTRING(a."batchNumber", 1, 10) AS "batchDate",
         (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') AS "receivingDate",
         a."farmerName",
         b.broker,
@@ -444,10 +446,7 @@ router.get('/receiving/cherry-receive-report', async (req, res) => {
         AND a."commodityType" = 'Cherry'
         AND a."batchNumber" LIKE '2026%'
         AND a."batchNumber" NOT LIKE '%MB'
-        AND TO_CHAR(
-          a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar',
-          'YYYY-MM-DD'
-        ) = :date
+        AND SUBSTRING(a."batchNumber", 1, 10) = :date
       ORDER BY a."batchNumber" ASC
       `,
       {
