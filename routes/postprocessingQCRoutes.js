@@ -709,6 +709,7 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
         latest."roastedBy",
         latest.notes AS "roastNotes",
         latest."roastCount",
+        COALESCE(cup."cuppingCount", 0)::int AS "cuppingCount",
         COALESCE(dw.drying_weight, 0)::float AS "dryingWeight",
         CASE
           WHEN q."batchNumber" IS NULL THEN 'Ready for QC'
@@ -733,6 +734,11 @@ router.get('/gb-qc/pipeline-lists', async (req, res) => {
       ${dryingWeightSubquery}
       ${fermentationExperimentJoin('r')}
       LEFT JOIN "PostprocessingQCData" q ON q."batchNumber" = latest."batchNumber"
+      LEFT JOIN (
+        SELECT "batchNumber", COUNT(*)::int AS "cuppingCount"
+        FROM "GbQcCuppingLog"
+        GROUP BY "batchNumber"
+      ) cup ON cup."batchNumber" = latest."batchNumber"
       WHERE COALESCE(r.merged, false) = false
         ${BATCH_YEAR_FILTER}
         AND (q."isCompleted" IS NULL OR q."isCompleted" = false)
