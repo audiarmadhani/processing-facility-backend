@@ -50,8 +50,9 @@ const allowedOrigins = [
   'http://localhost:3001', // Cherry pickup driver app (local)
   'http://localhost:3002', // Field app (local)
   'https://kopifabriek-platform.vercel.app', // Platform frontend (production)
+  'https://processing-facility-field-app.vercel.app', // Field app (production)
   process.env.DRIVER_APP_ORIGIN, // e.g. https://your-driver-app.vercel.app
-  process.env.FIELD_APP_ORIGIN, // e.g. https://your-field-app.vercel.app
+  process.env.FIELD_APP_ORIGIN, // optional override / preview deployments
 ].filter(Boolean);
 
 app.use(
@@ -78,7 +79,7 @@ app.use(
         return callback(null, true);
       }
       console.warn('[CORS] Blocked origin:', origin);
-      return callback(new Error('Not allowed by CORS'));
+      return callback(null, false);
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
