@@ -48,8 +48,10 @@ const PORT = process.env.PORT || 5001;
 const allowedOrigins = [
   'http://localhost:3000', // Platform frontend (local)
   'http://localhost:3001', // Cherry pickup driver app (local)
+  'http://localhost:3002', // Field app (local)
   'https://kopifabriek-platform.vercel.app', // Platform frontend (production)
   process.env.DRIVER_APP_ORIGIN, // e.g. https://your-driver-app.vercel.app
+  process.env.FIELD_APP_ORIGIN, // e.g. https://your-field-app.vercel.app
 ].filter(Boolean);
 
 app.use(
