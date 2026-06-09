@@ -449,6 +449,28 @@ router.get('/postprocessing/not-qced', async (req, res) => {
   }
 });
 
+router.get('/gb-qc/cupping-counts', async (req, res) => {
+  try {
+    const rows = await sequelize.query(
+      `
+      SELECT "batchNumber", COUNT(*)::int AS "cuppingCount"
+      FROM "GbQcCuppingLog"
+      GROUP BY "batchNumber"
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    const counts = {};
+    for (const row of rows || []) {
+      counts[row.batchNumber] = Number(row.cuppingCount) || 0;
+    }
+    res.json(counts);
+  } catch (err) {
+    console.error('Error fetching cupping counts:', err);
+    res.status(500).json({ message: 'Failed to fetch cupping counts', details: err.message });
+  }
+});
+
 router.get('/gb-qc/cupping/:batchNumber', async (req, res) => {
   try {
     const { batchNumber } = req.params;
