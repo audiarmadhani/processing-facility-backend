@@ -35,6 +35,46 @@ function validateWarehousePosition(warehouseRow, warehouseColumn) {
   return { row, column };
 }
 
+const MAX_MOISTURE_READINGS_PER_DAY = 2;
+
+function normalizeMeasurementDateKey(value) {
+  if (value == null || value === '') return null;
+  const s = String(value).trim();
+  const match = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const parsed = new Date(s);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+async function countMoistureReadingsOnDate(batchNumber, measurementDate, excludeId = null) {
+  const dateKey = normalizeMeasurementDateKey(measurementDate);
+  if (!dateKey) return 0;
+
+  const replacements = { batchNumber, dateKey };
+  let excludeClause = '';
+  if (excludeId != null) {
+    excludeClause = 'AND id <> :excludeId';
+    replacements.excludeId = excludeId;
+  }
+
+  const [row] = await sequelize.query(
+    `
+    SELECT COUNT(*)::int AS count
+    FROM "DryingMeasurements"
+    WHERE "batchNumber" = :batchNumber
+      AND measurement_date::date = :dateKey::date
+      ${excludeClause}
+    `,
+    {
+      replacements,
+      type: sequelize.QueryTypes.SELECT,
+    }
+  );
+
+  return row?.count ?? 0;
+}
+
 /**
  * GET /drying-data
  * Fetches all drying data records, including RFID, batch number, drying area, and timestamps.
@@ -76,6 +116,13 @@ router.post('/drying-measurement', async (req, res) => {
   }
 
   try {
+    const existingCount = await countMoistureReadingsOnDate(batchNumber, measurement_date);
+    if (existingCount >= MAX_MOISTURE_READINGS_PER_DAY) {
+      return res.status(400).json({
+        error: `Maximum ${MAX_MOISTURE_READINGS_PER_DAY} moisture readings allowed per batch per day`,
+      });
+    }
+
     const [result] = await sequelize.query(`
       INSERT INTO "DryingMeasurements" ("batchNumber", moisture, measurement_date, created_at)
       VALUES (:batchNumber, :moisture, :measurement_date, NOW())
@@ -88,6 +135,11 @@ router.post('/drying-measurement', async (req, res) => {
     res.status(201).json({ message: 'Moisture measurement saved', measurement: result });
   } catch (error) {
     console.error('Error saving moisture measurement:', error);
+    if (error.message && error.message.includes('idx_drying_measurements_batch_date')) {
+      return res.status(400).json({
+        error: `Maximum ${MAX_MOISTURE_READINGS_PER_DAY} moisture readings allowed per batch per day`,
+      });
+    }
     res.status(500).json({ error: 'Failed to save moisture measurement', details: error.message });
   }
 });
@@ -113,6 +165,25 @@ router.put('/drying-measurement/:id', async (req, res) => {
   }
 
   try {
+    const [existing] = await sequelize.query(
+      `SELECT id, "batchNumber" FROM "DryingMeasurements" WHERE id = :id LIMIT 1`,
+      { replacements: { id }, type: sequelize.QueryTypes.SELECT }
+    );
+    if (!existing) {
+      return res.status(404).json({ error: `Moisture measurement with id ${id} not found` });
+    }
+
+    const existingCount = await countMoistureReadingsOnDate(
+      existing.batchNumber,
+      measurement_date,
+      id
+    );
+    if (existingCount >= MAX_MOISTURE_READINGS_PER_DAY) {
+      return res.status(400).json({
+        error: `Maximum ${MAX_MOISTURE_READINGS_PER_DAY} moisture readings allowed per batch per day`,
+      });
+    }
+
     const [result] = await sequelize.query(`
       UPDATE "DryingMeasurements"
       SET moisture = :moisture, measurement_date = :measurement_date
@@ -130,6 +201,11 @@ router.put('/drying-measurement/:id', async (req, res) => {
     res.status(200).json({ message: 'Moisture measurement updated', measurement: result });
   } catch (error) {
     console.error('Error updating moisture measurement:', error);
+    if (error.message && error.message.includes('idx_drying_measurements_batch_date')) {
+      return res.status(400).json({
+        error: `Maximum ${MAX_MOISTURE_READINGS_PER_DAY} moisture readings allowed per batch per day`,
+      });
+    }
     res.status(500).json({ error: 'Failed to update moisture measurement', details: error.message });
   }
 });
