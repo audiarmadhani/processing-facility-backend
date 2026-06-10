@@ -481,6 +481,38 @@ router.get('/gb-qc/cupping-counts', async (req, res) => {
   }
 });
 
+router.get('/gb-qc/cupping-summary', async (req, res) => {
+  try {
+    const rows = await sequelize.query(
+      `
+      SELECT "batchNumber", "cuppingOutcome", COUNT(*)::int AS count
+      FROM "GbQcCuppingLog"
+      GROUP BY "batchNumber", "cuppingOutcome"
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    const summaries = {};
+    for (const row of rows || []) {
+      const batchNumber = row.batchNumber;
+      const outcome = row.cuppingOutcome;
+      const count = Number(row.count) || 0;
+
+      if (!summaries[batchNumber]) {
+        summaries[batchNumber] = { total: 0, outcomes: {} };
+      }
+
+      summaries[batchNumber].total += count;
+      summaries[batchNumber].outcomes[outcome] = count;
+    }
+
+    res.json(summaries);
+  } catch (err) {
+    console.error('Error fetching cupping summary:', err);
+    res.status(500).json({ message: 'Failed to fetch cupping summary', details: err.message });
+  }
+});
+
 router.get('/gb-qc/cupping/:batchNumber', async (req, res) => {
   try {
     const { batchNumber } = req.params;
