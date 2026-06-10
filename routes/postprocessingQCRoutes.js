@@ -10,6 +10,14 @@ const { google } = require("googleapis");
 const upload = multer({ dest: "uploads/" });
 const { fermentationExperimentJoin } = require('../utils/fermentationExperiment');
 
+const VALID_CUPPING_OUTCOMES = ['Production', 'Good', 'Redo', 'Not Good'];
+
+function normalizeCuppingOutcome(value) {
+  if (value == null || value === '') return null;
+  const trimmed = String(value).trim();
+  return VALID_CUPPING_OUTCOMES.includes(trimmed) ? trimmed : null;
+}
+
 // Define PostprocessingData model
 const PostprocessingData = sequelize.define(
   'PostprocessingData',
@@ -117,24 +125,26 @@ async function syncCuppingEntries(batchNumber, cuppingEntries, cuppedBy, transac
   }
 
   const normalized = cuppingEntries
-    .map((entry) => ({
-      id: entry.id != null && entry.id !== '' ? Number(entry.id) : null,
-      cuppedAt: entry.cuppedAt || null,
-      notes: typeof entry.notes === 'string' ? entry.notes.trim() : '',
-      okForFurtherProcess:
-        entry.okForFurtherProcess === true || entry.okForFurtherProcess === false
-          ? entry.okForFurtherProcess
-          : entry.okForFurtherProcess === 'true'
-            ? true
-            : entry.okForFurtherProcess === 'false'
-              ? false
-              : null,
-    }))
+    .map((entry) => {
+      let cuppingOutcome = normalizeCuppingOutcome(entry.cuppingOutcome);
+      if (!cuppingOutcome && entry.okForFurtherProcess != null) {
+        cuppingOutcome =
+          entry.okForFurtherProcess === true || entry.okForFurtherProcess === 'true'
+            ? 'Good'
+            : 'Not Good';
+      }
+      return {
+        id: entry.id != null && entry.id !== '' ? Number(entry.id) : null,
+        cuppedAt: entry.cuppedAt || null,
+        notes: typeof entry.notes === 'string' ? entry.notes.trim() : '',
+        cuppingOutcome,
+      };
+    })
     .filter(
       (entry) =>
         entry.cuppedAt &&
         entry.notes !== '' &&
-        entry.okForFurtherProcess !== null
+        entry.cuppingOutcome !== null
     );
 
   const keepIds = normalized.filter((entry) => Number.isInteger(entry.id)).map((entry) => entry.id);
@@ -167,7 +177,7 @@ async function syncCuppingEntries(batchNumber, cuppingEntries, cuppedBy, transac
         `UPDATE "GbQcCuppingLog"
          SET "cuppedAt" = :cuppedAt,
              notes = :notes,
-             "okForFurtherProcess" = :okForFurtherProcess,
+             "cuppingOutcome" = :cuppingOutcome,
              "cuppedBy" = COALESCE("cuppedBy", :cuppedBy)
          WHERE id = :id AND "batchNumber" = :batchNumber`,
         {
@@ -176,7 +186,7 @@ async function syncCuppingEntries(batchNumber, cuppingEntries, cuppedBy, transac
             batchNumber,
             cuppedAt: entry.cuppedAt,
             notes: entry.notes,
-            okForFurtherProcess: entry.okForFurtherProcess,
+            cuppingOutcome: entry.cuppingOutcome,
             cuppedBy: cuppedBy || null,
           },
           type: sequelize.QueryTypes.UPDATE,
@@ -186,16 +196,16 @@ async function syncCuppingEntries(batchNumber, cuppingEntries, cuppedBy, transac
     } else {
       await sequelize.query(
         `INSERT INTO "GbQcCuppingLog" (
-          "batchNumber", "cuppedAt", notes, "okForFurtherProcess", "cuppedBy", "createdAt"
+          "batchNumber", "cuppedAt", notes, "cuppingOutcome", "cuppedBy", "createdAt"
         ) VALUES (
-          :batchNumber, :cuppedAt, :notes, :okForFurtherProcess, :cuppedBy, NOW()
+          :batchNumber, :cuppedAt, :notes, :cuppingOutcome, :cuppedBy, NOW()
         )`,
         {
           replacements: {
             batchNumber,
             cuppedAt: entry.cuppedAt,
             notes: entry.notes,
-            okForFurtherProcess: entry.okForFurtherProcess,
+            cuppingOutcome: entry.cuppingOutcome,
             cuppedBy: cuppedBy || null,
           },
           type: sequelize.QueryTypes.INSERT,
@@ -481,7 +491,7 @@ router.get('/gb-qc/cupping/:batchNumber', async (req, res) => {
         "batchNumber",
         "cuppedAt",
         notes,
-        "okForFurtherProcess",
+        "cuppingOutcome",
         "cuppedBy",
         "createdAt"
       FROM "GbQcCuppingLog"
@@ -798,6 +808,7 @@ router.get('/gb-qc/roasts', async (req, res) => {
         "roastProfile",
         "endTemp",
         "firstCrackMinutes",
+        "firstCrackTemp",
         "createdAt"
       FROM "GbQcRoastLog"
       WHERE "batchNumber" = :batchNumber
@@ -829,6 +840,7 @@ router.post('/gb-qc/roast', async (req, res) => {
       roastProfile,
       endTemp,
       firstCrackMinutes,
+      firstCrackTemp,
     } = req.body;
 
     if (!batchNumber || !processingType) {
@@ -900,16 +912,20 @@ router.post('/gb-qc/roast', async (req, res) => {
       firstCrackMinutes === undefined || firstCrackMinutes === null || firstCrackMinutes === ''
         ? null
         : parseFloat(firstCrackMinutes);
+    const parsedFirstCrackTemp =
+      firstCrackTemp === undefined || firstCrackTemp === null || firstCrackTemp === ''
+        ? null
+        : parseFloat(firstCrackTemp);
 
     const rows = await sequelize.query(
       `
       INSERT INTO "GbQcRoastLog" (
         "batchNumber", "processingType", "roastedAt", "roastedBy", "notes",
-        "roastProfile", "endTemp", "firstCrackMinutes", "createdAt"
+        "roastProfile", "endTemp", "firstCrackMinutes", "firstCrackTemp", "createdAt"
       )
       VALUES (
         :batchNumber, :processingType, :roastedAt, :roastedBy, :notes,
-        :roastProfile, :endTemp, :firstCrackMinutes, NOW()
+        :roastProfile, :endTemp, :firstCrackMinutes, :firstCrackTemp, NOW()
       )
       RETURNING *
       `,
@@ -923,6 +939,7 @@ router.post('/gb-qc/roast', async (req, res) => {
           roastProfile: roastProfile?.trim() || null,
           endTemp: Number.isFinite(parsedEndTemp) ? parsedEndTemp : null,
           firstCrackMinutes: Number.isFinite(parsedFirstCrackMinutes) ? parsedFirstCrackMinutes : null,
+          firstCrackTemp: Number.isFinite(parsedFirstCrackTemp) ? parsedFirstCrackTemp : null,
         },
         type: sequelize.QueryTypes.SELECT,
         transaction: t,

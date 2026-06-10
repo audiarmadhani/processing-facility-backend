@@ -6,6 +6,11 @@ const { fermentationExperimentJoin } = require('../utils/fermentationExperiment'
 
 const WAREHOUSE_ROWS = ['A', 'B', 'C', 'D', 'E'];
 
+const VALID_DRYING_AREAS = [
+  'Drying Area 1', 'Drying Area 2', 'Drying Area 3',
+  'Drying Area 4', 'Drying Area 5', 'Drying Sun Dry', 'Drying Room',
+];
+
 function normalizeWarehouseRow(value) {
   if (value == null || value === '') return null;
   const row = String(value).trim().toUpperCase();
@@ -411,18 +416,24 @@ router.get('/greenhouse-historical/:device_id', async (req, res) => {
 /**
  * POST /move-drying-area
  * Moves a batch to a new drying area, updating the active drying record.
- * Requires: batchNumber, newDryingArea, rfid.
+ * Requires: batchNumber, newDryingArea, rfid, moved_at.
  */
 router.post('/move-drying-area', async (req, res) => {
-  const { batchNumber, newDryingArea, rfid } = req.body;
+  const { batchNumber, newDryingArea, rfid, moved_at } = req.body;
 
-  // Validate inputs
-  const validDryingAreas = ["Drying Area 1", "Drying Area 2", "Drying Area 3", "Drying Area 4", "Drying Area 5", "Drying Sun Dry", "Drying Room"];
-  if (!batchNumber || !newDryingArea || !rfid) {
-    return res.status(400).json({ error: 'batchNumber, newDryingArea, and rfid are required' });
+  if (!batchNumber || !newDryingArea || !rfid || !moved_at) {
+    return res.status(400).json({ error: 'batchNumber, newDryingArea, rfid, and moved_at are required' });
   }
-  if (!validDryingAreas.includes(newDryingArea)) {
+  if (!VALID_DRYING_AREAS.includes(newDryingArea)) {
     return res.status(400).json({ error: 'Invalid drying area' });
+  }
+
+  const movedAtValue = new Date(moved_at);
+  if (isNaN(movedAtValue.getTime())) {
+    return res.status(400).json({ error: 'Invalid moved_at date format' });
+  }
+  if (movedAtValue > new Date()) {
+    return res.status(400).json({ error: 'moved_at cannot be in the future' });
   }
 
   const t = await sequelize.transaction();
@@ -448,6 +459,19 @@ router.post('/move-drying-area', async (req, res) => {
       await t.rollback();
       return res.status(400).json({ error: `Batch ${batchNumber} is already in ${newDryingArea}` });
     }
+
+    await sequelize.query(`
+      INSERT INTO "DryingAreaMovements" ("batchNumber", "fromArea", "toArea", "movedAt")
+      VALUES (:batchNumber, :fromArea, :toArea, :movedAt)
+    `, {
+      replacements: {
+        batchNumber,
+        fromArea: activeRecord.dryingArea,
+        toArea: newDryingArea,
+        movedAt: movedAtValue,
+      },
+      transaction: t,
+    });
 
     await sequelize.query(`
       UPDATE "DryingData"
@@ -847,13 +871,7 @@ router.post('/assign-drying', async (req, res) => {
     });
   }
 
-  // ---- validate drying area (optional but recommended) ----
-  const validDryingAreas = [
-    "Drying Area 1", "Drying Area 2", "Drying Area 3",
-    "Drying Area 4", "Drying Area 5", "Drying Sun Dry", "Drying Room"
-  ];
-
-  if (!validDryingAreas.includes(dryingArea)) {
+  if (!VALID_DRYING_AREAS.includes(dryingArea)) {
     return res.status(400).json({ error: 'Invalid drying area' });
   }
 
@@ -940,6 +958,18 @@ router.post('/assign-drying', async (req, res) => {
         entered_at: enteredAtValue
       },
       transaction: t
+    });
+
+    await sequelize.query(`
+      INSERT INTO "DryingAreaMovements" ("batchNumber", "fromArea", "toArea", "movedAt")
+      VALUES (:batchNumber, NULL, :dryingArea, :movedAt)
+    `, {
+      replacements: {
+        batchNumber,
+        dryingArea,
+        movedAt: enteredAtValue,
+      },
+      transaction: t,
     });
 
     await t.commit();
@@ -1038,6 +1068,78 @@ router.post('/finish-drying', async (req, res) => {
       error: 'Failed to finish drying',
       details: err.message
     });
+  }
+});
+
+/**
+ * GET /drying-area-movements/previous
+ * Returns the immediately prior drying area per batch (most recent move with fromArea set).
+ */
+router.get('/drying-area-movements/previous', async (req, res) => {
+  const raw = req.query.batchNumbers;
+  if (!raw || typeof raw !== 'string' || !raw.trim()) {
+    return res.status(400).json({ error: 'batchNumbers query parameter is required' });
+  }
+
+  const batchNumbers = raw.split(',').map((b) => b.trim()).filter(Boolean);
+  if (batchNumbers.length === 0) {
+    return res.status(200).json({});
+  }
+
+  try {
+    const rows = await sequelize.query(`
+      SELECT DISTINCT ON ("batchNumber")
+        "batchNumber",
+        "fromArea" AS "previousDryingArea"
+      FROM "DryingAreaMovements"
+      WHERE "batchNumber" IN (:batchNumbers)
+        AND "fromArea" IS NOT NULL
+      ORDER BY "batchNumber", "movedAt" DESC
+    `, {
+      replacements: { batchNumbers },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    const result = {};
+    batchNumbers.forEach((bn) => {
+      result[bn] = null;
+    });
+    rows.forEach((row) => {
+      result[row.batchNumber] = row.previousDryingArea;
+    });
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error('Error fetching previous drying areas:', error);
+    res.status(500).json({ error: 'Failed to fetch previous drying areas', details: error.message });
+  }
+});
+
+/**
+ * GET /drying-area-movements/:batchNumber
+ * Full movement history for a batch, oldest first.
+ */
+router.get('/drying-area-movements/:batchNumber', async (req, res) => {
+  const { batchNumber } = req.params;
+  if (!batchNumber?.trim()) {
+    return res.status(400).json({ error: 'batchNumber is required' });
+  }
+
+  try {
+    const rows = await sequelize.query(`
+      SELECT id, "batchNumber", "fromArea", "toArea", "movedAt", "createdBy", created_at
+      FROM "DryingAreaMovements"
+      WHERE "batchNumber" = :batchNumber
+      ORDER BY "movedAt" ASC, id ASC
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    res.status(200).json(rows);
+  } catch (error) {
+    console.error('Error fetching drying area movements:', error);
+    res.status(500).json({ error: 'Failed to fetch drying area movements', details: error.message });
   }
 });
 

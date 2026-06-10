@@ -391,6 +391,14 @@ router.post('/scan-rfid', async (req, res) => {
         });
 
         await sequelize.query(`
+          INSERT INTO "DryingAreaMovements" ("batchNumber", "fromArea", "toArea", "movedAt")
+          VALUES (:batchNumber, NULL, :toArea, NOW())
+        `, {
+          replacements: { batchNumber, toArea: scanned_at },
+          type: sequelize.QueryTypes.INSERT,
+        });
+
+        await sequelize.query(`
           DELETE FROM "RfidScanned"
           WHERE "scanned_at" = :scanned_at;
         `, {
