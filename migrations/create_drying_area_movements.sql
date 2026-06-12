@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS "DryingAreaMovements" (
   "toArea" TEXT NOT NULL,
   "movedAt" TIMESTAMPTZ NOT NULL,
   "createdBy" TEXT,
+  notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

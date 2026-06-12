@@ -419,7 +419,7 @@ router.get('/greenhouse-historical/:device_id', async (req, res) => {
  * Requires: batchNumber, newDryingArea, rfid, moved_at.
  */
 router.post('/move-drying-area', async (req, res) => {
-  const { batchNumber, newDryingArea, rfid, moved_at } = req.body;
+  const { batchNumber, newDryingArea, rfid, moved_at, notes } = req.body;
 
   if (!batchNumber || !newDryingArea || !rfid || !moved_at) {
     return res.status(400).json({ error: 'batchNumber, newDryingArea, rfid, and moved_at are required' });
@@ -427,6 +427,9 @@ router.post('/move-drying-area', async (req, res) => {
   if (!VALID_DRYING_AREAS.includes(newDryingArea)) {
     return res.status(400).json({ error: 'Invalid drying area' });
   }
+
+  const notesValue =
+    notes != null && String(notes).trim() !== '' ? String(notes).trim() : null;
 
   const movedAtValue = new Date(moved_at);
   if (isNaN(movedAtValue.getTime())) {
@@ -461,14 +464,15 @@ router.post('/move-drying-area', async (req, res) => {
     }
 
     await sequelize.query(`
-      INSERT INTO "DryingAreaMovements" ("batchNumber", "fromArea", "toArea", "movedAt")
-      VALUES (:batchNumber, :fromArea, :toArea, :movedAt)
+      INSERT INTO "DryingAreaMovements" ("batchNumber", "fromArea", "toArea", "movedAt", notes)
+      VALUES (:batchNumber, :fromArea, :toArea, :movedAt, :notes)
     `, {
       replacements: {
         batchNumber,
         fromArea: activeRecord.dryingArea,
         toArea: newDryingArea,
         movedAt: movedAtValue,
+        notes: notesValue,
       },
       transaction: t,
     });
@@ -1127,7 +1131,7 @@ router.get('/drying-area-movements/:batchNumber', async (req, res) => {
 
   try {
     const rows = await sequelize.query(`
-      SELECT id, "batchNumber", "fromArea", "toArea", "movedAt", "createdBy", created_at
+      SELECT id, "batchNumber", "fromArea", "toArea", "movedAt", notes, "createdBy", created_at
       FROM "DryingAreaMovements"
       WHERE "batchNumber" = :batchNumber
       ORDER BY "movedAt" ASC, id ASC
