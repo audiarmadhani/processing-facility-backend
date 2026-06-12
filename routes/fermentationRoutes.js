@@ -1107,7 +1107,7 @@ router.patch('/fermentation/details/id/:id', async (req, res) => {
     }
     setIfValid('fermentationStarter', d.fermentationStarter);
     setNumber('fermentationStarterAmount', d.fermentationStarterAmount);
-    setIfValid('dryingArea', d.dryingArea);
+    setIfValid('drying', d.drying);
 
     if (Object.keys(updates).length === 0 && !tanksPatch.updated) {
       return res.status(400).json({ error: 'No valid fields to update' });
@@ -1340,7 +1340,7 @@ router.patch('/fermentation/details/:batchNumber', async (req, res) => {
     }
     setIfValid('fermentationStarter', d.fermentationStarter);
     setNumber('fermentationStarterAmount', d.fermentationStarterAmount);
-    setIfValid('dryingArea', d.dryingArea);
+    setIfValid('drying', d.drying);
 
     if (Object.keys(updates).length === 0 && !tanksPatch.updated) {
       return res.status(400).json({ error: 'No valid fields to update' });
