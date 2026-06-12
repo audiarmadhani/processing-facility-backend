@@ -3,6 +3,7 @@ const router = express.Router();
 const sequelize = require('../config/database');
 const rateLimit = require('express-rate-limit');
 const { fermentationExperimentJoin } = require('../utils/fermentationExperiment');
+const { validateWitaDateTime } = require('../utils/witaDateTime');
 
 const WAREHOUSE_ROWS = ['A', 'B', 'C', 'D', 'E'];
 
@@ -431,13 +432,11 @@ router.post('/move-drying-area', async (req, res) => {
   const notesValue =
     notes != null && String(notes).trim() !== '' ? String(notes).trim() : null;
 
-  const movedAtValue = new Date(moved_at);
-  if (isNaN(movedAtValue.getTime())) {
-    return res.status(400).json({ error: 'Invalid moved_at date format' });
+  const movedAtValidation = validateWitaDateTime(moved_at, { futureErrorLabel: 'moved_at' });
+  if (movedAtValidation.error) {
+    return res.status(400).json({ error: movedAtValidation.error });
   }
-  if (movedAtValue > new Date()) {
-    return res.status(400).json({ error: 'moved_at cannot be in the future' });
-  }
+  const movedAtValue = movedAtValidation.parsed;
 
   const t = await sequelize.transaction();
   try {
@@ -879,21 +878,14 @@ router.post('/assign-drying', async (req, res) => {
     return res.status(400).json({ error: 'Invalid drying area' });
   }
 
-  // ---- validate entered_at ----
   let enteredAtValue = new Date();
 
   if (entered_at) {
-    const parsed = new Date(entered_at);
-
-    if (isNaN(parsed.getTime())) {
-      return res.status(400).json({ error: 'Invalid entered_at date format' });
+    const enteredAtValidation = validateWitaDateTime(entered_at, { futureErrorLabel: 'entered_at' });
+    if (enteredAtValidation.error) {
+      return res.status(400).json({ error: enteredAtValidation.error });
     }
-
-    if (parsed > new Date()) {
-      return res.status(400).json({ error: 'entered_at cannot be in the future' });
-    }
-
-    enteredAtValue = parsed;
+    enteredAtValue = enteredAtValidation.parsed;
   }
 
   const t = await sequelize.transaction();
@@ -1006,14 +998,11 @@ router.post('/finish-drying', async (req, res) => {
     return res.status(400).json({ error: 'exited_at is required' });
   }
 
-  const exitedAtValue = new Date(exited_at);
-  if (isNaN(exitedAtValue.getTime())) {
-    return res.status(400).json({ error: 'Invalid exited_at date format' });
+  const exitedAtValidation = validateWitaDateTime(exited_at, { futureErrorLabel: 'exited_at' });
+  if (exitedAtValidation.error) {
+    return res.status(400).json({ error: exitedAtValidation.error });
   }
-
-  if (exitedAtValue > new Date()) {
-    return res.status(400).json({ error: 'exited_at cannot be in the future' });
-  }
+  const exitedAtValue = exitedAtValidation.parsed;
 
   const t = await sequelize.transaction();
 
