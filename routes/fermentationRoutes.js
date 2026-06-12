@@ -871,7 +871,10 @@ router.get('/fermentation/details/id/:id', async (req, res) => {
 
   try {
     const fermentation = await sequelize.query(`
-      SELECT * FROM "FermentationData" f WHERE f.id = :id
+      SELECT f.*,
+        f."startDate" AS "fermentationStart",
+        f."endDate" AS "fermentationEnd"
+      FROM "FermentationData" f WHERE f.id = :id
     `, {
       replacements: { id: parseInt(id, 10) },
       type: sequelize.QueryTypes.SELECT,
@@ -890,7 +893,10 @@ router.get('/fermentation/details/:batchNumber', async (req, res) => {
 
   try {
     const fermentation = await sequelize.query(`
-      SELECT * FROM "FermentationData" f WHERE f."batchNumber" = :batchNumber
+      SELECT f.*,
+        f."startDate" AS "fermentationStart",
+        f."endDate" AS "fermentationEnd"
+      FROM "FermentationData" f WHERE f."batchNumber" = :batchNumber
     `, {
       replacements: { batchNumber },
       type: sequelize.QueryTypes.SELECT,
