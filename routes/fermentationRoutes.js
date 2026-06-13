@@ -673,6 +673,7 @@ router.post('/fermentation', async (req, res) => {
         "finalPH" = EXCLUDED."finalPH",
         "finalTemperature" = EXCLUDED."finalTemperature",
 
+        "drying" = EXCLUDED."drying",
         "dryingArea" = EXCLUDED."dryingArea",
         "finalMoisture" = EXCLUDED."finalMoisture",
         "dryingStart" = EXCLUDED."dryingStart",
@@ -778,8 +779,8 @@ router.post('/fermentation', async (req, res) => {
           secondFermentationEnd: toNullableDate(secondFermentationEnd),
 
           // DRYING
-          drying,
-          dryingArea,
+          drying: drying ?? dryingArea ?? null,
+          dryingArea: dryingArea ?? null,
           preDryingWeight: toNullableFloat(preDryingWeight),
           finalMoisture: toNullableFloat(finalMoisture),
           postDryingWeight: toNullableFloat(postDryingWeight),
