@@ -541,4 +541,132 @@ router.get('/check-rfid/:rfid', async (req, res) => {
 });
 
 
+// --- Admin: list batches currently blocking RFID cards ---
+router.get('/rfid/assigned-batches', async (req, res) => {
+  try {
+    const rows = await sequelize.query(
+      `
+      SELECT
+        r."batchNumber",
+        UPPER(TRIM(r.rfid)) AS rfid,
+        r."farmerName",
+        r."commodityType",
+        (r."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') AS "receivingDate",
+        r.type,
+        r.producer,
+        r."updatedAt",
+        EXISTS (
+          SELECT 1 FROM "WetMillData" w
+          WHERE w."batchNumber" = r."batchNumber"
+            AND w.entered_at IS NOT NULL
+            AND w.exited_at IS NULL
+        ) AS "wetMillActive",
+        EXISTS (
+          SELECT 1 FROM "DryingData" d
+          WHERE d."batchNumber" = r."batchNumber"
+            AND d.entered_at IS NOT NULL
+            AND d.exited_at IS NULL
+        ) AS "dryingActive",
+        EXISTS (
+          SELECT 1 FROM "DryMillData" dm
+          WHERE dm."batchNumber" = r."batchNumber"
+            AND dm.entered_at IS NOT NULL
+            AND dm.exited_at IS NULL
+        ) AS "dryMillActive"
+      FROM "ReceivingData" r
+      WHERE r."currentAssign" = 1
+        AND r.rfid IS NOT NULL
+        AND TRIM(r.rfid) <> ''
+        AND COALESCE(r.merged, FALSE) = FALSE
+      ORDER BY r."receivingDate" DESC NULLS LAST, r."batchNumber" DESC
+      `,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    const batches = (rows || []).map((row) => {
+      const activeStations = [];
+      if (row.wetMillActive) activeStations.push('Wet mill');
+      if (row.dryingActive) activeStations.push('Drying');
+      if (row.dryMillActive) activeStations.push('Dry mill');
+      return {
+        ...row,
+        activeStations,
+        hasActiveStation: activeStations.length > 0,
+      };
+    });
+
+    res.status(200).json(batches);
+  } catch (error) {
+    console.error('Error fetching assigned RFID batches:', error);
+    res.status(500).json({ error: 'Failed to fetch assigned RFID batches', details: error.message });
+  }
+});
+
+// --- Admin: release RFID card for reuse at Receiving ---
+router.post('/rfid/unassign', async (req, res) => {
+  const { batchNumber, unassignedBy } = req.body;
+
+  if (!batchNumber?.trim()) {
+    return res.status(400).json({ error: 'batchNumber is required.' });
+  }
+
+  const trimmedBatch = batchNumber.trim();
+
+  try {
+    const [entry] = await sequelize.query(
+      `
+      SELECT "batchNumber", UPPER(TRIM(rfid)) AS rfid, "currentAssign"
+      FROM "ReceivingData"
+      WHERE "batchNumber" = :batchNumber
+        AND COALESCE(merged, FALSE) = FALSE
+      LIMIT 1
+      `,
+      {
+        replacements: { batchNumber: trimmedBatch },
+        type: sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    if (!entry) {
+      return res.status(404).json({ error: 'Batch not found.' });
+    }
+
+    if (!entry.rfid) {
+      return res.status(400).json({ error: 'Batch has no RFID assigned.' });
+    }
+
+    if (!entry.currentAssign) {
+      return res.status(404).json({ error: 'Batch RFID is already unassigned.' });
+    }
+
+    await sequelize.query(
+      `
+      UPDATE "ReceivingData"
+      SET "currentAssign" = 0,
+          "updatedAt" = NOW(),
+          "updatedBy" = :unassignedBy
+      WHERE "batchNumber" = :batchNumber
+        AND "currentAssign" = 1
+      `,
+      {
+        replacements: {
+          batchNumber: trimmedBatch,
+          unassignedBy: unassignedBy || null,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+      }
+    );
+
+    res.status(200).json({
+      message: `RFID released for batch ${trimmedBatch}. Card can be scanned at Receiving for a new batch.`,
+      batchNumber: trimmedBatch,
+      rfid: entry.rfid,
+    });
+  } catch (error) {
+    console.error('Error unassigning RFID:', error);
+    res.status(500).json({ error: 'Failed to unassign RFID', details: error.message });
+  }
+});
+
+
 module.exports = router;
