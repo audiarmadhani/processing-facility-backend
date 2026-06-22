@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const sequelize = require('../config/database');
+const { fermentationExperimentJoin } = require('../utils/fermentationExperiment');
 
 // --- NEW ROUTE: Receive greenhouse sensor data from ESP32 ---
 router.post('/greenhouse-data', async (req, res) => {
@@ -548,6 +549,7 @@ router.get('/rfid/assigned-batches', async (req, res) => {
       `
       SELECT
         r."batchNumber",
+        fer."experimentNumber",
         UPPER(TRIM(r.rfid)) AS rfid,
         r."farmerName",
         r."commodityType",
@@ -574,6 +576,7 @@ router.get('/rfid/assigned-batches', async (req, res) => {
             AND dm.exited_at IS NULL
         ) AS "dryMillActive"
       FROM "ReceivingData" r
+      ${fermentationExperimentJoin('r')}
       WHERE r."currentAssign" = 1
         AND r.rfid IS NOT NULL
         AND TRIM(r.rfid) <> ''
