@@ -335,12 +335,15 @@ router.get('/receiving', async (req, res) => {
 
     const [allRows] = await sequelize.query(
       `SELECT a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
-       b."contractType", c.price*a.weight total_price, c.price, b.broker, b."farmVarieties"
+       b."contractType",
+       COALESCE(a.price, c.price) * a.weight AS total_price,
+       COALESCE(a.price, c.price) AS price,
+       b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", MAX(price) price FROM "QCData" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
        WHERE a.merged = FALSE
-       AND a."batchNumber" LIKE '2026%'
+       AND (a."batchNumber" LIKE '2026%' OR a."batchNumber" LIKE 'GB-2026%')
        ${whereClause}
        ORDER BY a."receivingDate" DESC;`,
       {
@@ -350,7 +353,10 @@ router.get('/receiving', async (req, res) => {
 
     const [noQCRows] = await sequelize.query(
       `SELECT a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
-       b."contractType", c.price*a.weight total_price, c.price, b.broker, b."farmVarieties"
+       b."contractType",
+       COALESCE(a.price, c.price) * a.weight AS total_price,
+       COALESCE(a.price, c.price) AS price,
+       b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", MAX(price) price FROM "QCData" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
@@ -366,7 +372,10 @@ router.get('/receiving', async (req, res) => {
 
     const [todayData] = await sequelize.query(
       `SELECT a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
-       b."contractType", c.price*a.weight total_price, c.price, b.broker, b."farmVarieties"
+       b."contractType",
+       COALESCE(a.price, c.price) * a.weight AS total_price,
+       COALESCE(a.price, c.price) AS price,
+       b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", MAX(price) price FROM "QCData" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
@@ -374,7 +383,7 @@ router.get('/receiving', async (req, res) => {
        AND a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData")
        ${commodityType ? 'AND a."commodityType" = :commodityType' : ''}
        AND a.merged = FALSE
-       AND a."batchNumber" LIKE '2026%'
+       AND (a."batchNumber" LIKE '2026%' OR a."batchNumber" LIKE 'GB-2026%')
        ORDER BY a."receivingDate" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},
@@ -383,14 +392,17 @@ router.get('/receiving', async (req, res) => {
 
     const [noTransportData] = await sequelize.query(
       `SELECT a.*, (a."receivingDate" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Makassar') as "receivingDate",
-       b."contractType", c.price*a.weight total_price, c.price, b.broker, b."farmVarieties"
+       b."contractType",
+       COALESCE(a.price, c.price) * a.weight AS total_price,
+       COALESCE(a.price, c.price) AS price,
+       b.broker, b."farmVarieties"
        FROM "ReceivingData" a 
        LEFT JOIN "Farmers" b ON a."farmerID" = b."farmerID"
        LEFT JOIN (SELECT "batchNumber", MAX(price) price FROM "QCData" GROUP BY "batchNumber") c on a."batchNumber" = c."batchNumber"
        WHERE a."batchNumber" NOT IN (SELECT unnest(regexp_split_to_array("batchNumber", ',')) FROM "TransportData")
        ${commodityType ? 'AND a."commodityType" = :commodityType' : ''}
        AND a.merged = FALSE
-       AND a."batchNumber" LIKE '2026%'
+       AND (a."batchNumber" LIKE '2026%' OR a."batchNumber" LIKE 'GB-2026%')
        ORDER BY a."batchNumber" DESC;`,
       {
         replacements: commodityType ? { commodityType } : {},
