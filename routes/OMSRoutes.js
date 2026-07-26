@@ -170,7 +170,15 @@ router.post('/drivers', async (req, res) => {
 router.get('/orders', async (req, res) => {
   try {
     const orders = await sequelize.query(`
-      SELECT * FROM "Orders_v"
+      SELECT o.*,
+             ord.warehouse_id,
+             w.name AS warehouse_name,
+             w.company_name AS warehouse_company_name,
+             w.address AS warehouse_address,
+             w.phone AS warehouse_phone
+      FROM "Orders_v" o
+      LEFT JOIN "Orders" ord ON ord.order_id = o.order_id
+      LEFT JOIN "Warehouses" w ON w.id = ord.warehouse_id
     `, {
       type: sequelize.QueryTypes.SELECT,
     });
@@ -195,8 +203,16 @@ router.get('/orders/:order_id', async (req, res) => {
   const { order_id } = req.params;
   try {
     const order = await sequelize.query(`
-      SELECT * FROM "Orders_v"
-      WHERE order_id = :order_id
+      SELECT o.*,
+             ord.warehouse_id,
+             w.name AS warehouse_name,
+             w.company_name AS warehouse_company_name,
+             w.address AS warehouse_address,
+             w.phone AS warehouse_phone
+      FROM "Orders_v" o
+      LEFT JOIN "Orders" ord ON ord.order_id = o.order_id
+      LEFT JOIN "Warehouses" w ON w.id = ord.warehouse_id
+      WHERE o.order_id = :order_id
     `, {
       replacements: { order_id },
       type: sequelize.QueryTypes.SELECT,
@@ -872,6 +888,175 @@ router.get('/payments/:order_id', async (req, res) => {
     res.json(payments);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch payments', details: error.message });
+  }
+});
+
+// --- Warehouses (shipping-from for DO / SJ / BAST) ---
+
+router.get('/warehouses', async (req, res) => {
+  try {
+    const warehouses = await sequelize.query(`
+      SELECT id, name, company_name, address, phone, is_default, created_at, updated_at
+      FROM "Warehouses"
+      ORDER BY is_default DESC, name ASC
+    `, {
+      type: sequelize.QueryTypes.SELECT,
+    });
+    res.json(warehouses);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch warehouses', details: error.message });
+  }
+});
+
+router.post('/warehouses', async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { name, company_name, address, phone, is_default } = req.body;
+    if (!name || !String(name).trim() || !company_name || !String(company_name).trim() || !address || !String(address).trim()) {
+      await t.rollback();
+      return res.status(400).json({ error: 'name, company_name, and address are required' });
+    }
+
+    const makeDefault = Boolean(is_default);
+    if (makeDefault) {
+      await sequelize.query(`UPDATE "Warehouses" SET is_default = FALSE, updated_at = NOW()`, {
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t,
+      });
+    }
+
+    const [warehouse] = await sequelize.query(`
+      INSERT INTO "Warehouses" (name, company_name, address, phone, is_default, created_at, updated_at)
+      VALUES (:name, :company_name, :address, :phone, :is_default, NOW(), NOW())
+      RETURNING *
+    `, {
+      replacements: {
+        name: String(name).trim(),
+        company_name: String(company_name).trim(),
+        address: String(address).trim(),
+        phone: phone != null && String(phone).trim() !== '' ? String(phone).trim() : null,
+        is_default: makeDefault,
+      },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    await t.commit();
+    res.status(201).json(warehouse);
+  } catch (error) {
+    await t.rollback();
+    if (error.message && error.message.includes('unique')) {
+      return res.status(400).json({ error: 'A warehouse with this name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create warehouse', details: error.message });
+  }
+});
+
+router.put('/warehouses/:id', async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const { name, company_name, address, phone, is_default } = req.body;
+    if (!name || !String(name).trim() || !company_name || !String(company_name).trim() || !address || !String(address).trim()) {
+      await t.rollback();
+      return res.status(400).json({ error: 'name, company_name, and address are required' });
+    }
+
+    const existing = await sequelize.query(`
+      SELECT id FROM "Warehouses" WHERE id = :id
+    `, {
+      replacements: { id },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+    if (!existing.length) {
+      await t.rollback();
+      return res.status(404).json({ error: 'Warehouse not found' });
+    }
+
+    const makeDefault = Boolean(is_default);
+    if (makeDefault) {
+      await sequelize.query(`UPDATE "Warehouses" SET is_default = FALSE, updated_at = NOW() WHERE id <> :id`, {
+        replacements: { id },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t,
+      });
+    }
+
+    const [warehouse] = await sequelize.query(`
+      UPDATE "Warehouses"
+      SET name = :name,
+          company_name = :company_name,
+          address = :address,
+          phone = :phone,
+          is_default = :is_default,
+          updated_at = NOW()
+      WHERE id = :id
+      RETURNING *
+    `, {
+      replacements: {
+        id,
+        name: String(name).trim(),
+        company_name: String(company_name).trim(),
+        address: String(address).trim(),
+        phone: phone != null && String(phone).trim() !== '' ? String(phone).trim() : null,
+        is_default: makeDefault,
+      },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t,
+    });
+
+    await t.commit();
+    res.json(warehouse);
+  } catch (error) {
+    await t.rollback();
+    if (error.message && error.message.includes('unique')) {
+      return res.status(400).json({ error: 'A warehouse with this name already exists' });
+    }
+    res.status(500).json({ error: 'Failed to update warehouse', details: error.message });
+  }
+});
+
+router.patch('/orders/:order_id/warehouse', async (req, res) => {
+  try {
+    const { order_id } = req.params;
+    const { warehouse_id } = req.body;
+    if (!warehouse_id) {
+      return res.status(400).json({ error: 'warehouse_id is required' });
+    }
+
+    const warehouse = await sequelize.query(`
+      SELECT id, name, company_name, address, phone, is_default
+      FROM "Warehouses"
+      WHERE id = :warehouse_id
+    `, {
+      replacements: { warehouse_id },
+      type: sequelize.QueryTypes.SELECT,
+    });
+    if (!warehouse.length) {
+      return res.status(404).json({ error: 'Warehouse not found' });
+    }
+
+    const [updated] = await sequelize.query(`
+      UPDATE "Orders"
+      SET warehouse_id = :warehouse_id, updated_at = NOW()
+      WHERE order_id = :order_id
+      RETURNING order_id, warehouse_id
+    `, {
+      replacements: { order_id, warehouse_id },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    res.json({
+      ...updated,
+      warehouse: warehouse[0],
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to set order warehouse', details: error.message });
   }
 });
 

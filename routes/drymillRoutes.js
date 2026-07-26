@@ -50,19 +50,15 @@ function validateWarehousePosition(warehouseRow, warehouseColumn) {
   return { row, column };
 }
 
-// Helper function to validate lot number format
+// Helper: lot number must be a non-empty string (manual freeform input)
 const validateLotNumber = (lotNumber) => {
-  if (!lotNumber) return false;
-  const hqRegex = /^HQ\d{2}[A-Z]+-[A-Z]+-\d{4}$/; // e.g., HQ12ABC-XYZ-2025
-  const btmRegex = /^ID-BTM-[AR]-[A-Z](-S|-G[1-4]|-AS)?$/; // e.g., ID-BTM-A-Z or ID-BTM-A-Z-G4 or ID-BTM-A-Z-AS
-  return hqRegex.test(lotNumber) || btmRegex.test(lotNumber);
+  return typeof lotNumber === 'string' && lotNumber.trim().length > 0;
 };
 
-// Helper function to validate reference number format
+// Helper: reference number is optional (null/empty) or a non-empty string
 const validateReferenceNumber = (referenceNumber) => {
-  if (referenceNumber === null) return true;
-  const refRegex = /^ID-HEQA-[A-Z]+-\d{3}$/;
-  return refRegex.test(referenceNumber);
+  if (referenceNumber === null || referenceNumber === undefined || referenceNumber === '') return true;
+  return typeof referenceNumber === 'string' && referenceNumber.trim().length > 0;
 };
 
 // Middleware for input sanitization
@@ -380,57 +376,44 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       producer = preprocessingData.producer || producer;
     }
 
-    // Retrieve base lotNumber and referenceNumber from PreprocessingData
-    let baseLotNumber, baseReferenceNumber;
-    if (batch.type !== 'NA') {
-      const [preprocessingData] = await sequelize.query(`
-        SELECT "lotNumber", "referenceNumber"
-        FROM "PreprocessingData"
-        WHERE "batchNumber" = :batchNumber
-        AND "processingType" = :processingType
-        LIMIT 1
-      `, {
-        replacements: { batchNumber, processingType },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t
-      });
-      baseLotNumber = preprocessingData?.lotNumber;
-      baseReferenceNumber = preprocessingData?.referenceNumber;
-    } else {
-      const [preprocessingData] = await sequelize.query(`
-        SELECT "lotNumber", "referenceNumber"
-        FROM "PreprocessingData"
-        WHERE "batchNumber" = :batchNumber
-        LIMIT 1
-      `, {
-        replacements: { batchNumber },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t
-      });
-      baseLotNumber = preprocessingData?.lotNumber;
-      baseReferenceNumber = preprocessingData?.referenceNumber;
-    }
-
-    if (!baseLotNumber || !validateLotNumber(baseLotNumber)) {
-      await t.rollback();
-      logger.warn('Invalid or missing lot number', { batchNumber, processingType, user: req.body.createdBy || 'unknown' });
-      return res.status(400).json({ error: 'Valid lot number not assigned in preprocessing.' });
-    }
-
-    if (!validateReferenceNumber(baseReferenceNumber)) {
-      await t.rollback();
-      logger.warn('Invalid reference number', { batchNumber, processingType, user: req.body.createdBy || 'unknown' });
-      return res.status(400).json({ error: 'Valid reference number not assigned in preprocessing.' });
-    }
+    const allowedGrades = new Set([
+      'Specialty Grade',
+      'Grade 1',
+      'Grade 2',
+      'Grade 3',
+      'Grade 4',
+      'Asalan',
+    ]);
 
     const results = [];
     const subBatches = [];
 
-    for (const { grade, bagWeights, bagged_at, tempSequence } of validGrades) {
+    for (const { grade, bagWeights, bagged_at, tempSequence, lotNumber: rawLot, referenceNumber: rawRef } of validGrades) {
       if (!grade || typeof grade !== 'string' || grade.trim() === '') {
         await t.rollback();
         logger.warn('Invalid grade', { batchNumber, processingType, grade, user: req.body.createdBy || 'unknown' });
         return res.status(400).json({ error: 'Each entry must have a valid grade.' });
+      }
+
+      if (!allowedGrades.has(grade)) {
+        await t.rollback();
+        logger.warn('Invalid grade name', { batchNumber, processingType, grade, user: req.body.createdBy || 'unknown' });
+        return res.status(400).json({ error: `Invalid grade: ${grade}.` });
+      }
+
+      const newLotNumber = typeof rawLot === 'string' ? rawLot.trim() : '';
+      if (!validateLotNumber(newLotNumber)) {
+        await t.rollback();
+        logger.warn('Missing lot number for grade', { batchNumber, processingType, grade, user: req.body.createdBy || 'unknown' });
+        return res.status(400).json({ error: `Lot number is required for grade ${grade}.` });
+      }
+
+      const trimmedRef = typeof rawRef === 'string' ? rawRef.trim() : '';
+      const newReferenceNumber = trimmedRef || null;
+      if (!validateReferenceNumber(newReferenceNumber)) {
+        await t.rollback();
+        logger.warn('Invalid reference number for grade', { batchNumber, processingType, grade, user: req.body.createdBy || 'unknown' });
+        return res.status(400).json({ error: `Invalid reference number for grade ${grade}.` });
       }
 
       const weights = bagWeights.map(w => {
@@ -445,47 +428,6 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
       const formattedSequence = tempSequence || '0001';
 
       const subBatchId = `${batchNumber}-${grade.replace(/\s+/g, '-')}`;
-      // Add suffixes to base lot and reference numbers based on grade
-      let qualitySuffix;
-      switch (grade) {
-        case 'Specialty Grade':
-          qualitySuffix = '-S';
-          break;
-        case 'Grade 1':
-          qualitySuffix = '-G1';
-          break;
-        case 'Grade 2':
-          qualitySuffix = '-G2';
-          break;
-        case 'Grade 3':
-          qualitySuffix = '-G3';
-          break;
-        case 'Grade 4':
-          qualitySuffix = '-G4';
-          break;
-        case 'Asalan':
-          qualitySuffix = '-AS';
-          break;
-        default:
-          await t.rollback();
-          logger.warn('Invalid grade suffix', { batchNumber, processingType, grade, user: req.body.createdBy || 'unknown' });
-          return res.status(400).json({ error: `Invalid grade: ${grade}.` });
-      }
-
-      const newLotNumber = `${baseLotNumber}${qualitySuffix}`;
-      const newReferenceNumber = baseReferenceNumber ? `${baseReferenceNumber}${qualitySuffix}` : null;
-
-      if (!validateLotNumber(newLotNumber)) {
-        await t.rollback();
-        logger.warn('Invalid generated lot number', { batchNumber, processingType, newLotNumber, user: req.body.createdBy || 'unknown' });
-        return res.status(400).json({ error: `Invalid generated lot number: ${newLotNumber}.` });
-      }
-
-      if (!validateReferenceNumber(newReferenceNumber)) {
-        await t.rollback();
-        logger.warn('Invalid generated reference number', { batchNumber, processingType, newReferenceNumber, user: req.body.createdBy || 'unknown' });
-        return res.status(400).json({ error: `Invalid generated reference number: ${newReferenceNumber}.` });
-      }
 
       await sequelize.query(`
         INSERT INTO "DryMillGrades" (
@@ -497,7 +439,9 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
         )
         ON CONFLICT ("subBatchId") DO UPDATE SET
           weight = :weight,
-          bagged_at = :bagged_at
+          bagged_at = :bagged_at,
+          "lotNumber" = :lotNumber,
+          "referenceNumber" = :referenceNumber
       `, {
         replacements: {
           batchNumber,
@@ -564,6 +508,8 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
           UPDATE "PostprocessingData"
           SET weight = :weight,
               "totalBags" = :totalBags,
+              "lotNumber" = :lotNumber,
+              "referenceNumber" = :referenceNumber,
               "updatedAt" = NOW()
           WHERE "batchNumber" = :batchNumber
           AND "quality" = :quality
@@ -574,7 +520,9 @@ router.post('/dry-mill/:batchNumber/split', async (req, res) => {
             quality: grade,
             processingType: processingType,
             weight: totalWeight.toFixed(2),
-            totalBags: weights.length
+            totalBags: weights.length,
+            lotNumber: newLotNumber,
+            referenceNumber: newReferenceNumber,
           },
           type: sequelize.QueryTypes.UPDATE,
           transaction: t

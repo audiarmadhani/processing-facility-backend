@@ -7,10 +7,26 @@ const sequelize = require('../config/database');
 router.post('/postprocessing', async (req, res) => {
   let t;
   try {
-    const { type, processingType, productLine, producer, weight, totalBags, notes, quality } = req.body;
+    const {
+      type,
+      processingType,
+      productLine,
+      producer,
+      weight,
+      totalBags,
+      notes,
+      quality,
+      referenceNumber: rawReferenceNumber,
+    } = req.body;
 
     if (!type || !processingType || !weight || !totalBags || !quality || !productLine || !producer) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const referenceNumber =
+      typeof rawReferenceNumber === 'string' ? rawReferenceNumber.trim() : '';
+    if (!referenceNumber) {
+      return res.status(400).json({ error: 'Reference number is required' });
     }
 
     t = await sequelize.transaction();
@@ -28,24 +44,13 @@ router.post('/postprocessing', async (req, res) => {
 
     // Check if product and processing type were found
     if (productResults.length === 0 || processingResults.length === 0) {
+      await t.rollback();
       return res.status(400).json({ error: 'Invalid product line or processing type' });
     }
 
     // Extract the abbreviations
     const productAbbreviation = productResults[0].abbreviation; // Access the first element
     const processingAbbreviation = processingResults[0].abbreviation; // Access the first element
-
-    // Fetch the reference number
-    const [referenceResults] = await sequelize.query(
-      'SELECT "referenceNumber" FROM "ReferenceMappings_duplicate" WHERE "productLine" = ? AND "processingType" = ? AND "producer" = ? AND "quality" = ? AND "type" = ?',
-      { replacements: [productLine, processingType, producer, quality, type], transaction: t }
-    );
-
-    if (referenceResults.length === 0) {
-      return res.status(400).json({ error: 'No matching reference number found for the given product line and processing type' });
-    }
-
-    const referenceNumber = referenceResults[0].referenceNumber;
 
     // Determine the current year
     const currentYear = new Date().getFullYear().toString().slice(-2);

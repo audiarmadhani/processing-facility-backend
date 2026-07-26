@@ -544,11 +544,38 @@ router.post('/merge', async (req, res) => {
 router.post('/preprocessing', async (req, res) => {
   let t;
   try {
-    const { batchNumber, weightProcessed, processingDate, producer, productLine, processingType, quality, createdBy, notes } = req.body;
+    const {
+      batchNumber,
+      weightProcessed,
+      processingDate,
+      producer,
+      productLine,
+      processingType,
+      quality,
+      createdBy,
+      notes,
+      lotNumber: rawLotNumber,
+      referenceNumber: rawReferenceNumber,
+    } = req.body;
 
     if (!batchNumber || !producer || !productLine || !processingType || !quality) {
       return res.status(400).json({ error: 'Batch number, producer, product line, processing type, and quality are required.' });
     }
+
+    if (producer !== 'HQ' && producer !== 'BTM') {
+      return res.status(400).json({ error: 'Invalid producer.' });
+    }
+
+    const lotNumber = typeof rawLotNumber === 'string' ? rawLotNumber.trim() : '';
+    if (!lotNumber) {
+      return res.status(400).json({ error: 'Lot number is required.' });
+    }
+
+    const trimmedRef = typeof rawReferenceNumber === 'string' ? rawReferenceNumber.trim() : '';
+    if (producer === 'HQ' && !trimmedRef) {
+      return res.status(400).json({ error: 'Reference number is required for HQ producer.' });
+    }
+    const referenceNumber = trimmedRef || null;
 
     const weightResult = parseOptionalWeightProcessed(weightProcessed);
     if (weightResult.error) {
@@ -578,7 +605,6 @@ router.post('/preprocessing', async (req, res) => {
 
     const totalWeight = parseFloat(batch.weight);
     const roundedTotalWeight = Math.round(totalWeight * 100) / 100;
-    const batchType = batch.type;
 
     const [processed] = await sequelize.query(
       `SELECT SUM(COALESCE("weightProcessed", 0)) AS "totalWeightProcessed", COALESCE(BOOL_OR(finished), FALSE) AS finished 
@@ -616,83 +642,6 @@ router.post('/preprocessing', async (req, res) => {
     if (!productLineEntry || !processingTypeEntry) {
       await t.rollback();
       return res.status(400).json({ error: 'Invalid product line or processing type. Ensure they exist in the database.' });
-    }
-
-    const productLineAbbreviation = productLineEntry.abbreviation;
-    const processingTypeAbbreviation = processingTypeEntry.processingType;
-    const currentYear = processingDate ? new Date(processingDate).getFullYear().toString().slice(-2) : new Date().getFullYear().toString().slice(-2);
-
-    let lotNumber, referenceNumber;
-
-    if (producer === 'HQ') {
-      const batchPrefix = `HQ${currentYear}${productLineAbbreviation}-${processingTypeAbbreviation}`;
-      let sequenceNumber = 1;
-
-      const [sequenceResult] = await sequelize.query(
-        `SELECT sequence FROM "LotNumberSequences" 
-         WHERE producer = :producer AND "productLine" = :productLine 
-         AND "processingType" = :processingType AND year = :year 
-         FOR UPDATE`,
-        { 
-          replacements: { producer, productLine, processingType, year: currentYear }, 
-          type: sequelize.QueryTypes.SELECT, 
-          transaction: t 
-        }
-      );
-
-      if (sequenceResult) {
-        sequenceNumber = sequenceResult.sequence + 1;
-      }
-
-      const formattedSequence = sequenceNumber.toString().padStart(4, '0');
-      lotNumber = `${batchPrefix}-${formattedSequence}`;
-      // Add "-R" suffix if batchType is Robusta, otherwise no suffix
-      if (batchType === 'Robusta') {
-        lotNumber = `${lotNumber}-R`;
-      }
-
-      await sequelize.query(
-        `INSERT INTO "LotNumberSequences" (
-          producer, "productLine", "processingType", year, sequence
-        ) VALUES (
-          :producer, :productLine, :processingType, :year, :sequence
-        )
-        ON CONFLICT (producer, "productLine", "processingType", year) 
-        DO UPDATE SET sequence = EXCLUDED.sequence`,
-        {
-          replacements: { producer, productLine, processingType, year: currentYear, sequence: sequenceNumber },
-          type: sequelize.QueryTypes.INSERT,
-          transaction: t
-        }
-      );
-
-      const [referenceResult] = await sequelize.query(
-        `SELECT "referenceNumber" FROM "ReferenceMappings_duplicate"
-         WHERE LOWER("productLine") = LOWER(:productLine)
-         AND LOWER("processingType") = LOWER(:processingType)
-         AND LOWER("producer") = LOWER(:producer)
-         AND LOWER("type") = LOWER(:type)
-         LIMIT 1`,
-        {
-          replacements: { productLine, processingType, producer, type: batchType },
-          type: sequelize.QueryTypes.SELECT,
-          transaction: t
-        }
-      );
-
-      if (!referenceResult) {
-        await t.rollback();
-        return res.status(400).json({ error: 'No matching reference number found in ReferenceMappings_duplicate.' });
-      }
-
-      referenceNumber = referenceResult.referenceNumber;
-    } else if (producer === 'BTM') {
-      const typeAbbreviation = batchType === 'Arabica' ? 'A' : 'R';
-      lotNumber = `ID-BTM-${typeAbbreviation}-${processingTypeAbbreviation}`;
-      referenceNumber = null;
-    } else {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid producer.' });
     }
 
     const now = new Date();
@@ -867,7 +816,6 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
   let t;
   try {
     const { batchNumber } = req.params;
-    const { createdBy } = req.body;
     if (!batchNumber) {
       return res.status(400).json({ error: 'Batch number is required.' });
     }
@@ -889,8 +837,6 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
       return res.status(400).json({ error: 'Batch is already merged.' });
     }
 
-    const batchType = batch.type;
-
     const [processed] = await sequelize.query(
       `SELECT COALESCE(BOOL_OR(finished), FALSE) AS finished 
        FROM "PreprocessingData" 
@@ -909,127 +855,10 @@ router.put('/preprocessing/:batchNumber/finish', async (req, res) => {
     );
 
     if (existingRows.length === 0) {
-      const now = new Date();
-      const defaultProductLine = 'Commercial Lot';
-      const defaultProcessingType = 'Natural';
-      const defaultProducer = 'BTM';
-      const defaultQuality = 'G2';
-
-      const [productLineEntry] = await sequelize.query(
-        `SELECT abbreviation FROM "ProductLines" WHERE LOWER("productLine") = LOWER(:productLine) LIMIT 1`,
-        { replacements: { productLine: defaultProductLine }, type: sequelize.QueryTypes.SELECT, transaction: t }
-      );
-
-      const [processingTypeEntry] = await sequelize.query(
-        `SELECT processingType FROM "ProcessingTypes" WHERE LOWER(abbreviation) = LOWER(:processingType) LIMIT 1`,
-        { replacements: { processingType: defaultProcessingType }, type: sequelize.QueryTypes.SELECT, transaction: t }
-      );
-
-      if (!productLineEntry || !processingTypeEntry) {
-        await t.rollback();
-        return res.status(400).json({ error: 'Invalid default product line or processing type for batch completion.' });
-      }
-
-      let dummyLotNumber, dummyReferenceNumber;
-
-      if (defaultProducer === 'HQ') {
-        const currentYear = now.getFullYear().toString().slice(-2);
-        const productLineAbbreviation = productLineEntry.abbreviation;
-        const processingTypeAbbreviation = processingTypeEntry.processingType;
-        const batchPrefix = `HQ${currentYear}${productLineAbbreviation}-${processingTypeAbbreviation}`;
-        
-        let sequenceNumber = 1;
-        const [sequenceResult] = await sequelize.query(
-          `SELECT sequence FROM "LotNumberSequences" 
-           WHERE producer = :producer AND "productLine" = :productLine 
-           AND "processingType" = :processingType AND year = :year 
-           FOR UPDATE`,
-          { 
-            replacements: { producer: defaultProducer, productLine: defaultProductLine, processingType: defaultProcessingType, year: currentYear }, 
-            type: sequelize.QueryTypes.SELECT, 
-            transaction: t 
-          }
-        );
-
-        if (sequenceResult) {
-          sequenceNumber = sequenceResult.sequence;
-        }
-
-        const formattedSequence = sequenceNumber.toString().padStart(4, '0');
-        dummyLotNumber = `${batchPrefix}-${formattedSequence}`;
-
-        await sequelize.query(
-          `INSERT INTO "LotNumberSequences" (
-            producer, "productLine", "processingType", year, sequence
-          ) VALUES (
-            :producer, :productLine, :processingType, :year, :sequence
-          )
-          ON CONFLICT (producer, "productLine", "processingType", year) 
-          DO UPDATE SET sequence = :sequence`,
-          {
-            replacements: { producer: defaultProducer, productLine: defaultProductLine, processingType: defaultProcessingType, year: currentYear, sequence: sequenceNumber + 1 },
-            type: sequelize.QueryTypes.INSERT,
-            transaction: t
-          }
-        );
-
-        const [referenceResult] = await sequelize.query(
-          `SELECT "referenceNumber" FROM "ReferenceMappings_duplicate"
-           WHERE LOWER("productLine") = LOWER(:productLine)
-           AND LOWER("processingType") = LOWER(:processingType)
-           AND LOWER("producer") = LOWER(:producer)
-           AND LOWER("type") = LOWER(:type)
-           LIMIT 1`,
-          {
-            replacements: { productLine: defaultProductLine, processingType: defaultProcessingType, producer: defaultProducer, type: batchType },
-            type: sequelize.QueryTypes.SELECT,
-            transaction: t
-          }
-        );
-
-        dummyReferenceNumber = referenceResult?.referenceNumber || null;
-      } else {
-        const typeAbbreviation = batchType === 'Arabica' ? 'A' : 'R';
-        const processingTypeAbbreviation = processingTypeEntry.processingType || 'N/A';
-        dummyLotNumber = `ID-BTM-${typeAbbreviation}-${processingTypeAbbreviation}`;
-        dummyReferenceNumber = null;
-      }
-
-      const [dummyRecord] = await sequelize.query(
-        `INSERT INTO "PreprocessingData" (
-          "batchNumber", "weightProcessed", "processingDate", "producer", 
-          "productLine", "processingType", "quality", "lotNumber", "referenceNumber",
-          "createdAt", "updatedAt", "createdBy", notes, finished, merged
-        ) VALUES (
-          :batchNumber, :weightProcessed, :processingDate, :producer, 
-          :productLine, :processingType, :quality, :lotNumber, :referenceNumber,
-          :createdAt, :updatedAt, :createdBy, :notes, :finished, FALSE
-        ) 
-        RETURNING *`,
-        {
-          replacements: {
-            batchNumber: batchNumber.trim(),
-            weightProcessed: 0,
-            processingDate: now,
-            producer: defaultProducer,
-            productLine: defaultProductLine,
-            processingType: defaultProcessingType,
-            quality: defaultQuality,
-            lotNumber: dummyLotNumber,
-            referenceNumber: dummyReferenceNumber,
-            createdAt: now,
-            updatedAt: now,
-            createdBy: createdBy || 'System',
-            notes: 'Auto-generated for batch completion',
-            finished: true
-          },
-          type: sequelize.QueryTypes.INSERT,
-          transaction: t
-        }
-      );
-
-      await t.commit();
-      return res.json({ message: `Batch ${batchNumber} marked as complete with dummy record.`, data: dummyRecord });
+      await t.rollback();
+      return res.status(400).json({
+        error: 'Cannot finish batch without preprocessing data. Create preprocessing with a lot number (and reference number when required) first.',
+      });
     }
 
     const result = await sequelize.query(
@@ -1275,6 +1104,8 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
       producer,
       productLine,
       processingType,
+      lotNumber: rawLotNumber,
+      referenceNumber: rawReferenceNumber,
     } = req.body;
 
     if (!producer || !productLine || !processingType) {
@@ -1283,7 +1114,6 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
 
     t = await sequelize.transaction();
 
-    // 1. Get batch + type
     const [batch] = await sequelize.query(`
       SELECT r."type"
       FROM "ReceivingData" r
@@ -1298,9 +1128,6 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
       throw new Error('Batch not found');
     }
 
-    const batchType = batch.type;
-
-    // 2. Get abbreviations
     const [productLineEntry] = await sequelize.query(`
       SELECT abbreviation FROM "ProductLines"
       WHERE LOWER("productLine") = LOWER(:productLine)
@@ -1323,74 +1150,43 @@ router.patch('/preprocessing/update-metadata/:batchNumber', async (req, res) => 
       throw new Error('Invalid mapping');
     }
 
-    const year = new Date().getFullYear().toString().slice(-2);
+    const [existing] = await sequelize.query(`
+      SELECT "lotNumber", "referenceNumber"
+      FROM "PreprocessingData"
+      WHERE LOWER("batchNumber") = LOWER(:batchNumber)
+      ORDER BY "createdAt" DESC
+      LIMIT 1
+    `, {
+      replacements: { batchNumber },
+      type: sequelize.QueryTypes.SELECT,
+      transaction: t
+    });
 
-    let lotNumber;
-    let referenceNumber;
-
-    // -------------------------
-    // 🔁 REGENERATE LOT NUMBER
-    // -------------------------
-    if (producer === 'HQ') {
-      const prefix = `HQ${year}${productLineEntry.abbreviation}-${processingTypeEntry.processingType}`;
-
-      const [sequenceResult] = await sequelize.query(`
-        SELECT sequence FROM "LotNumberSequences"
-        WHERE producer = :producer
-        AND "productLine" = :productLine
-        AND "processingType" = :processingType
-        AND year = :year
-        FOR UPDATE
-      `, {
-        replacements: { producer, productLine, processingType, year },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t
-      });
-
-      let sequence = sequenceResult ? sequenceResult.sequence + 1 : 1;
-
-      await sequelize.query(`
-        INSERT INTO "LotNumberSequences"
-        (producer, "productLine", "processingType", year, sequence)
-        VALUES (:producer, :productLine, :processingType, :year, :sequence)
-        ON CONFLICT (producer, "productLine", "processingType", year)
-        DO UPDATE SET sequence = :sequence
-      `, {
-        replacements: { producer, productLine, processingType, year, sequence },
-        transaction: t
-      });
-
-      lotNumber = `${prefix}-${String(sequence).padStart(4, '0')}`;
-
-      if (batchType === 'Robusta') {
-        lotNumber += '-R';
-      }
-
-      // Reference lookup
-      const [ref] = await sequelize.query(`
-        SELECT "referenceNumber"
-        FROM "ReferenceMappings_duplicate"
-        WHERE LOWER("productLine") = LOWER(:productLine)
-        AND LOWER("processingType") = LOWER(:processingType)
-        AND LOWER("producer") = LOWER(:producer)
-        AND LOWER("type") = LOWER(:type)
-      `, {
-        replacements: { productLine, processingType, producer, type: batchType },
-        type: sequelize.QueryTypes.SELECT,
-        transaction: t
-      });
-
-      referenceNumber = ref?.referenceNumber || null;
-
-    } else if (producer === 'BTM') {
-      const typeAbbr = batchType === 'Arabica' ? 'A' : 'R';
-      lotNumber = `ID-BTM-${typeAbbr}-${processingTypeEntry.processingType}`;
-      referenceNumber = null;
+    if (!existing) {
+      throw new Error('No preprocessing data found for this batch');
     }
 
-    // -------------------------
-    // 🧱 UPDATE PREPROCESSING
-    // -------------------------
+    let lotNumber = existing.lotNumber;
+    let referenceNumber = existing.referenceNumber;
+
+    if (rawLotNumber !== undefined) {
+      const trimmedLot = typeof rawLotNumber === 'string' ? rawLotNumber.trim() : '';
+      if (!trimmedLot) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Lot number cannot be empty.' });
+      }
+      lotNumber = trimmedLot;
+    }
+
+    if (rawReferenceNumber !== undefined) {
+      const trimmedRef = typeof rawReferenceNumber === 'string' ? rawReferenceNumber.trim() : '';
+      if (producer === 'HQ' && !trimmedRef) {
+        await t.rollback();
+        return res.status(400).json({ error: 'Reference number is required for HQ producer.' });
+      }
+      referenceNumber = trimmedRef || null;
+    }
+
     await sequelize.query(`
       UPDATE "PreprocessingData"
       SET
