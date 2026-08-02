@@ -149,6 +149,7 @@ router.post('/scan-rfid', async (req, res) => {
     "Drying Area 4",
     "Drying Area 5",
     "Drying Sun Dry",
+    "Sundry Net",
     "DryMill",
     "Drying Room",
     "Warehouse_Entrance",

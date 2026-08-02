@@ -9,7 +9,7 @@ const WAREHOUSE_ROWS = ['A', 'B', 'C', 'D', 'E'];
 
 const VALID_DRYING_AREAS = [
   'Drying Area 1', 'Drying Area 2', 'Drying Area 3',
-  'Drying Area 4', 'Drying Area 5', 'Drying Sun Dry', 'Drying Room',
+  'Drying Area 4', 'Drying Area 5', 'Drying Sun Dry', 'Sundry Net', 'Drying Room',
 ];
 
 function normalizeWarehouseRow(value) {
