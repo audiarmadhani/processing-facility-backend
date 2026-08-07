@@ -770,6 +770,37 @@ router.post('/documents/upload', upload.single('file'), async (req, res) => {
   }
 });
 
+router.get('/documents', async (req, res) => {
+  try {
+    const documents = await sequelize.query(`
+      SELECT d.order_id,
+             d.type,
+             d.drive_url,
+             d.created_at,
+             o.customer_name,
+             o.status AS order_status,
+             ord.warehouse_id,
+             w.name AS warehouse_name
+      FROM "Documents" d
+      JOIN "Orders_v" o ON o.order_id = d.order_id
+      LEFT JOIN "Orders" ord ON ord.order_id = d.order_id
+      LEFT JOIN "Warehouses" w ON w.id = ord.warehouse_id
+      ORDER BY d.created_at DESC
+    `, {
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    const withIds = documents.map((doc) => ({
+      ...doc,
+      id: `${doc.order_id}_${doc.type}_${doc.created_at}`,
+    }));
+
+    res.json(withIds);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch documents', details: error.message });
+  }
+});
+
 router.get('/documents/:order_id', async (req, res) => {
   const { order_id } = req.params;
   try {
