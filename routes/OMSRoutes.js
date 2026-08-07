@@ -347,10 +347,12 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         return res.status(400).json({ error: 'Invalid item quantity or price: quantity must be positive, price must be non-negative' });
       }
 
-      // Compute jumlah_karung: prefer an explicit value from client, otherwise compute ceil(qty/50)
-      const jumlahKarung = (item.jumlah_karung !== undefined && item.jumlah_karung !== null)
-        ? parseInt(item.jumlah_karung, 10)
-        : Math.max(1, Math.ceil(itemQuantity / 50));
+      // Require explicit jumlah_karung from client (no qty/50 assumption)
+      if (item.jumlah_karung === undefined || item.jumlah_karung === null || item.jumlah_karung === '') {
+        await t.rollback();
+        return res.status(400).json({ error: 'Each item must have a positive jumlah_karung' });
+      }
+      const jumlahKarung = parseInt(item.jumlah_karung, 10);
 
       if (!Number.isInteger(jumlahKarung) || jumlahKarung <= 0) {
         await t.rollback();
@@ -560,9 +562,11 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
           return res.status(400).json({ error: 'Invalid item quantity or price: quantity must be positive, price must be non-negative' });
         }
 
-        const jumlahKarung = (item.jumlah_karung !== undefined && item.jumlah_karung !== null)
-          ? parseInt(item.jumlah_karung, 10)
-          : Math.max(1, Math.ceil(itemQuantity / 50));
+        if (item.jumlah_karung === undefined || item.jumlah_karung === null || item.jumlah_karung === '') {
+          await t.rollback();
+          return res.status(400).json({ error: 'Each item must have a positive jumlah_karung' });
+        }
+        const jumlahKarung = parseInt(item.jumlah_karung, 10);
 
         if (!Number.isInteger(jumlahKarung) || jumlahKarung <= 0) {
           await t.rollback();
@@ -653,9 +657,11 @@ router.post('/order-items', async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    const computedJumlah = (jumlah_karung !== undefined && jumlah_karung !== null)
-      ? parseInt(jumlah_karung, 10)
-      : Math.max(1, Math.ceil(parsedQuantity / 50));
+    if (jumlah_karung === undefined || jumlah_karung === null || jumlah_karung === '') {
+      await t.rollback();
+      return res.status(400).json({ error: 'jumlah_karung is required and must be a positive integer' });
+    }
+    const computedJumlah = parseInt(jumlah_karung, 10);
 
     if (!Number.isInteger(computedJumlah) || computedJumlah <= 0) {
       await t.rollback();
