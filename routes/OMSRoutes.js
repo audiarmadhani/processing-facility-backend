@@ -64,6 +64,8 @@ const folderIds = {
   'Order List': '1Ykw1OnktdPiG50vhF4GFcpou7cF8fyFP',
 };
 
+const SIGNED_DOCS_PARENT_FOLDER_ID = '1XHTBF1MOaSixYnQs9A9U2HnLf-MLWp7q';
+
 // Reused upload function (unchanged)
 const uploadFileToDrive = async (file, folderId) => {
   const fileMetadata = {
@@ -83,6 +85,28 @@ const uploadFileToDrive = async (file, folderId) => {
 
   fs.unlinkSync(file.path); // Clean up local file
   return uploadedFile.data.webViewLink; // Return URL for database storage
+};
+
+const getOrCreateDriveFolder = async (name, parentId) => {
+  const listRes = await drive.files.list({
+    q: `mimeType='application/vnd.google-apps.folder' and name='${name}' and '${parentId}' in parents and trashed=false`,
+    fields: 'files(id, name)',
+  });
+
+  if (listRes.data.files && listRes.data.files.length > 0) {
+    return listRes.data.files[0].id;
+  }
+
+  const folder = await drive.files.create({
+    resource: {
+      name,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentId],
+    },
+    fields: 'id',
+  });
+
+  return folder.data.id;
 };
 
 // --- Customers Routes --- (unchanged)
@@ -805,6 +829,43 @@ router.post('/documents/upload', upload.single('file'), async (req, res) => {
   } catch (error) {
     await t.rollback();
     res.status(500).json({ error: 'Failed to upload document', details: error.message });
+  }
+});
+
+router.post('/documents/signed-upload', upload.single('file'), async (req, res) => {
+  try {
+    const { order_id, type } = req.body;
+    if (!order_id || !req.file) {
+      return res.status(400).json({ error: 'order_id and file are required' });
+    }
+
+    const parsedOrderId = parseInt(order_id, 10);
+    if (isNaN(parsedOrderId)) {
+      return res.status(400).json({ error: 'Invalid order_id: must be a valid integer', details: `Received: ${order_id}` });
+    }
+
+    // Folder name = SJ number middle segment (e.g. SJ/0105/2026 -> 0105)
+    const folderName = String(parsedOrderId).padStart(4, '0');
+    const folderId = await getOrCreateDriveFolder(folderName, SIGNED_DOCS_PARENT_FOLDER_ID);
+
+    const ext = path.extname(req.file.originalname) || '';
+    const typeLabel = String(type || 'Signed').replace(/\s+/g, '_');
+    req.file.originalname = `${typeLabel}_${folderName}_${Date.now()}${ext}`;
+
+    const driveUrl = await uploadFileToDrive(req.file, folderId);
+
+    res.status(201).json({
+      order_id: parsedOrderId,
+      folder_name: folderName,
+      folder_id: folderId,
+      drive_url: driveUrl,
+      type: type || null,
+    });
+  } catch (error) {
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch (_) { /* ignore */ }
+    }
+    res.status(500).json({ error: 'Failed to upload signed document', details: error.message });
   }
 });
 
