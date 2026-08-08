@@ -172,6 +172,7 @@ router.get('/orders', async (req, res) => {
     const orders = await sequelize.query(`
       SELECT o.*,
              ord.warehouse_id,
+             ord.bag_weight_kg,
              w.name AS warehouse_name,
              w.company_name AS warehouse_company_name,
              w.address AS warehouse_address,
@@ -205,6 +206,7 @@ router.get('/orders/:order_id', async (req, res) => {
     const order = await sequelize.query(`
       SELECT o.*,
              ord.warehouse_id,
+             ord.bag_weight_kg,
              w.name AS warehouse_name,
              w.company_name AS warehouse_company_name,
              w.address AS warehouse_address,
@@ -1094,6 +1096,34 @@ router.patch('/orders/:order_id/warehouse', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to set order warehouse', details: error.message });
+  }
+});
+
+router.patch('/orders/:order_id/bag-weight', async (req, res) => {
+  try {
+    const { order_id } = req.params;
+    const bagWeightKg = parseFloat(req.body.bag_weight_kg);
+    if (!Number.isFinite(bagWeightKg) || bagWeightKg <= 0) {
+      return res.status(400).json({ error: 'bag_weight_kg must be a positive number' });
+    }
+
+    const [updated] = await sequelize.query(`
+      UPDATE "Orders"
+      SET bag_weight_kg = :bag_weight_kg, updated_at = NOW()
+      WHERE order_id = :order_id
+      RETURNING order_id, bag_weight_kg
+    `, {
+      replacements: { order_id, bag_weight_kg: bagWeightKg },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to set order bag weight', details: error.message });
   }
 });
 
