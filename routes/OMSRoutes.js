@@ -8,6 +8,29 @@ const path = require('path');
 
 require('dotenv').config();
 
+function resolveItemBagFields(item, itemQuantity) {
+  const bagWeightKg = parseFloat(item.bag_weight_kg);
+  if (Number.isFinite(bagWeightKg) && bagWeightKg > 0) {
+    return {
+      bagWeightKg,
+      jumlahKarung: Math.max(1, Math.ceil(itemQuantity / bagWeightKg)),
+    };
+  }
+
+  // Status/update paths may re-send existing items with jumlah_karung only (legacy rows)
+  if (item.jumlah_karung !== undefined && item.jumlah_karung !== null && item.jumlah_karung !== '') {
+    const jumlahKarung = parseInt(item.jumlah_karung, 10);
+    if (Number.isInteger(jumlahKarung) && jumlahKarung > 0) {
+      return {
+        bagWeightKg: Number.isFinite(bagWeightKg) && bagWeightKg > 0 ? bagWeightKg : null,
+        jumlahKarung,
+      };
+    }
+  }
+
+  return { error: 'Each item must have a positive bag_weight_kg (kg per bag)' };
+}
+
 // Google Drive OAuth2 Setup (unchanged)
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_API_CLIENT_ID,
@@ -172,7 +195,6 @@ router.get('/orders', async (req, res) => {
     const orders = await sequelize.query(`
       SELECT o.*,
              ord.warehouse_id,
-             ord.bag_weight_kg,
              ord.estimated_delivery_date,
              w.name AS warehouse_name,
              w.company_name AS warehouse_company_name,
@@ -207,7 +229,6 @@ router.get('/orders/:order_id', async (req, res) => {
     const order = await sequelize.query(`
       SELECT o.*,
              ord.warehouse_id,
-             ord.bag_weight_kg,
              ord.estimated_delivery_date,
              w.name AS warehouse_name,
              w.company_name AS warehouse_company_name,
@@ -351,21 +372,17 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
         return res.status(400).json({ error: 'Invalid item quantity or price: quantity must be positive, price must be non-negative' });
       }
 
-      // Require explicit jumlah_karung from client (no qty/50 assumption)
-      if (item.jumlah_karung === undefined || item.jumlah_karung === null || item.jumlah_karung === '') {
+      // Require bag_weight_kg; derive jumlah_karung as ceil(qty / bag_weight_kg)
+      const resolved = resolveItemBagFields(item, itemQuantity);
+      if (resolved.error) {
         await t.rollback();
-        return res.status(400).json({ error: 'Each item must have a positive jumlah_karung' });
+        return res.status(400).json({ error: resolved.error });
       }
-      const jumlahKarung = parseInt(item.jumlah_karung, 10);
-
-      if (!Number.isInteger(jumlahKarung) || jumlahKarung <= 0) {
-        await t.rollback();
-        return res.status(400).json({ error: 'Invalid jumlah_karung for item: must be positive integer' });
-      }
+      const { bagWeightKg, jumlahKarung } = resolved;
 
       await sequelize.query(`
-        INSERT INTO "OrderItems" (order_id, product, quantity, price, batch_number, jumlah_karung, created_at)
-        VALUES (:order_id, :product, :quantity, :price, :batch_number, :jumlah_karung, NOW())
+        INSERT INTO "OrderItems" (order_id, product, quantity, price, batch_number, jumlah_karung, bag_weight_kg, created_at)
+        VALUES (:order_id, :product, :quantity, :price, :batch_number, :jumlah_karung, :bag_weight_kg, NOW())
       `, {
         replacements: {
           order_id: orderId,
@@ -374,6 +391,7 @@ router.post('/orders', upload.single('spb_file'), async (req, res) => {
           price: itemPrice,
           batch_number: item.batch_number,
           jumlah_karung: jumlahKarung,
+          bag_weight_kg: bagWeightKg,
         },
         transaction: t,
       });
@@ -568,20 +586,16 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
           return res.status(400).json({ error: 'Invalid item quantity or price: quantity must be positive, price must be non-negative' });
         }
 
-        if (item.jumlah_karung === undefined || item.jumlah_karung === null || item.jumlah_karung === '') {
+        const resolved = resolveItemBagFields(item, itemQuantity);
+        if (resolved.error) {
           await t.rollback();
-          return res.status(400).json({ error: 'Each item must have a positive jumlah_karung' });
+          return res.status(400).json({ error: resolved.error });
         }
-        const jumlahKarung = parseInt(item.jumlah_karung, 10);
-
-        if (!Number.isInteger(jumlahKarung) || jumlahKarung <= 0) {
-          await t.rollback();
-          return res.status(400).json({ error: 'Invalid jumlah_karung for item: must be positive integer' });
-        }
+        const { bagWeightKg, jumlahKarung } = resolved;
 
         await sequelize.query(`
-          INSERT INTO "OrderItems" (order_id, product, quantity, price, batch_number, jumlah_karung, created_at)
-          VALUES (:order_id, :product, :quantity, :price, :batch_number, :jumlah_karung, NOW())
+          INSERT INTO "OrderItems" (order_id, product, quantity, price, batch_number, jumlah_karung, bag_weight_kg, created_at)
+          VALUES (:order_id, :product, :quantity, :price, :batch_number, :jumlah_karung, :bag_weight_kg, NOW())
         `, {
           replacements: {
             order_id,
@@ -589,7 +603,8 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
             quantity: itemQuantity,
             price: itemPrice,
             batch_number: item.batch_number,
-            jumlah_karung: jumlahKarung
+            jumlah_karung: jumlahKarung,
+            bag_weight_kg: bagWeightKg,
           },
           transaction: t,
         });
@@ -636,7 +651,7 @@ router.get('/order-items/:order_id', async (req, res) => {
 router.post('/order-items', async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { order_id, product, quantity, price, jumlah_karung } = req.body;
+    const { order_id, product, quantity, price, bag_weight_kg, jumlah_karung } = req.body;
     if (!order_id || !product || !quantity || !price) {
       await t.rollback();
       return res.status(400).json({ error: 'order_id, product, quantity, and price are required' });
@@ -663,23 +678,25 @@ router.post('/order-items', async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    if (jumlah_karung === undefined || jumlah_karung === null || jumlah_karung === '') {
+    const resolved = resolveItemBagFields({ bag_weight_kg, jumlah_karung }, parsedQuantity);
+    if (resolved.error) {
       await t.rollback();
-      return res.status(400).json({ error: 'jumlah_karung is required and must be a positive integer' });
-    }
-    const computedJumlah = parseInt(jumlah_karung, 10);
-
-    if (!Number.isInteger(computedJumlah) || computedJumlah <= 0) {
-      await t.rollback();
-      return res.status(400).json({ error: 'Invalid jumlah_karung: must be a positive integer' });
+      return res.status(400).json({ error: resolved.error });
     }
 
     const [item] = await sequelize.query(`
-      INSERT INTO "OrderItems" (order_id, product, quantity, price, jumlah_karung, created_at)
-      VALUES (:order_id, :product, :quantity, :price, :jumlah_karung, NOW())
+      INSERT INTO "OrderItems" (order_id, product, quantity, price, jumlah_karung, bag_weight_kg, created_at)
+      VALUES (:order_id, :product, :quantity, :price, :jumlah_karung, :bag_weight_kg, NOW())
       RETURNING *;
     `, {
-      replacements: { order_id, product, quantity: parsedQuantity, price: parsedPrice, jumlah_karung: computedJumlah },
+      replacements: {
+        order_id,
+        product,
+        quantity: parsedQuantity,
+        price: parsedPrice,
+        jumlah_karung: resolved.jumlahKarung,
+        bag_weight_kg: resolved.bagWeightKg,
+      },
       transaction: t,
       type: sequelize.QueryTypes.INSERT,
     });
@@ -694,17 +711,18 @@ router.post('/order-items', async (req, res) => {
 
 router.put('/order-items/:order_item_id', async (req, res) => {
   const { order_item_id } = req.params;
-  const { product, quantity, price, jumlah_karung } = req.body;
+  const { product, quantity, price, bag_weight_kg, jumlah_karung } = req.body;
   try {
     const parsedQuantity = parseFloat(quantity) || 0;
     const parsedPrice = parseFloat(price) || 0;
-    const parsedJumlah = jumlah_karung !== undefined && jumlah_karung !== null ? parseInt(jumlah_karung, 10) : null;
 
     if (isNaN(parsedQuantity) || parsedQuantity < 0 || isNaN(parsedPrice) || parsedPrice < 0) {
       return res.status(400).json({ error: 'Invalid quantity or price: must be non-negative numbers' });
     }
-    if (parsedJumlah !== null && (!Number.isInteger(parsedJumlah) || parsedJumlah <= 0)) {
-      return res.status(400).json({ error: 'Invalid jumlah_karung: must be a positive integer' });
+
+    const resolved = resolveItemBagFields({ bag_weight_kg, jumlah_karung }, parsedQuantity);
+    if (resolved.error && bag_weight_kg !== undefined && bag_weight_kg !== null) {
+      return res.status(400).json({ error: resolved.error });
     }
 
     const [updated] = await sequelize.query(`
@@ -713,11 +731,19 @@ router.put('/order-items/:order_item_id', async (req, res) => {
           quantity = :quantity, 
           price = :price,
           jumlah_karung = COALESCE(:jumlah_karung, jumlah_karung),
+          bag_weight_kg = COALESCE(:bag_weight_kg, bag_weight_kg),
           updated_at = NOW()
       WHERE order_item_id = :order_item_id
       RETURNING *;
     `, {
-      replacements: { order_item_id, product, quantity: parsedQuantity, price: parsedPrice, jumlah_karung: parsedJumlah },
+      replacements: {
+        order_item_id,
+        product,
+        quantity: parsedQuantity,
+        price: parsedPrice,
+        jumlah_karung: resolved.error ? null : resolved.jumlahKarung,
+        bag_weight_kg: resolved.error ? null : resolved.bagWeightKg,
+      },
       type: sequelize.QueryTypes.UPDATE,
     });
 
@@ -1103,34 +1129,6 @@ router.patch('/orders/:order_id/warehouse', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to set order warehouse', details: error.message });
-  }
-});
-
-router.patch('/orders/:order_id/bag-weight', async (req, res) => {
-  try {
-    const { order_id } = req.params;
-    const bagWeightKg = parseFloat(req.body.bag_weight_kg);
-    if (!Number.isFinite(bagWeightKg) || bagWeightKg <= 0) {
-      return res.status(400).json({ error: 'bag_weight_kg must be a positive number' });
-    }
-
-    const [updated] = await sequelize.query(`
-      UPDATE "Orders"
-      SET bag_weight_kg = :bag_weight_kg, updated_at = NOW()
-      WHERE order_id = :order_id
-      RETURNING order_id, bag_weight_kg
-    `, {
-      replacements: { order_id, bag_weight_kg: bagWeightKg },
-      type: sequelize.QueryTypes.SELECT,
-    });
-
-    if (!updated) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-
-    res.json(updated);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to set order bag weight', details: error.message });
   }
 });
 
