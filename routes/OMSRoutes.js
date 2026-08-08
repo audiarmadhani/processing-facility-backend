@@ -173,6 +173,7 @@ router.get('/orders', async (req, res) => {
       SELECT o.*,
              ord.warehouse_id,
              ord.bag_weight_kg,
+             ord.estimated_delivery_date,
              w.name AS warehouse_name,
              w.company_name AS warehouse_company_name,
              w.address AS warehouse_address,
@@ -207,6 +208,7 @@ router.get('/orders/:order_id', async (req, res) => {
       SELECT o.*,
              ord.warehouse_id,
              ord.bag_weight_kg,
+             ord.estimated_delivery_date,
              w.name AS warehouse_name,
              w.company_name AS warehouse_company_name,
              w.address AS warehouse_address,
@@ -401,7 +403,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
   const { order_id } = req.params;
   const t = await sequelize.transaction();
   try {
-    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items, status, shipping_address, billing_address } = req.body;
+    let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items, status, shipping_address, billing_address, arrive_at } = req.body;
 
     if (items && typeof items === 'string') {
       try {
@@ -496,6 +498,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
             ELSE ship_at
           END,
           arrive_at = CASE
+            WHEN :status = 'Arrived' AND :arrive_at IS NOT NULL THEN CAST(:arrive_at AS timestamptz)
             WHEN :status = 'Arrived' AND arrive_at IS NULL THEN NOW()
             ELSE arrive_at
           END,
@@ -531,6 +534,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
         shipping_address,
         billing_address,
         status: status || 'Pending',
+        arrive_at: arrive_at || null,
       },
       transaction: t,
       type: sequelize.QueryTypes.UPDATE,
@@ -787,7 +791,10 @@ router.get('/documents', async (req, res) => {
              d.created_at,
              o.customer_name,
              o.status AS order_status,
+             o.created_at AS order_created_at,
+             o.arrive_at,
              ord.warehouse_id,
+             ord.estimated_delivery_date,
              w.name AS warehouse_name
       FROM "Documents" d
       JOIN "Orders_v" o ON o.order_id = d.order_id
@@ -1124,6 +1131,34 @@ router.patch('/orders/:order_id/bag-weight', async (req, res) => {
     res.json(updated);
   } catch (error) {
     res.status(500).json({ error: 'Failed to set order bag weight', details: error.message });
+  }
+});
+
+router.patch('/orders/:order_id/estimated-delivery-date', async (req, res) => {
+  try {
+    const { order_id } = req.params;
+    const { estimated_delivery_date } = req.body;
+    if (!estimated_delivery_date || !/^\d{4}-\d{2}-\d{2}$/.test(String(estimated_delivery_date))) {
+      return res.status(400).json({ error: 'estimated_delivery_date must be YYYY-MM-DD' });
+    }
+
+    const [updated] = await sequelize.query(`
+      UPDATE "Orders"
+      SET estimated_delivery_date = CAST(:estimated_delivery_date AS date), updated_at = NOW()
+      WHERE order_id = :order_id
+      RETURNING order_id, estimated_delivery_date
+    `, {
+      replacements: { order_id, estimated_delivery_date },
+      type: sequelize.QueryTypes.SELECT,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to set estimated delivery date', details: error.message });
   }
 });
 
