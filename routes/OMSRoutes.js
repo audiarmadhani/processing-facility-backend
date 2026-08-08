@@ -8,7 +8,7 @@ const path = require('path');
 
 require('dotenv').config();
 
-function resolveItemBagFields(item, itemQuantity) {
+function resolveItemBagFields(item, itemQuantity, { requireBagWeight = true } = {}) {
   const bagWeightKg = parseFloat(item.bag_weight_kg);
   if (Number.isFinite(bagWeightKg) && bagWeightKg > 0) {
     return {
@@ -26,6 +26,11 @@ function resolveItemBagFields(item, itemQuantity) {
         jumlahKarung,
       };
     }
+  }
+
+  // Older orders predating per-item bag_weight_kg — allow nulls on update paths
+  if (!requireBagWeight) {
+    return { bagWeightKg: null, jumlahKarung: null };
   }
 
   return { error: 'Each item must have a positive bag_weight_kg (kg per bag)' };
@@ -446,15 +451,20 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
   const t = await sequelize.transaction();
   try {
     let { customer_id, driver_id, shipping_method, driver_details, price, tax_percentage, items, status, shipping_address, billing_address, arrive_at } = req.body;
+    const itemsProvided = Object.prototype.hasOwnProperty.call(req.body, 'items');
 
-    if (items && typeof items === 'string') {
-      try {
-        items = JSON.parse(items);
-      } catch (error) {
-        await t.rollback();
-        return res.status(400).json({ error: 'Invalid items format: must be a valid JSON array', details: error.message });
+    if (itemsProvided) {
+      if (items && typeof items === 'string') {
+        try {
+          items = JSON.parse(items);
+        } catch (error) {
+          await t.rollback();
+          return res.status(400).json({ error: 'Invalid items format: must be a valid JSON array', details: error.message });
+        }
+      } else if (!items || !Array.isArray(items)) {
+        items = [];
       }
-    } else if (!items || !Array.isArray(items)) {
+    } else {
       items = [];
     }
 
@@ -499,7 +509,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    if (items.length > 0) {
+    if (itemsProvided && items.length > 0) {
       for (const item of items) {
         if (!item.batch_number || !item.quantity || !item.price || !item.product) {
           await t.rollback();
@@ -587,52 +597,64 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    await sequelize.query(`
-      DELETE FROM "OrderItems" WHERE order_id = :order_id
-    `, {
-      replacements: { order_id },
-      transaction: t,
-    });
+    let responseItems = items;
+    if (itemsProvided) {
+      await sequelize.query(`
+        DELETE FROM "OrderItems" WHERE order_id = :order_id
+      `, {
+        replacements: { order_id },
+        transaction: t,
+      });
 
-    if (items.length) {
-      for (const item of items) {
-        // Validate required fields from client
-        if (!item.batch_number || !item.quantity || !item.price || !item.product) {
-          await t.rollback();
-          return res.status(400).json({ error: 'Each item must have batch_number, quantity, price, and product' });
+      if (items.length) {
+        for (const item of items) {
+          // Validate required fields from client
+          if (!item.batch_number || !item.quantity || !item.price || !item.product) {
+            await t.rollback();
+            return res.status(400).json({ error: 'Each item must have batch_number, quantity, price, and product' });
+          }
+
+          const itemQuantity = parseFloat(item.quantity) || 0;
+          const itemPrice = parseFloat(item.price) || 0;
+
+          if (isNaN(itemQuantity) || itemQuantity <= 0 || isNaN(itemPrice) || itemPrice < 0) {
+            await t.rollback();
+            return res.status(400).json({ error: 'Invalid item quantity or price: quantity must be positive, price must be non-negative' });
+          }
+
+          // Legacy order lines may lack bag_weight_kg; allow null on update
+          const resolved = resolveItemBagFields(item, itemQuantity, { requireBagWeight: false });
+          if (resolved.error) {
+            await t.rollback();
+            return res.status(400).json({ error: resolved.error });
+          }
+          const { bagWeightKg, jumlahKarung } = resolved;
+
+          await sequelize.query(`
+            INSERT INTO "OrderItems" (order_id, product, quantity, price, batch_number, jumlah_karung, bag_weight_kg, created_at)
+            VALUES (:order_id, :product, :quantity, :price, :batch_number, :jumlah_karung, :bag_weight_kg, NOW())
+          `, {
+            replacements: {
+              order_id,
+              product: item.product,
+              quantity: itemQuantity,
+              price: itemPrice,
+              batch_number: item.batch_number,
+              jumlah_karung: jumlahKarung,
+              bag_weight_kg: bagWeightKg,
+            },
+            transaction: t,
+          });
         }
-
-        const itemQuantity = parseFloat(item.quantity) || 0;
-        const itemPrice = parseFloat(item.price) || 0;
-
-        if (isNaN(itemQuantity) || itemQuantity <= 0 || isNaN(itemPrice) || itemPrice < 0) {
-          await t.rollback();
-          return res.status(400).json({ error: 'Invalid item quantity or price: quantity must be positive, price must be non-negative' });
-        }
-
-        const resolved = resolveItemBagFields(item, itemQuantity);
-        if (resolved.error) {
-          await t.rollback();
-          return res.status(400).json({ error: resolved.error });
-        }
-        const { bagWeightKg, jumlahKarung } = resolved;
-
-        await sequelize.query(`
-          INSERT INTO "OrderItems" (order_id, product, quantity, price, batch_number, jumlah_karung, bag_weight_kg, created_at)
-          VALUES (:order_id, :product, :quantity, :price, :batch_number, :jumlah_karung, :bag_weight_kg, NOW())
-        `, {
-          replacements: {
-            order_id,
-            product: item.product,
-            quantity: itemQuantity,
-            price: itemPrice,
-            batch_number: item.batch_number,
-            jumlah_karung: jumlahKarung,
-            bag_weight_kg: bagWeightKg,
-          },
-          transaction: t,
-        });
       }
+    } else {
+      responseItems = await sequelize.query(`
+        SELECT * FROM "OrderItems" WHERE order_id = :order_id ORDER BY created_at DESC
+      `, {
+        replacements: { order_id },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      });
     }
 
     let spbUrl = null;
@@ -649,7 +671,7 @@ router.put('/orders/:order_id', upload.single('spb_file'), async (req, res) => {
     }
 
     await t.commit();
-    res.json({ ...updatedOrder[0], items, spb_url: spbUrl, message: 'Order updated successfully' });
+    res.json({ ...updatedOrder[0], items: responseItems, spb_url: spbUrl, message: 'Order updated successfully' });
   } catch (error) {
     await t.rollback();
     res.status(500).json({ error: 'Failed to update order', details: error.message });
@@ -834,7 +856,7 @@ router.post('/documents/upload', upload.single('file'), async (req, res) => {
 
 router.post('/documents/signed-upload', upload.single('file'), async (req, res) => {
   try {
-    const { order_id, type } = req.body;
+    const { order_id } = req.body;
     if (!order_id || !req.file) {
       return res.status(400).json({ error: 'order_id and file are required' });
     }
@@ -847,11 +869,6 @@ router.post('/documents/signed-upload', upload.single('file'), async (req, res) 
     // Folder name = SJ number middle segment (e.g. SJ/0105/2026 -> 0105)
     const folderName = String(parsedOrderId).padStart(4, '0');
     const folderId = await getOrCreateDriveFolder(folderName, SIGNED_DOCS_PARENT_FOLDER_ID);
-
-    const ext = path.extname(req.file.originalname) || '';
-    const typeLabel = String(type || 'Signed').replace(/\s+/g, '_');
-    req.file.originalname = `${typeLabel}_${folderName}_${Date.now()}${ext}`;
-
     const driveUrl = await uploadFileToDrive(req.file, folderId);
 
     res.status(201).json({
@@ -859,7 +876,7 @@ router.post('/documents/signed-upload', upload.single('file'), async (req, res) 
       folder_name: folderName,
       folder_id: folderId,
       drive_url: driveUrl,
-      type: type || null,
+      file_name: req.file.originalname,
     });
   } catch (error) {
     if (req.file?.path && fs.existsSync(req.file.path)) {
